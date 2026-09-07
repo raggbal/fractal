@@ -486,7 +486,9 @@ export function getNotesWebviewContent(
                 var m = e.data;
                 if (!m || !window.__notesTabManager) return;
                 if (m.type === 'openInWebviewTab' && m.filePath) {
-                    window.__notesTabManager.openInNewTab(m.filePath, m.kind || 'md');
+                    // FR-FTB-02: kind='file' のタブは title と extra（{viewerKind, viewerFileUri}）を伴う。
+                    // 旧 message 形（md/.out）は両方 undefined なので openInNewTab(filePath, kind) と等価。
+                    window.__notesTabManager.openInNewTab(m.filePath, m.kind || 'md', m.title || undefined, m.extra || undefined);
                 }
                 // TASK-12（バグ修正）: メインペインの実ファイル切替（左ファイルパネル click / 検索ジャンプ等
                 //   → notesOpenFile → updateData）をアクティブタブの filePath に同期。fileChangeId!==undefined

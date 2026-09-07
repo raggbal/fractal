@@ -200,7 +200,11 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
     // ── TC-WV-05: file 右クリックメニュー集合 ──
     // rev (design_gap SYS-1 / ユーザー裁定 2026-08-10): FR-TF-10「共通項目（New Outline here /
     // New Markdown here / New Subfolder）は従来どおり表示」が正。旧版は not.toContain で逆方向 pin していた。
-    test('TC-WV-05 file メニュー = 専用 8+1 項目 + 共通 4 項目（Copy In-App Link / Open in new tab は非表示）。out は両者を表示', async ({ page }) => {
+    // rev2（sprint 20260906-024639 / FR-TF-10/11 rev / ADRL-0112）: file item も **Open in new tab を表示**する
+    // （旧「file はタブ化不可」を撤回 — 実処理は id ベースの `openTreeFileInTab` = FR-FTB）。
+    // `Copy In-App Link` は**非表示のまま**（アプリ内リンクは .md/.out の stem 前提で失効していない）。
+    // 許可: test_update（仕様変更起因 — 列挙 assert の方向を requirement 原文から導出）
+    test('TC-WV-05 rev2 file メニュー = 専用 9+1 項目 + 共通 4 項目（Open in new tab は表示 / Copy In-App Link は非表示）。out は両者を表示', async ({ page }) => {
         await loadPanel(page, {
             fileList: [
                 { id: 'a1', filePath: '/n/files/photo.png', title: 'photo.png', kind: 'file' },
@@ -232,6 +236,7 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
         // 許可: test_update — reviewer iteration 1 で仕様変更起因と分類）・順序込み
         expect(labels.fileLabels).toEqual([
             'Open',
+            'Open in new tab',   // ← FR-TF-10/11 rev（sprint 20260906-024639）: Open の直後に追加
             'Reveal in Finder',
             'Rename',
             '☆ Add to Favorites',
@@ -245,11 +250,12 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
             'New link folder',
             'Delete',
         ]);
-        // file では出さない
+        // file では出さない（rev2: 非表示は Copy In-App Link **だけ**になった）
         expect(labels.fileLabels).not.toContain('Copy In-App Link');
-        expect(labels.fileLabels).not.toContain('Open in new tab');
+        // rev2: file でも Open in new tab は出す（対で pin — 片側だけだと「全部足した」実装も通る）
+        expect(labels.fileLabels).toContain('Open in new tab');
         // out（対比）: Copy In-App Link と Open in new tab を出す
-        // → file 側の非表示は「InAppLinkUtils 不在」ではなく file branch 固有と確定できる
+        // → file 側の Copy In-App Link 非表示は「InAppLinkUtils 不在」ではなく file branch 固有と確定できる
         expect(labels.outLabels).toContain('Copy In-App Link');
         expect(labels.outLabels).toContain('Open in new tab');
     });

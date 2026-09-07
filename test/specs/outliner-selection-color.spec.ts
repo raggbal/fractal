@@ -1,14 +1,23 @@
 /**
- * outliner の複数選択色は他ビューと同じ water-blue (裁定 R35 / FR-OSC-01)
+ * outliner の複数選択色は **amber（黄色系）**（FR-OSC-01 rev2 / ADRL-0115。裁定 R35 を supersede）
  *
- * 実機報告 (2026-09-05): 「outliner の複数選択の色ですが、黄色やめて。note filetree も青、
- *   linkedfd も青、mindmap も青。outliner だけ黄色になっており、逆に気持ち悪い」。
- * 旧値: --outliner-selection-bg: rgba(255, 165, 0, 0.15) (orange tint) を 3 箇所で定義。
- * 新値: var(--fr-bg-selection, rgba(125, 196, 223, 0.28))。トークン層で直すので
- *   tree / table / ::selection が一括で追随する。
+ * ## 経緯（3 回転している）
+ * - 裁定 R16（2026-09-01）: 3 面を outliner の orange tint に統一
+ * - 裁定 R16 rev2（2026-09-04）: 「ツリーで黄色はうざい」→ note tree / linkedfd は青。**outliner は黄色のまま**
+ * - 裁定 R35（2026-09-05）: 「outliner だけ黄色になっており逆に気持ち悪い」→ outliner も water-blue に統一
+ * - **FR-OSC-01 rev2（2026-09-06・本 sprint）**: 「選択モードの選択色はやはり黄色に戻してください」
+ *   → **outliner だけ黄色**（他 3 面は青のまま = R16 rev2 の状態へ復帰）
+ *
+ * ## なぜ今回は黄色が正しいのか（前回と前提が違う）
+ * 本 sprint で outliner に**モードの二態化**が入り（ADRL-0114）、**編集モードの Cmd+A で
+ * text 範囲選択が初めて主役になる**（FR-MSEL-06 rev3 の 1 段目）。outliner の focus 行は青なので
+ * node 選択も青にすると focus / node 選択 / text 範囲の 3 つが同系色になり、
+ * 「モードを明確にする」という本 sprint の目的が色で崩れる。
+ * → node 選択 = amber / `::selection` = 青系 の **色相分離**が要件から要求される。
  *
  * 検証は「実際に cmd+click で複数選択した行の**計算後 background**」を見る (変数を読むだけだと
- * 別レイヤの :root が勝っている場合に嘘をつく)。青系の判定は「B チャンネル > R チャンネル」。
+ * 別レイヤの :root が勝っている場合に嘘をつく)。amber の判定は「R > B かつ G > B」。
+ * 3 定義ブロックすべてが揃っているかの構造検査は `test/unit/outliner-selection-color-tokens.spec.ts`。
  */
 import { test, expect } from '@playwright/test';
 
@@ -28,7 +37,7 @@ function rgb(s: string) {
     return { r: parseFloat(m[1]), g: parseFloat(m[2]), b: parseFloat(m[3]) };
 }
 
-test('TC-OSC-01 複数選択した行の背景が water-blue (黄/橙でない)', async ({ page }) => {
+test('TC-OSC-01 rev2 複数選択した行の背景が amber（青系でない）', async ({ page }) => {
     await page.goto('/standalone-outliner.html');
     await page.waitForFunction(() => (window as any).__testApi?.ready);
     await page.evaluate((t) => { (window as any).__testApi.initOutliner(t); }, TREE);
@@ -52,14 +61,17 @@ test('TC-OSC-01 複数選択した行の背景が water-blue (黄/橙でない)'
 
     const c = rgb(sel!.bg);
     expect(c, `background=${sel!.bg}`).not.toBeNull();
-    // 青系: B が R より明確に大きい。旧値 rgba(255,165,0,…) は R>B で red になる。
-    expect(c!.b, `background=${sel!.bg}`).toBeGreaterThan(c!.r + 20);
-    // mindmap / filetree / linkedfd と同じ water-blue の系統 (125,196,223)
-    expect(c!.b).toBeGreaterThan(c!.g);
+    // amber: R / G が B より大きい。旧値 rgba(125,196,223,…) は B>R で blue になる。
+    // 色相で判定し literal 一致では見ない（具体値の微調整が test_update を伴わないようにする）
+    expect(c!.r, `background=${sel!.bg}`).toBeGreaterThan(c!.b);
+    expect(c!.g, `background=${sel!.bg}`).toBeGreaterThan(c!.b);
 
-    // トークン自身も water-blue (::selection 用の濃い方も含む)
-    expect(rgb(sel!.token)!.b).toBeGreaterThan(rgb(sel!.token)!.r);
-    expect(rgb(sel!.textToken)!.b).toBeGreaterThan(rgb(sel!.textToken)!.r);
+    // node 選択のトークンは amber
+    expect(rgb(sel!.token)!.r, `--outliner-selection-bg=${sel!.token}`).toBeGreaterThan(rgb(sel!.token)!.b);
+    // 🔴 ::selection のトークンは **青系のまま**（色相分離 = ADRL-0115 Decision 2）。
+    //    単純 revert（2 トークンを同系色に戻す）をするとここが落ちる — Cmd+A の
+    //    1 段目（text 全選択）と 2 段目（全 node 選択）が同色で見分けられなくなる。
+    expect(rgb(sel!.textToken)!.b, `--outliner-selection-text-bg=${sel!.textToken}`).toBeGreaterThan(rgb(sel!.textToken)!.r);
 
     // focus 行 (最も薄い塗り) と選択行は別色 = 区別が付く
     const focusBg = await page.evaluate(() => {

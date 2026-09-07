@@ -500,12 +500,23 @@
         return 'move';
     }
 
-    /** drop 先ディレクトリ解決: dir 行 = その中 / file 行 = その親 / 余白 = ルート */
+    /**
+     * drop / paste 先ディレクトリの**規則**（座標非依存）: dir 行 = その中 / file 行 = その親 / 余白 = ルート。
+     *
+     * FR-CBD-04/07（sprint 20260906-095357）で clipboard（G / H）と共有するため、
+     * 座標依存部分（`e` から行を引く）と規則部分を分けた。この 1 行が
+     * **ユーザー依頼原文（「フォルダで cmd+v したらその中。ファイルで cmd+v されたら同じ階層」）と完全一致**する。
+     */
+    function resolveDstFromRel(rel, isDir) {
+        if (!rel) { return ''; }                 // 余白 / 選択なし = ルート
+        return isDir ? rel : parentRelOf(rel);
+    }
+
+    /** drop 先ディレクトリ解決（座標 → 行 → 規則）。規則は `resolveDstFromRel` が単一真実。 */
     function resolveDropDst(e) {
         var row = e.target && e.target.closest ? e.target.closest('.fv-row') : null;
-        if (row && row.dataset.isdir === '1') { return { dst: row.dataset.rel, row: row }; }
-        if (row) { return { dst: parentRelOf(row.dataset.rel), row: row }; }
-        return { dst: '', row: null };
+        if (!row) { return { dst: '', row: null }; }
+        return { dst: resolveDstFromRel(row.dataset.rel, row.dataset.isdir === '1'), row: row };
     }
 
     function onTreeDragOver(e) {
@@ -547,15 +558,31 @@
         var src = fvDragSrc;
         fvDragSrc = null; // one-shot 消費（2 連続 drag で stale を引き継がない）
         var b = bridge();
-        // W1: ビュー内移動（同一 view の FV MIME）
+        // W1: ビュー内移動（同一 view の FV MIME）— FR-FMV-01/02/03
+        //
+        // 🔴 修正前は `fv.relPath !== undefined` の**単数 payload 前提**で、複数選択 payload
+        //    （`{v:1, items:[…]}` は top-level relPath を持たない）を素通りさせて下の
+        //    `notifyDropUnsupported()` に落としていた（TASK-02 probe の実測 = folderViewMove 0 回 + 通知 1 回）。
+        //    全件は one-shot の `fvDragSrc.relPaths` にも入っていたが `void src;` で捨てられていた。
         var fv = readJson(e, FV_ENTRY_MIME);
-        if (fv && fv.relPath !== undefined) {
+        if (fv && (fv.relPath !== undefined || Array.isArray(fv.items))) {
             if (fv.folderLinkId !== currentLinkId) { notifyDropUnsupported(); return; }
-            // no-op ガード: 自己/自己子孫/同一親（fs 移動の意味が無い）
-            if (fv.relPath === dst) { return; }
-            if (fv.isDir && (dst === fv.relPath || dst.indexOf(fv.relPath + '/') === 0)) { return; }
-            if (parentRelOf(fv.relPath) === dst) { return; }
-            if (typeof b.folderViewMove === 'function') { b.folderViewMove(currentLinkId, fv.relPath, dst); }
+            // 複数 = items[]（正規化は共有ヘルパに委ねる。手書きしない）/ 単一 = 従来形式
+            var moveIds = Array.isArray(fv.items)
+                ? window.__batchPayload.extractBatchItems(fv).map(function (it) { return it.relPath; })
+                : [fv.relPath];
+            // FR-FMV-02 / INV-4: **全件検証 → 1 件でも不正なら drop 全体を拒否**（0 件処理）。
+            // 呼び出し元はここだけ（NFR-REL-1。dispatchFvMove の内部にも H 経路にも置かない）。
+            var pf = fvMovePreflight(moveIds, dst);
+            if (!pf.ok) {
+                // `same_parent` は純粋な no-op（既存の単数経路は**無通知 return**）。
+                // fs が壊れる self / descendant だけ理由を 1 回通知する（トーストを増やさない）。
+                if (pf.reason !== 'same_parent' && typeof b.notifyError === 'function') {
+                    b.notifyError(i18n().folderViewMoveIntoSelf || 'Cannot move a folder into itself.');
+                }
+                return;
+            }
+            dispatchFvMove(moveIds, dst, 'move');
             return;
         }
         // W3: tree md / file item（既存 MIME）→ #13 folderViewMoveIn
@@ -607,7 +634,9 @@
             return;
         }
         // それ以外（.out item / folder item / 外部 files / uri-list）= 不受理通知
-        //（受理 MIME は 4 群 — dnd-wiring §1 の明示裁定 + 2026-09-05 R25。src は W1 の one-shot なのでここでは不使用）
+        //（受理 MIME は 4 群 — dnd-wiring §1 の明示裁定 + 2026-09-05 R25）
+        // FR-FMV-01: W1 は payload の items[] を直接読むので one-shot の `src` は使わない
+        //（複数選択の全件を `src.relPaths` から拾う旧案は payload を単一真実にする方針で採らない）。
         void src;
         notifyDropUnsupported();
     }
@@ -839,6 +868,114 @@
     }
 
     /**
+     * 移動のプリフライト（FR-FMV-02 / DOM-FvMovePreflight / INV-4）。
+     *
+     * **全件を検証して 1 件でも不正なら drop 全体を拒否**する（0 件処理）。
+     * per-item 除外にしないのは **fs 操作が部分適用を巻き戻せない**ため（generator_failures 2026-09-05）。
+     * 既存 2 面で方針が不揃い（FR-OMV-02.3 = 全体拒否 / FR-TMV の `moveItems` = per-id 除外）なので、
+     * fs を触る本 context は安全側（全体拒否）に倒す。
+     *
+     * 🔴 **呼び出し元は W1（D&D の drop ハンドラ）だけ**（NFR-REL-1）。
+     *    `dispatchFvMove` の内部には置かず、clipboard の H 経路（`mode:'copy'`）からも呼ばない。
+     *    H の最基本シナリオ（同じ階層への複製 = TC-CBD-40）は「既に同じ親」が**正常系**であり、
+     *    ここで全体拒否すると H が原理的に動かなくなる。
+     *
+     * @returns {{ ok: boolean, reason?: string }}
+     */
+    function fvMovePreflight(ids, dstDirRel) {
+        var dst = dstDirRel || '';
+        for (var i = 0; i < ids.length; i++) {
+            var rel = ids[i];
+            var e = findEntry(rel);
+            // ① 移動先 = 自分自身
+            if (rel === dst) { return { ok: false, reason: 'self' }; }
+            // ② フォルダを自分の子孫へ
+            if (e && e.isDir && (dst === rel || dst.indexOf(rel + '/') === 0)) { return { ok: false, reason: 'descendant' }; }
+            // ③ 既に同じ親（fs 移動の意味が無い = no-op）
+            if (parentRelOf(rel) === dst) { return { ok: false, reason: 'same_parent' }; }
+        }
+        return { ok: true };
+    }
+
+    /**
+     * F/G/H の clipboard payload を `text/html` の先頭タグに埋める属性名（DOM-ClipPayload）。
+     * OS clipboard に custom MIME は載せられないため、outliner 正典
+     * （`data-outliner-clipboard`）と同型の「HTML の data 属性に encodeURIComponent(JSON)」方式にする。
+     */
+    var FV_CLIP_ATTR = 'data-fractal-fv-clip';
+
+    function escapeHtmlText(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    /**
+     * linkedfd の選択を clipboard に書く（FR-CBD-01 / DOM-FvClipCopy）。
+     *
+     * 🔴 **keydown 駆動が必須**（HM-4）: linkedfd は `dropTextSelection()` でテキスト選択を毎回捨てるため
+     *    selection が常に collapsed で、**`copy` イベントがブラウザから発火しない**
+     *    （in-repo 前例: `editor.js` の table select モードの逐語コメント）。
+     * 🔴 **収集対象は `selection` 全件（フォルダを含む）**: `selectedFilesForDnd()` を使わない。
+     *    フォルダ除外は **HTML DataTransfer にディレクトリを載せられないという D&D 固有の制約**への救済で、
+     *    clipboard に持ち込むと機能を不要に削る（host 入口 `sendFolderViewToOutliner` は dir を
+     *    `walkFolderForImport` で構造ごと取り込める）。
+     * 🔴 実体を載せない（識別子のみ）。host が disk から解決する。
+     */
+    function writeFvClipboard() {
+        var rels = selection.slice();       // visibleRows 順に正規化済み（toggleRow / selectRange が保証）
+        if (rels.length === 0) { return false; }
+        var copyId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        var meta = { v: 1, folderLinkId: currentLinkId, relPaths: rels, copyId: copyId };
+        var plain = rels.join('\n');
+        var html = '<div ' + FV_CLIP_ATTR + '="' + encodeURIComponent(JSON.stringify(meta)) + '">'
+            + rels.map(escapeHtmlText).join('<br>') + '</div>';
+        var fallback = function () { try { navigator.clipboard.writeText(plain); } catch (e2) { /* ignore */ } };
+        try {
+            navigator.clipboard.write([
+                new ClipboardItem({
+                    'text/plain': new Blob([plain], { type: 'text/plain' }),
+                    'text/html': new Blob([html], { type: 'text/html' }),
+                }),
+            ]).catch(function (err) {
+                console.warn('[Notes] fv clipboard.write failed, falling back to plain text:', err);
+                fallback();
+            });
+        } catch (err) { fallback(); }
+        return true;
+    }
+
+    /**
+     * fv 内移動の dispatch 一元化（FR-FMV-03 / DOM-FvMoveDispatch）。
+     * precedent: `notes-file-panel.js` の `dispatchTreeMove`（裁定 R38 で webview 6 経路を 1 点に集約した形）。
+     *
+     * - 1 件 = 既存の単数 `folderViewMove`（**契約不変・byte 不変**。既存 spec を red にしない）
+     * - 複数 = 新 `folderViewMoveBatch` を **1 回**（NFR-FMV-01 / SEC-1: webview から N 回呼ぶと
+     *   host 側の件数ゲート `checkBatchLimit` を構造的に迂回する）
+     *
+     * 🔴 `mode` は**必ず forward** する（リテラルを書かない = design-review SYS-1）。
+     *    既定 `'move'` は引数のデフォルト値としてのみ存在し、H（clipboard 複製）が `'copy'` を渡したら
+     *    最後まで `'copy'` のまま host に届くこと（リテラルを書くと copy が move に化けて source が消える）。
+     * 🔴 `fvMovePreflight` は**ここでは呼ばない**（NFR-REL-1）。呼び出し元 = W1 の drop ハンドラだけ。
+     */
+    function dispatchFvMove(ids, dstDirRel, mode) {
+        var b = bridge();
+        var m = mode || 'move';
+        if (!ids || ids.length === 0) { return; }
+        if (ids.length === 1) {
+            if (typeof b.folderViewMove !== 'function') { return; }
+            // 🔴 `mode === 'move'`（= D&D）のときは **第 4 引数を渡さない**。
+            //    既存 spec（`folder-view-dnd.spec.ts` TC-FLV-39）が bridge 呼び出しの
+            //    **引数配列を完全一致で assert** しているため、引数を増やすと byte 不変が崩れる（実測で検出）。
+            //    `'copy'`（= H の clipboard 複製）のときだけ明示的に渡す。
+            if (m === 'copy') { b.folderViewMove(currentLinkId, ids[0], dstDirRel, m); }
+            else { b.folderViewMove(currentLinkId, ids[0], dstDirRel); }
+            return;
+        }
+        if (typeof b.folderViewMoveBatch === 'function') {
+            b.folderViewMoveBatch(currentLinkId, ids, dstDirRel, m);
+        }
+    }
+
+    /**
      * FR-MSEL-04 / NFR-MSEL-02 (§4-3b / TASK-29): note ツリー item を fv へ受け入れる dispatch。
      *
      * 🔴 **複数は配列 bridge を 1 回**呼ぶ。ここで N 回ループすると host 側の件数ゲート
@@ -937,6 +1074,15 @@
                 var parent = parentRelOf(selectedRel);
                 if (parent !== selectedRel && visibleRows.indexOf(parent) >= 0) { selectRow(parent); }
             }
+        } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey
+                   && (e.key === 'c' || e.key === 'C' || e.code === 'KeyC')) {
+            // FR-CBD-01 / DOM-FvClipCopy: 選択全件を clipboard へ。
+            // `e.metaKey || e.ctrlKey` の**両受け**（Linux/CI Chromium は copy/cut/paste を Control に束ねる）。
+            // rename 入力中は素通し = input のテキスト copy として動く（guard の 1 段目）。
+            if (renaming) { return; }
+            if (selection.length === 0) { return; }   // 何もしない（clipboard を上書きしない）
+            e.preventDefault();
+            writeFvClipboard();
         } else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
             // FR-FLV-28: Enter 単独 = インライン rename（IME 変換確定の Enter は除外 — precedent ガード）
             if (!selectedRel || e.isComposing || e.keyCode === 229 || renaming) { return; }
@@ -1131,5 +1277,117 @@
         setTimeout(function () { document.addEventListener('click', closeMenu, { once: true }); }, 0);
     }
 
-    window.__folderView = { open: open, destroy: destroy };
+    /**
+     * linkedfd の cmd+v 受け口（FR-CBD-04/07 / DOM-FvClipPaste / **ADRL-0118 = 案 B**）。
+     *
+     * 🔴 **treeEl への paste listener は採用不可**（HM-5）: Chromium は clipboard event の target を
+     *    selection 起点で決め `document.activeElement` を見ないため、collapsed / 空 selection では
+     *    **document.body** に落ちる（treeEl は body の子孫なので永久に来ない）。
+     * 🔴 **OS clipboard を単一の真実にする**（案 A = window 変数受け渡しを却下した根拠）:
+     *    案 A だと「linkedfd で cmd+c → outliner で cmd+c → linkedfd で cmd+v」で
+     *    **古い fv payload が貼られる**（clipboard の真実が 2 つに分裂）。TC-CBD-62 がその番人。
+     * 🔴 getData() は **await の前に同期で読み切る**（HM-6）。navigator.clipboard.readText() は使わない。
+     */
+    function onDocumentPaste(e) {
+        // ── guard 4 段（HM-B-11）。1 つでも欠けると既存の paste を奪う ──
+        if (renaming) { return; }                                    // ① rename 入力中
+        var t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) { return; }  // ②
+        var disp = window.__folderViewDispatcher;
+        // ③ active 面。
+        // 🔴 TASK-26 (DESIGN-3): ADRL-0118 は guard③ を
+        //    「`isFolderViewShown()` **かつ** `treeEl.contains(document.activeElement)`」と書いているが、
+        //    ここは前者だけにしている。理由 = **pane 排他**: `folder-view-dispatcher.js` の
+        //    `showFolderView()` は fv を出すとき outliner / markdown コンテナを `display:none` にするため、
+        //    `isFolderViewShown() === true` の間 outliner は DOM 上非表示で focus を保持できない
+        //    （後者を足しても真偽が一致する）。
+        //    ⚠️ この無害性は **pane 排他が保たれる限り**の話。将来 2-pane 表示（outliner + linkedfd 同時可視）が
+        //    入ると outliner にフォーカスしたまま `isFolderViewShown()===true` になり、
+        //    古い fv/outliner clipboard payload が outliner 内の通常 paste で誤爆しうる
+        //    （ADRL-0118 が案 A の却下理由に挙げた stale payload 誤爆と同種）。その時は後者を足す。
+        if (!disp || typeof disp.isFolderViewShown !== 'function' || !disp.isFolderViewShown()) { return; }
+        if (e.defaultPrevented) { return; }                          // ④
+        if (!e.clipboardData) { return; }
+
+        var html = '';
+        try { html = e.clipboardData.getData('text/html') || ''; } catch (err) { return; }
+        if (!html) { return; }
+
+        // 🔴 selectedRel が null（選択 0 件 = 余白相当）のとき findEntry を呼ばない
+        //    （parentRelOf(null) が例外になり、handler ごと落ちて **無反応**になる。実測で検出）
+        var selEntry = selectedRel ? findEntry(selectedRel) : null;
+        var dst = resolveDstFromRel(selectedRel, !!(selEntry && selEntry.isDir));
+        var b = bridge();
+
+        // ── G: outliner → linkedfd（data-outliner-clipboard の nodeIds）──
+        var om = html.match(/data-outliner-clipboard="([^"]*)"/);
+        if (om) {
+            var ometa = null;
+            try { ometa = JSON.parse(decodeURIComponent(om[1])); } catch (err) { ometa = null; }
+            if (ometa && Array.isArray(ometa.nodeIds) && ometa.nodeIds.length > 0 && ometa.sourceOutFileKey) {
+                e.preventDefault();
+                var mv = { outFileKey: ometa.sourceOutFileKey, nodeId: ometa.nodeIds[0] };
+                if (ometa.nodeIds.length > 1) { mv.nodeIds = ometa.nodeIds; }
+                // HM-8: 既存 host 入口（D&D / 「linkedfd に送る」と共有）。clipboard 専用 handler は作らない
+                if (typeof b.sendOutNodesToFolderLinkFromDrop === 'function') {
+                    b.sendOutNodesToFolderLinkFromDrop(mv, currentLinkId, dst);
+                }
+                return;
+            }
+        }
+
+        // ── H: linkedfd 内 c→v（data-fractal-fv-clip の relPaths）= **複製** ──
+        var fm = html.match(new RegExp(FV_CLIP_ATTR + '="([^"]*)"'));
+        if (fm) {
+            var fmeta = null;
+            try { fmeta = JSON.parse(decodeURIComponent(fm[1])); } catch (err) { fmeta = null; }
+            if (fmeta && fmeta.folderLinkId === currentLinkId && Array.isArray(fmeta.relPaths)) {
+                // ADRL-0120 の受容事項: **フォルダは skip**（fs の再帰複製経路が既存に無い。
+                // folderViewDuplicate も dir を拒否しているのでその方針に揃える）。
+                var files = [];
+                for (var i = 0; i < fmeta.relPaths.length; i++) {
+                    var en = findEntry(fmeta.relPaths[i]);
+                    if (en && !en.isDir) { files.push(fmeta.relPaths[i]); }
+                }
+                if (files.length === 0) { return; }   // 複製できるものが無い = 何もしない
+                e.preventDefault();
+                // 🔴 fvMovePreflight は**通さない**（NFR-REL-1）。H は「同じ階層への複製」が正常系で、
+                //    D&D 用の全体拒否ガード（既に同じ親 → reject）を掛けると原理的に動かなくなる。
+                dispatchFvMove(files, dst, 'copy');
+                return;
+            }
+        }
+        // fractal の payload が無ければ **何もしない**（preventDefault もしない = 既存の挙動を奪わない）。
+        // これだけで ADRL-0118 が却下した案 A の誤動作（他アプリ / outliner でコピーした後に
+        // 古い fv payload が貼られる）が構造的に消える。
+    }
+
+    // HM-B-12: **プロセス内で 1 回だけ登録**する。destroy() は document / window レベルの listener を
+    // 剥がさないため、open ごとに張ると累積して「cmd+v で N 枚貼られる」既発バグを再演する。
+    // precedent: folder-view-dispatcher.js の window keydown（IIFE 内 module レベルで 1 回登録し、
+    // ハンドラ内で isFolderViewShown() を動的に引く形）。
+    if (!window.__fvClipboardBound) {
+        window.__fvClipboardBound = true;
+        document.addEventListener('paste', onDocumentPaste);
+    }
+
+    // `fvMovePreflight` は D&D の判断ロジックそのもの（純関数）。
+    // precedent: `outliner.js` が `Outliner.selectionExportRoots()` を公開して
+    // `outliner-multiselect-internal-move.spec.ts` が直接検証しているのと同型。
+    //
+    // 🔴 TASK-24 (DET-5 / QUAL-5): **`fvMoveIds` は削除した**。
+    // 移動対象の解決規則（掴んだ行が選択に含まれるか / フォルダ除外 / 描画順）は
+    // dragstart handler が payload を組む時点で既に適用されており（`:402-405` の
+    // `inSelection` / `multi` / `selectedFilesForDnd()` / `selectedDirCount()`）、
+    // drop 側（W1）はその payload を `extractBatchItems` で読むだけ。
+    // `fvMoveIds` はこの規則の**二重実装**で、しかも**本番からは一度も呼ばれていなかった**
+    // （spec が公開 API 経由で直叩きするだけの dead seam = ハーネス限定登録）。
+    // dragstart が DataTransfer を組む以上この規則は dragstart 側に置くしかないので、
+    // 配線し直すのではなく削除して payload を単一真実にした。
+    // 解決規則の番人は TC-FMV-04/04b/04c（payload 観測）と TC-MSEL-05/05c/07。
+    window.__folderView = {
+        open: open, destroy: destroy,
+        fvMovePreflight: fvMovePreflight, dispatchFvMove: dispatchFvMove,
+        resolveDstFromRel: resolveDstFromRel,
+    };
 })();

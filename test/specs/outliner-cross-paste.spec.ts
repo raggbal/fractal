@@ -34,6 +34,8 @@ test.describe('Cross-outliner copy/paste', () => {
             // Select both nodes with Cmd+A then Cmd+C
             const firstText = page.locator('.outliner-text').first();
             await firstText.click();
+            // FR-MSEL-06 rev3 / ADRL-0116: Cmd+A は 2 段階（1 回目 = node の text 全選択 / 2 回目 = 全 node 選択）
+            await page.keyboard.press('Meta+a');
             await page.keyboard.press('Meta+a');
             await page.waitForTimeout(100);
             await page.keyboard.press('Meta+c');
@@ -62,6 +64,8 @@ test.describe('Cross-outliner copy/paste', () => {
 
             const firstText = page.locator('.outliner-text').first();
             await firstText.click();
+            // FR-MSEL-06 rev3 / ADRL-0116: Cmd+A は 2 段階（1 回目 = node の text 全選択 / 2 回目 = 全 node 選択）
+            await page.keyboard.press('Meta+a');
             await page.keyboard.press('Meta+a');
             await page.waitForTimeout(100);
             await page.keyboard.press('Meta+x');
@@ -294,6 +298,11 @@ test.describe('Cross-outliner copy/paste', () => {
             await page.waitForFunction(() => (window as any).__testApi?.ready);
         });
 
+        // ⚠️ この test は **本 sprint 以前から known-red**（`test/known-red-baseline.json` の 100 件に含まれる）。
+        //    sprint 20260906-095357 で切り分け済み: 変更前の outliner.js + 変更前のテスト形（1 回押し）でも
+        //    同じ位置で fail する = Cmd+A の 2 段階化とは無関係な既存の不整合
+        //    （`copyPageFileCross` を期待しているが実装は `handlePageAssetsCross` を送る）。
+        //    Cmd+A の押し方だけを新契約（2 段階）に合わせてあり、赤の原因は触っていない。
         test('copy in file A, switch to file B, paste triggers cross-file messages', async ({ page }) => {
             // Init with fileA data
             await page.evaluate(() => {
@@ -321,6 +330,16 @@ test.describe('Cross-outliner copy/paste', () => {
             // Select and copy the page node
             const textEl = page.locator('.outliner-text').first();
             await textEl.click();
+            // 🔴 notes ハーネスは initOutliner 後に setTimeout で focusFirstVisibleNode が着地するため、
+            //    click 直後に Cmd+A を押すと **1 段目の text 範囲が遅延 focus に上書きされる**
+            //    （sleep 延長ではなく条件待ちで解消する = generator_failures 2026-08-29）。
+            await page.waitForFunction(() => {
+                const ae = document.activeElement as HTMLElement | null;
+                return !!ae && ae.classList.contains('outliner-text');
+            }, undefined, { timeout: 5000 });
+            // FR-MSEL-06 rev3 / ADRL-0116: Cmd+A は 2 段階（1 回目 = node の text 全選択 / 2 回目 = 全 node 選択）
+            await page.keyboard.press('Meta+a');
+            await page.waitForTimeout(60);
             await page.keyboard.press('Meta+a');
             await page.waitForTimeout(100);
             await page.keyboard.press('Meta+c');

@@ -3171,8 +3171,8 @@ tr.tbl-row-filtered {
         --outliner-subtext-color: #888;
         --outliner-error-color: #d00;
         --outliner-accent-fg: #fff;
-        --outliner-selection-bg: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
-        --outliner-selection-text-bg: rgba(125, 196, 223, 0.38);
+        --outliner-selection-bg: rgba(255, 193, 7, 0.30);
+        --outliner-selection-text-bg: rgba(125, 196, 223, 0.45);
     }
 }
 
@@ -3602,9 +3602,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 /* hover での色反転は削除 (ユーザー要望: 強調しない)。
  * is-focused (keyboard / cursor active 行) は notes 右サイドパネルの hover と同じ淡 water-blue で全行ハイライト
  * (table mode は他 cell も同色、toggleRowCellsClass で同期)。
- * is-selected (範囲選択) は同じ water-blue 系だが濃い tint (mindmap の複数選択と同色) で、
- * focus (最薄) との濃度差で区別する。orange tint は撤廃 (2026-09-05 / 裁定 R35 / FR-OSC-01 —
- * filetree / linkedfd / mindmap が全部 blue の中で outliner だけ黄色く浮いていた)。 */
+ * is-selected (選択モードの node 選択) は **amber** (--outliner-selection-bg)。
+ * focus (淡 water-blue) と**色相**で区別する — 濃度差ではない (FR-OSC-01 rev2 / ADRL-0115)。
+ * ::selection (--outliner-selection-text-bg) も青系のままにして、Cmd+A の 2 段階
+ * (1 回目 = text 範囲 / 2 回目 = 全 node) が色で見分けられるようにしている。
+ * 履歴: 2026-09-05 の裁定 R35 で一度 blue に統一したが、2026-09-06 のユーザー裁定で
+ * 「outliner だけ黄色」に戻した (他 3 面 = filetree / linkedfd / mindmap は blue のまま。
+ * --fr-color-selection-bg と --fr-bg-selection を黄色にしないことで波及を防ぐ = TC-OSM-34)。 */
 .outliner-node.is-focused {
     background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8));
 }
@@ -3619,6 +3623,16 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 
 .outliner-container ::selection {
     background: var(--outliner-selection-text-bg);
+}
+
+/* FR-OSM-05 / ADRL-0114: 選択モードでは caret を視覚的に消す。
+ * 手段は caret-color のみ（paint-time 専用なので keydown / input / ::selection / clipboard に影響しない）。
+ * 🔴 blur() / contenteditable=false は禁止 — outliner の cmd+v の入口は textEl の paste イベント 1 本だけで
+ *    （document / window レベルの clipboard listener はリポ全体に無い）、focus を捨てると
+ *    cmd+c/x/v と Cmd+A が全滅し FR-CBD（面間 clipboard 複写）が実装不能になる（HM-1）。
+ * precedent: styles.css の table.tbl-select-mode th/td（md エディタの表の select モード）。 */
+.outliner-tree.is-select-mode .outliner-text {
+    caret-color: transparent;
 }
 
 .outliner-node.is-search-match {
@@ -4206,8 +4220,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     --outliner-text: #d4d4d4;
     --outliner-hover: rgba(255,255,255,0.05);
     --outliner-active: rgba(0,120,212,0.2);
-    --outliner-selection-bg: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
-    --outliner-selection-text-bg: rgba(125, 196, 223, 0.38);
+    --outliner-selection-bg: rgba(255, 202, 40, 0.22);
+    --outliner-selection-text-bg: rgba(125, 196, 223, 0.45);
     --outliner-subtext: #888;
     --outliner-subtext-color: #888;
     --outliner-error-color: #f44747;
@@ -4237,8 +4251,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         --outliner-text: #d4d4d4;
         --outliner-hover: rgba(255,255,255,0.05);
         --outliner-active: rgba(0,120,212,0.2);
-        --outliner-selection-bg: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
-        --outliner-selection-text-bg: rgba(125, 196, 223, 0.38);
+        --outliner-selection-bg: rgba(255, 202, 40, 0.22);
+        --outliner-selection-text-bg: rgba(125, 196, 223, 0.45);
         --outliner-subtext: #888;
         --outliner-subtext-color: #888;
         --outliner-error-color: #f44747;
@@ -4837,9 +4851,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 /* 行 state ハイライト (table mode の text / multiselect / date cell)。
  * is-focused (cursor 行) は notes 右サイドパネル hover と同じ淡 water-blue で全行ハイライト
  * — outline 列以外 (text / multiselect / date / datetime) も同色になり行が一目で分かる。
- * is-selected (範囲選択) は同じ water-blue 系だが濃い tint (mindmap の複数選択と同色) で、
- * focus (最薄) との濃度差で区別する。orange tint は撤廃 (2026-09-05 / 裁定 R35 / FR-OSC-01 —
- * filetree / linkedfd / mindmap が全部 blue の中で outliner だけ黄色く浮いていた)。 */
+ * is-selected (選択モードの node 選択) は **amber** (--outliner-selection-bg)。
+ * focus (淡 water-blue) と**色相**で区別する — 濃度差ではない (FR-OSC-01 rev2 / ADRL-0115)。
+ * ::selection (--outliner-selection-text-bg) も青系のままにして、Cmd+A の 2 段階
+ * (1 回目 = text 範囲 / 2 回目 = 全 node) が色で見分けられるようにしている。
+ * 履歴: 2026-09-05 の裁定 R35 で一度 blue に統一したが、2026-09-06 のユーザー裁定で
+ * 「outliner だけ黄色」に戻した (他 3 面 = filetree / linkedfd / mindmap は blue のまま。
+ * --fr-color-selection-bg と --fr-bg-selection を黄色にしないことで波及を防ぐ = TC-OSM-34)。 */
 .outliner-cell-text.is-focused,
 .outliner-cell-multiselect.is-focused,
 .outliner-cell-date.is-focused {
@@ -5226,6 +5244,11 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
             border-color: transparent;
         }
         .file-panel-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+        /* FR-TKN-01 rev（ユーザー裁定 2026-09-06・手動検収）: キーボードナビのために tabindex="0" を持たせた
+         * 結果、フォーカス時にブラウザ既定の focus ring（青枠）がパネル全体に出るのを止める。
+         * **フォーカス位置の情報は失われない** — focus 行は選択色（water-blue）で示される（FR-TKN-06）。 */
+        .file-panel-list:focus,
+        .file-panel-list:focus-visible { outline: none; }
 
         /* ── File item ── */
         .file-panel-item {
@@ -5248,6 +5271,14 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         .file-panel-item.file-panel-selected:hover {
             /* 2026-09-04 R16 rev2（ユーザー裁定）: note tree / linkedfd の複数選択は青系 --fr-color-selection-bg
              *（黄色は「うざい」で却下。outliner の範囲選択だけ黄色 = 編集面の focus 行（青）と区別する役割差） */
+            background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8));
+        }
+        /* FR-TKN-06 rev（ユーザー裁定 2026-09-06・手動検収）: **仮想フォルダのヘッダ行**も ↑↓ の focus 行に
+         * なるので同じ選択色を出す。旧実装は paintTreeSelection がクラスを付けていたのに、色のルールが
+         * .file-panel-item. 限定で folder header に当たらず「フォルダだけ青くならない」状態だった。
+         * 色は item と**同一の変数**を使う（新色を作らない）。 */
+        .file-panel-folder-header.file-panel-selected,
+        .file-panel-folder-header.file-panel-selected:hover {
             background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8));
         }
         .file-panel-item:hover,
@@ -5781,7 +5812,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                     <span style="flex:1"></span>
                     <button class="file-panel-btn" id="filePanelToday" title="Today"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="16" height="16" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Today</button>
                 </div>
-                <div class="file-panel-list" id="notesFileList"></div>
+                <!-- FR-TKN-01: キーボードナビ（↑↓ + Enter）の受け口。要素ローカル keydown を張るため tabindex を持たせる -->
+                <div class="file-panel-list" id="notesFileList" tabindex="0"></div>
             </div>
             <div class="file-panel-content" id="filePanelContentSearch" style="display:none">
                 <div class="file-panel-search-input-wrap">
@@ -8359,6 +8391,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         openPageInTab: function(nodeId, pageId) {
             postFn({ type: 'openPageInTab', nodeId: nodeId, pageId: pageId });
         },
+        // FR-ONT-02 / FR-FTB-01: node の 📎 file 添付を新規タブで開く。**nodeId のみ送る**
+        // （パス解決・kind 判定・50MB 縮退はすべて host = ADRL-0021 Decision 2 / FR-FTB-03）
+        openNodeFileInTab: function(nodeId) {
+            postFn({ type: 'openNodeFileInTab', nodeId: nodeId });
+        },
 
         // outliner node subtree の Export bundle (FR-EB)。dialog/出力は host
         exportOutlinerNodesBundle: function(nodeId, nodes) {
@@ -8664,6 +8701,12 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         openPageInSidePanel: function(nodeId, pageId) {
             window.__testApi.messages.push({ type: 'openPageInSidePanel', nodeId: nodeId, pageId: pageId });
         },
+        // sprint 20260906-024639 (TASK-06 で発見したハーネス欠落): 本番 outliner-host-bridge.js:162 の
+        // openAttachedFile が mock に無く、📎 アイコンの**通常 open** 経路が harness で検証できなかった
+        // （cmd 単独 click が「何も起きない」になっていないことの番人 = TC-CT-13 が要求する）。
+        openAttachedFile: function(nodeId) {
+            window.__testApi.messages.push({ type: 'openAttachedFile', nodeId: nodeId });
+        },
         openInTextEditor: function() {
             window.__testApi.messages.push({ type: 'openInTextEditor' });
         },
@@ -8736,6 +8779,13 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         // sprint 20260725: 左ツリー右クリック「Open in new tab」用モック
         openFileInTab: function(filePath) {
             window.__testApi.notesMessages.push({ type: 'openFileInTab', filePath: filePath });
+        },
+        // FR-FTB-01 (sprint 20260906-024639): tree の file item を新規タブで開く。
+        // 本番は notes-host-bridge.js 側に定義（ADRL-0021 Decision 5 の factory は sidepanel/outliner
+        // bridge family が対象で note tree bridge は別系統 — 既存 openFileInTab と同じ 2 点登録）。
+        // **payload は id のみ**（絶対パスは送らない = NFR-TF-02 / NFR-FTB-01）。
+        openTreeFileInTab: function(id) {
+            window.__testApi.notesMessages.push({ type: 'openTreeFileInTab', id: id });
         },
         createFile: function(title, parentId) {
             window.__testApi.notesMessages.push({ type: 'createFile', title: title, parentId: parentId });
@@ -8829,6 +8879,15 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
         folderViewMoveInBatch: function(id, dstDirRelPath, items) {
             window.__testApi.notesMessages.push({ type: 'folderViewMoveInBatch', id: id, dstDirRelPath: dstDirRelPath, items: items });
+        },
+        // FR-FMV-01/03 / FR-CBD-07 (sprint 20260906-095357): linkedfd 内の一括移動 / 一括複製。
+        // 🔴 **このモックはソースから自動生成されない**（build-standalone-notes.js 内の手書きリテラル）。
+        //    本番 bridge（notes-host-bridge.js）に新 API を足したらここも足す必要がある。
+        folderViewMoveBatch: function(id, srcRelPaths, dstDirRelPath, mode) {
+            window.__testApi.notesMessages.push({
+                type: 'folderViewMoveBatch', id: id,
+                srcRelPaths: srcRelPaths, dstDirRelPath: dstDirRelPath, mode: mode || 'move',
+            });
         },
         // FR-MSEL-04 rev3（2026-09-04）: ツリー内 .out / md item 宛ての結合 batch（本番 notes-host-bridge.js のミラー）
         notesImportTreeItemsIntoOutItemBatch: function(items, targetOutId) {
@@ -10272,7 +10331,7 @@ var SHORTCUTS_OUTLINER = [
         { keys: 'Cmd+]', desc: 'Scope in (zoom)' },
         { keys: 'Cmd+Shift+]', desc: 'Scope out' },
         { keys: 'Opt+← / Opt+→', desc: 'Navigation history back / forward' },
-        { keys: 'Cmd+A', desc: 'Select all nodes' },
+        { keys: 'Cmd+A', desc: 'Select node text (press again: all nodes)' },
     ] },
     { category: 'search', items: [
         { keys: 'Cmd+F', desc: 'Text search' },
@@ -10325,6 +10384,11 @@ var SHORTCUTS_MINDMAP = [
         { keys: 'Cmd+Shift+Option+X', desc: 'Remove checkbox' },
     ] },
     { category: 'other', items: [
+        // 🔴 TASK-22 (QUAL-2 / DESIGN-2): **mindmap は 1 段階の説明のまま**にする。
+        // FR-OSM-06 は「mindmap は Cmd+A の 2 段階 escalation から免除する / mindmap 面のモード二態化 UI は
+        // 本 sprint のスコープ外」と明記し、実装も `VIEW_MODE === 'mindmap'` で 1 回押し = 全 node 選択のまま。
+        // ここを SHORTCUTS_OUTLINER と同じ 2 段階文言にすると "press again" が成立しない誤説明になる
+        //（iteration 1 は Cmd+A の grep で 2 箇所を機械的に置換してこれを踏んだ）。TC-OSM-29 が番人。
         { keys: 'Cmd+A / Cmd+Z', desc: 'Select all / undo' },
         { keys: 'Cmd+Shift+/', desc: 'Show / hide this shortcut list' },
         { keys: 'Right-click', desc: 'Color, shape, group, relation line, checkbox' },
@@ -17534,7 +17598,10 @@ class EditorInstance {
             e.stopPropagation();
             var linkHref = clickedLink.getAttribute('href');
             logger.log('[Any MD] Link clicked:', linkHref, 'metaKey:', e.metaKey, 'ctrlKey:', e.ctrlKey);
-            if (e.metaKey || e.ctrlKey) {
+            // FR-CT-05 rev2（ADRL-0112）: **cmd/ctrl+shift+click = 新規タブ**。
+            // cmd/ctrl 単独は通常 open に戻す（裁定 R13）。適用範囲は従来どおり**全 <a href>**
+            // （C は修飾キーの差し替えであってアンカー種別の絞り込みではない = 裁定 R12）。
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
                 host.openLinkInTab(linkHref);
             } else {
                 host.openLink(linkHref);
@@ -36258,6 +36325,9 @@ var Outliner = (function() {
                 if (selectedNodeIds && selectedNodeIds.size > 0) {
                     _selTracePush('clear', '(leave-mindmap-view) ids=' + selectedNodeIds.size);
                     selectedNodeIds.clear();
+                    // ADRL-0119: 生の .clear() を残すとここだけ is-select-mode が残り
+                    // 「選択 0 件なのに caret 無し」= INV-1 の乖離になる
+                    syncSelectionModeClass();
                 }
             }
             renderTree();
@@ -37474,10 +37544,25 @@ var Outliner = (function() {
             if (!dragState) { return; }
             if (e.target === treeEl) {
                 e.preventDefault();
-                saveSnapshot();
                 var lastRootId = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
                 var movedId = dragState.nodeId;
-                model.moveNode(movedId, null, lastRootId);
+                // FR-OMV-01: 余白 drop（root 末尾）も複数選択を全件移動する（node 行 drop と同型の 4 セル目）。
+                var rootMoveIds = internalMoveIds(movedId);
+                // ★ reviewer iteration 1 FINDING-DC-1: この経路には node 側の拒否ガード（targetId 基準）が
+                //   存在しない。**既に rootIds の末尾に同じ順で並んでいる集合**の drop は結果が完全に同じ
+                //   （視覚も model も no-op）なので、`saveSnapshot()` も `moveNode` も行わず終了する。
+                //   Cmd+A 全選択（FR-MSEL-06）の drop がその典型 — 無駄な N 回 splice と
+                //   無駄な undo エントリを作らない（NFR-OMV-02）。
+                if (isAlreadyRootTail(rootMoveIds)) {
+                    dragState.nodeEl.classList.remove('is-dragging');
+                    dragState = null;
+                    removeDropIndicator();
+                    return;
+                }
+                saveSnapshot();
+                for (var mi = 0; mi < rootMoveIds.length; mi++) {
+                    model.moveNode(rootMoveIds[mi], null, mi === 0 ? lastRootId : rootMoveIds[mi - 1]);
+                }
                 dragState.nodeEl.classList.remove('is-dragging');
                 dragState = null;
                 removeDropIndicator();
@@ -37686,14 +37771,64 @@ var Outliner = (function() {
         if (!raw) { return; }
         var payload = null;
         try { payload = JSON.parse(raw); } catch (err) { return; }
-        var items = (window.__batchPayload && typeof window.__batchPayload.extractBatchItems === 'function')
-            ? window.__batchPayload.extractBatchItems(payload) : [payload];
-        var linkId = payload.folderLinkId || (items[0] && items[0].folderLinkId);
+        applyFolderViewEntries(payload, targetNodeId, position);
+    }
+
+    /**
+     * linkedfd の entry payload を outliner に取り込む（DataTransfer 非依存の seam）。
+     *
+     * FR-CBD-02（sprint 20260906-095357）で **D&D と clipboard の共有点**として切り出した。
+     * 元の `handleFolderViewEntriesDrop` の DataTransfer 依存は `getData` の 2 行だけだったので、
+     * payload オブジェクトを受け取る形にして両経路から呼ぶ（規則を複製しない）。
+     *
+     * 受ける payload の形は 2 系統:
+     *   - D&D（`x-fractal-folderview-entry`）: 単一 `{relPath}` / 複数 `{v:1, items:[{relPath}]}`
+     *   - clipboard（`data-fractal-fv-clip`）: `{v:1, folderLinkId, relPaths:[string]}`
+     *
+     * 🔴 **host 入口 `sendFolderViewToOutliner` は 1 行も変えない**（HM-8）。
+     *    件数ゲート・確認 modal・集計通知 1 回・closure 抑止・随伴転送は既存入口の共有で自動継承する。
+     */
+    function applyFolderViewEntries(payload, targetNodeId, position) {
+        if (!payload) { return false; }
         var rels = [];
-        for (var i = 0; i < items.length; i++) { if (items[i] && items[i].relPath !== undefined) { rels.push(items[i].relPath); } }
+        var linkId = payload.folderLinkId;
+        if (Array.isArray(payload.relPaths)) {
+            // clipboard 形式（識別子のみ）
+            for (var k = 0; k < payload.relPaths.length; k++) {
+                if (typeof payload.relPaths[k] === 'string') { rels.push(payload.relPaths[k]); }
+            }
+        } else {
+            var items = (window.__batchPayload && typeof window.__batchPayload.extractBatchItems === 'function')
+                ? window.__batchPayload.extractBatchItems(payload) : [payload];
+            linkId = linkId || (items[0] && items[0].folderLinkId);
+            for (var i = 0; i < items.length; i++) {
+                if (items[i] && items[i].relPath !== undefined) { rels.push(items[i].relPath); }
+            }
+        }
         var nb = window.notesHostBridge;
-        if (!linkId || rels.length === 0 || !nb || typeof nb.sendFolderViewToOutliner !== 'function') { return; }
+        if (!linkId || rels.length === 0 || !nb || typeof nb.sendFolderViewToOutliner !== 'function') { return false; }
         nb.sendFolderViewToOutliner(linkId, rels, null, targetNodeId, position);
+        return true;
+    }
+
+    /**
+     * clipboard に linkedfd の payload（F）が載っているか（FR-CBD-02 / DOM-ClipPayload）。
+     *
+     * 🔴 `e.clipboardData.getData()` を **await の前に同期で読み切る**（HM-6）。
+     *    `navigator.clipboard.readText()` は使わない — ハーネス（素の Chromium）では通るが
+     *    実 VS Code webview では `clipboard-read` が下りず「TC green / 実機で無反応」になる。
+     */
+    function hasFvClipPayload(clipboardData) {
+        if (!clipboardData) { return null; }
+        var html = '';
+        try { html = clipboardData.getData('text/html') || ''; } catch (err) { return null; }
+        if (!html) { return null; }
+        var m = html.match(/data-fractal-fv-clip="([^"]*)"/);
+        if (!m) { return null; }
+        try {
+            var meta = JSON.parse(decodeURIComponent(m[1]));
+            return (meta && Array.isArray(meta.relPaths) && meta.relPaths.length > 0 && meta.folderLinkId) ? meta : null;
+        } catch (err) { return null; }
     }
 
     /** FR-B08 (sprint 20260804-145603): Notes ファイルツリーの md item ドラッグ
@@ -38512,6 +38647,8 @@ var Outliner = (function() {
             renderNodes(rootIds, fragment, 0, searchQuery);
         }
         treeEl.appendChild(fragment);
+        // ADRL-0119: prune で選択が減った場合もモード表示を選択集合に追従させる（INV-1）
+        syncSelectionModeClass();
     }
 
     // ========================================================================
@@ -40063,8 +40200,9 @@ var Outliner = (function() {
             pageIcon.textContent = '\uD83D\uDCC4'; // 📄
             pageIcon.addEventListener('click', function(e) {
                 e.stopPropagation();
-                // FR-CT-03: cmd/ctrl+click → 新規タブ（pageId のみ送る。パス解決は host）
-                if (e.metaKey || e.ctrlKey) {
+                // FR-CT-03 rev2（ADRL-0112）: **cmd/ctrl+shift+click** → 新規タブ（pageId のみ送る。パス解決は host）。
+                // cmd/ctrl 単独は下の通常 open（sidepanel）へ落ちる（裁定 R13 — 何も起きない面を作らない）。
+                if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
                     if (node.isPage && node.pageId && host.openPageInTab) {
                         host.openPageInTab(node.id, node.pageId);
                     }
@@ -40108,6 +40246,14 @@ var Outliner = (function() {
                 ? MarkdownLinkParser.fileIconGlyph(node.filePath) : '\uD83D\uDCCE'; // 📎
             fileIcon.addEventListener('click', function(e) {
                 e.stopPropagation();
+                // FR-ONT-02 / FR-CT-03 rev2（ADRL-0112）: cmd/ctrl+shift+click → 新規タブ（nodeId のみ送る）。
+                // cmd/ctrl 単独は従来どおり通常 open（viewer / OS 既定アプリ）。
+                if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+                    if (host && typeof host.openNodeFileInTab === 'function') {
+                        host.openNodeFileInTab(node.id);
+                        return;
+                    }
+                }
                 host.openAttachedFile(node.id);
             });
             // FR-TF-05b (§4e :96): file 添付 node の 📎 アイコン → Notes ツリーへ D&D（所有移し替え）。
@@ -40234,6 +40380,20 @@ var Outliner = (function() {
                 // クリアボタンの表示更新を明示的に呼ぶ
                 updateSearchClearButton();
                 searchInput.focus();
+            }
+        });
+
+        // FR-OSM-04 / ADRL-0114: 選択モードでは **text を挿入する入力をすべて抑止**する。
+        // keydown の printable ゲートだけでは **IME 合成が止まらない**（合成確定のテキストは
+        // keydown ではなく composition / beforeinput 経路で入る）。
+        // `insertFromPaste` は除外する — cmd+v は既存の paste ハンドラ（選択 node の置換 = `:5061` 系）が
+        // 担う契約なので、ここで潰すと選択モードの cmd+v が無反応になる（HM-1 と対）。
+        textEl.addEventListener('beforeinput', function (e) {
+            if (!isSelectMode()) { return; }
+            var t = e.inputType || '';
+            if (t === 'insertFromPaste' || t === 'insertFromPasteAsQuotation') { return; }
+            if (t.indexOf('insert') === 0 || t === 'insertCompositionText') {
+                e.preventDefault();
             }
         });
 
@@ -40374,7 +40534,8 @@ var Outliner = (function() {
             e.dataTransfer.dropEffect = 'move';
 
             var targetId = el.dataset.id;
-            if (targetId === dragState.nodeId || model.isDescendant(targetId, dragState.nodeId)) {
+            // FR-OMV-02.3: 複数選択なら**全 root**に対して判定する（1 件でも不正なら受け付けない）
+            if (internalMoveRejected(targetId, internalMoveIds(dragState.nodeId))) {
                 e.dataTransfer.dropEffect = 'none';
                 removeDropIndicator();
                 return;
@@ -40427,7 +40588,10 @@ var Outliner = (function() {
             if (!dragState) { return; }
 
             var targetId = el.dataset.id;
-            if (targetId === dragState.nodeId || model.isDescendant(targetId, dragState.nodeId)) {
+            // FR-OMV-01: 複数選択中（掴んだ node が選択に含まれる）なら選択集合の全 root を動かす。
+            var moveIds = internalMoveIds(dragState.nodeId);
+            // FR-OMV-02.3: 1 件でも「drop 先が自身 or その子孫」なら **drop 全体を拒否**（部分適用を作らない）
+            if (internalMoveRejected(targetId, moveIds)) {
                 removeDropIndicator();
                 return;
             }
@@ -40436,30 +40600,43 @@ var Outliner = (function() {
             var y = e.clientY - rect.top;
             var h = rect.height;
 
+            // FR-OMV-02.4: snapshot は**ループの外で 1 回**（Cmd+Z 1 回で全件が戻る）
             saveSnapshot();
             var movedNodeId = dragState.nodeId;
             var targetNode = model.getNode(targetId);
 
+            // FR-OMV-02.2: 挿入は「1 件目 = 従来の単一移動と同じ引数 / 2 件目以降 = afterId が直前に置いた id」。
+            // これで選択時の可視順（selectionExportRoots の順）が保たれる。
             if (y < h * 0.25) {
                 // before: targetの前に兄弟として挿入
                 var info = model._getSiblingInfo(targetId);
                 var afterId = info && info.index > 0 ? info.siblings[info.index - 1] : null;
-                model.moveNode(movedNodeId, targetNode.parentId, afterId);
+                for (var bi = 0; bi < moveIds.length; bi++) {
+                    model.moveNode(moveIds[bi], targetNode.parentId, bi === 0 ? afterId : moveIds[bi - 1]);
+                }
             } else if (y > h * 0.60) {
                 // after: sprint 20260802-010347 (FR-DII-02/03): dragover で解決済みの
                 // depth 選択結果（lastDropResolution）を消費。null なら従来の一意解決。
                 var resolved = consumeDropResolution(targetId, 'after');
                 if (resolved && resolved.asChildOfTarget) {
-                    model.moveNode(movedNodeId, targetId, null);
+                    for (var ai = 0; ai < moveIds.length; ai++) {
+                        model.moveNode(moveIds[ai], targetId, ai === 0 ? null : moveIds[ai - 1]);
+                    }
                     targetNode.collapsed = false;
                 } else if (resolved) {
-                    model.moveNode(movedNodeId, resolved.parentId, resolved.beforeId);
+                    for (var ri = 0; ri < moveIds.length; ri++) {
+                        model.moveNode(moveIds[ri], resolved.parentId, ri === 0 ? resolved.beforeId : moveIds[ri - 1]);
+                    }
                 } else {
-                    model.moveNode(movedNodeId, targetNode.parentId, targetId);
+                    for (var si = 0; si < moveIds.length; si++) {
+                        model.moveNode(moveIds[si], targetNode.parentId, si === 0 ? targetId : moveIds[si - 1]);
+                    }
                 }
             } else {
                 // child: targetの子の先頭に挿入
-                model.moveNode(movedNodeId, targetId, null);
+                for (var ci = 0; ci < moveIds.length; ci++) {
+                    model.moveNode(moveIds[ci], targetId, ci === 0 ? null : moveIds[ci - 1]);
+                }
                 targetNode.collapsed = false;
             }
 
@@ -40467,6 +40644,8 @@ var Outliner = (function() {
             dragState = null;
             removeDropIndicator();
 
+            // FR-OMV-02.5: 選択集合は**クリアしない**（移動後も続けて D&D できる）。
+            // renderTree / scheduleSyncToHost はループの外で 1 回だけ（TC-OMV-12）。
             renderTree();
             focusNode(movedNodeId);
             scheduleSyncToHost();
@@ -40790,6 +40969,110 @@ var Outliner = (function() {
 
     // --- 複数ノード選択管理 ---
 
+    /**
+     * 選択モードか（ADRL-0119: 独立変数を持たず選択集合から**派生**させる純関数）。
+     *
+     * outliner のモードは 2 状態で全域かつ排他で、その 2 状態は選択集合の空/非空と 1:1 に対応する。
+     * 派生にすることで NFR-OSM-01（選択 0 件 ⇔ caret 表示）は「維持すべき不変条件」ではなく
+     * **恒真式**になる（守り忘れる余地が消える）。md エディタの表（`editor.js` の `tableSel.mode`）が
+     * 独立変数なのは 3 状態 + 所属情報を持つ必然があるためで、こちらには当たらない。
+     */
+    function isSelectMode() {
+        return !!selectedNodeIds && selectedNodeIds.size > 0;
+    }
+
+    /**
+     * モードを CSS へ投影する単一関数（ADRL-0119）。コンテナ 1 クラスなので再描画に強い。
+     * precedent = md 表の `table.classList.add('tbl-select-mode')`（`editor.js:4857`）。
+     *
+     * 🔴 呼び出し点は **3 種類**（design/system/mode-state-machine.md §1）:
+     *   1. 選択集合を変える既存関数の末尾（clearSelection / clearSelectionVisual / selectRange / toggleNodeSelection）
+     *   2. `selectAllNodes()` の末尾 — bulk 追加 / Set 再代入は
+     *      `selectedNodeIds\.(clear|delete|add)` の grep に掛からないので明示的に呼ぶ（design-review SYS-3）
+     *   3. `renderTree` の末尾（prune で選択が減るため）
+     * 冪等なので余分に呼んでも害はない。
+     */
+    function syncSelectionModeClass() {
+        if (!treeEl) { return; }
+        treeEl.classList.toggle('is-select-mode', isSelectMode());
+    }
+
+    /**
+     * 全 node を選択する（FR-MSEL-06 rev3 の 2 段目 / 選択モードの Cmd+A）。
+     *
+     * 従来は `case 'a'` にインラインで書かれていた（= `DOM-SelectAllNodes`）。named 関数に切ることで
+     * 呼び出し元（Cmd+A の 3 分岐 / 将来のメニュー等）が増えても投影の配線が 1 箇所に閉じる。
+     *
+     * 🔴 末尾で `syncSelectionModeClass()` を**明示的に呼ぶ**（design-review SYS-3）。
+     *    `selectRange` 経由で既に呼ばれてはいるが、bulk 追加や `selectedNodeIds = new Set(allIds)` 型の
+     *    再代入に実装が変わると `.clear()/.delete()/.add()` の grep に掛からず
+     *    「選択件数 > 0 なのに caret が見える」（INV-1 の破れ）が静かに入る。冪等なので二重呼びは無害。
+     */
+    function selectAllNodes() {
+        var allIds = model.getFlattenedIds(true);
+        if (allIds.length === 0) { return; }
+        selectionAnchorId = allIds[0];
+        selectRange(allIds[0], allIds[allIds.length - 1]);
+        syncSelectionModeClass();
+    }
+
+    /**
+     * その node の text が**すでに全選択されているか**（FR-MSEL-06 rev3 の段階判定）。
+     *
+     * 🔴 `textContent` の長さ比較で判定する。Range の start/end offset 比較にすると
+     *    inline 要素（`<b>` / `<code>` / `<a>`）で節点が分かれた瞬間に誤判定する（TC-OSM-25 が番人）。
+     * 🔴 空 node は **true**（1 段目をスキップして即 2 段目へ昇格）。さもないと
+     *    `selectNodeTextAll` が何も選択できず「何回押しても昇格しない」状態になる（TC-OSM-24 が番人）。
+     */
+    function isNodeTextFullySelected(textEl) {
+        if (!textEl) { return false; }
+        var len = (textEl.textContent || '').length;
+        if (len === 0) { return true; }
+        var sel = window.getSelection();
+        if (!sel || sel.rangeCount !== 1 || sel.isCollapsed) { return false; }
+        if (!textEl.contains(sel.anchorNode) || !textEl.contains(sel.focusNode)) { return false; }
+        return sel.toString().length === len;
+    }
+
+    /**
+     * その node の text を全選択する（FR-MSEL-06 rev3 の 1 段目）。
+     * **`removeAllRanges()` だけを呼んで終わってはいけない** — 直後に `addRange` して
+     * text 範囲を残すのが 1 段目の成果物（2 段目はこれを捨てる）。
+     */
+    function selectNodeTextAll(textEl) {
+        if (!textEl) { return; }
+        var sel = window.getSelection();
+        if (!sel) { return; }
+        var r = document.createRange();
+        r.selectNodeContents(textEl);
+        sel.removeAllRanges();
+        sel.addRange(r);
+    }
+
+    /**
+     * 選択モードで keydown をゲートする（FR-OSM-04 / ADRL-0114）。
+     * **true を返したら呼び出し元（handleNodeKeydown）は即 return** する。
+     * precedent = md エディタの表の `tslHandleKeydown`（`editor.js`）と同じ「true で終了」の形。
+     *
+     * 🔴 printable の帰結だけが precedent と**逆**（表 = 編集へ昇格 + 内容置換 / ここ = no-op）。
+     *    根拠 = ADRL-0114: **outliner は既定が編集モード**（↑↓ 1 つで戻れる）ので選択モード中に
+     *    文字を打つ意図がほぼ存在せず、no-op が非破壊で正しい。表は既定が選択モードなので逆になる。
+     */
+    function handleSelectModeKeydown(e) {
+        if (!isSelectMode()) { return false; }
+        // 修飾キー単体 / IME モードキー / lock キー → 素通し（選択維持 = FR-MSC-02 / 裁定 R31 の本体）
+        if (isNonTextKeyEvent(e)) { return false; }
+        // 修飾キー併用（cmd+c / cmd+x / cmd+v / Cmd+A / cmd+z 等）は既存経路に委譲する。
+        // ここで奪うと選択モードの clipboard が全滅する（HM-1 と対）。
+        if (e.metaKey || e.ctrlKey || e.altKey) { return false; }
+        // printable（修飾なしの 1 文字）= **no-op**。選択も解除しない。
+        if (e.key && e.key.length === 1) {
+            e.preventDefault();
+            return true;
+        }
+        return false;
+    }
+
     /** 選択をクリアしてDOM反映（reason = 選択トレースに残す契機のラベル） */
     function clearSelection(reason) {
         if (selectedNodeIds.size > 0) { _selTracePush('clear', '(' + (reason || 'unknown') + ') ids=' + selectedNodeIds.size); }
@@ -40800,6 +41083,7 @@ var Outliner = (function() {
         });
         selectedNodeIds.clear();
         selectionAnchorId = null;
+        syncSelectionModeClass();
     }
 
     /** DOMの選択ハイライトだけクリア (anchorはリセットしない) */
@@ -40811,6 +41095,7 @@ var Outliner = (function() {
             toggleRowCellsClass(id, 'is-selected', false);
         });
         selectedNodeIds.clear();
+        syncSelectionModeClass();
     }
 
     /**
@@ -40833,6 +41118,7 @@ var Outliner = (function() {
             toggleRowCellsClass(nodeId, 'is-selected', true);
         }
         selectionAnchorId = nodeId;
+        syncSelectionModeClass();
         _selTracePush('toggle', nodeId);
     }
 
@@ -40858,6 +41144,7 @@ var Outliner = (function() {
             if (el) { el.classList.add('is-selected'); }
             toggleRowCellsClass(flat[i], 'is-selected', true);
         }
+        syncSelectionModeClass();
         _selTracePush('selectRange', fromId + '..' + toId);
     }
 
@@ -41017,10 +41304,19 @@ var Outliner = (function() {
     }
 
     /** クリップボードに text/plain + text/html を書き込む (cross-outlinerメタデータ埋め込み) */
-    function writeClipboardWithHtml(plainText, nodesData, isCut, copyId) {
+    function writeClipboardWithHtml(plainText, nodesData, isCut, copyId, nodeIds) {
         var htmlText = buildSelectedNodesHtml(nodesData);
         // メタデータをHTMLに埋め込み (cross-webview paste用)。copyId(nonce) で同一コピー操作を識別。
-        var metaJson = JSON.stringify({ nodes: nodesData, sourceOutFileKey: currentOutFileKey, isCut: !!isCut, copyId: copyId });
+        //
+        // FR-CBD-03（sprint 20260906-095357 / DOM-ClipPayload）: `nodeIds` を **additive** に足す。
+        // G（outliner → linkedfd の clipboard 複写）の受け手がこれを読んで既存 host 入口
+        // `sendOutNodesToFolderLinkFromDrop` に渡す（実体は載せず識別子だけ = host が disk から解決する）。
+        // 🔴 既存の paste 判定（`OutlinerClipSelect.selectClipSource`）は `copyId` + `plainText` の一致だけを
+        //    見るので **このフィールドは既存経路に対して inert**（OS clipboard の text/plain は byte 不変）。
+        var metaJson = JSON.stringify({
+            nodes: nodesData, sourceOutFileKey: currentOutFileKey, isCut: !!isCut, copyId: copyId,
+            nodeIds: Array.isArray(nodeIds) ? nodeIds : undefined,
+        });
         htmlText = htmlText.replace(/^<ul>/, '<ul data-outliner-clipboard="' + encodeURIComponent(metaJson) + '">');
         // sprint 20260728-200503: write() は async — 従来の try/catch は同期例外しか捕まえず、
         // 書き込み失敗時に OS クリップボードへ「過去の cut/copy の HTML メタ」が残り、
@@ -41098,6 +41394,30 @@ var Outliner = (function() {
                         };
                         reader.readAsDataURL(imgFile);
                     }
+                    return;
+                }
+            }
+        }
+
+        // ── F: linkedfd → outliner の clipboard 複写（FR-CBD-02 / DOM-OutlinerClipPaste）──
+        //
+        // 🔴 挿入位置は **ここ以外に無い**（HM-2）:
+        //    ・上の画像分岐（stopPropagation 付き）より**後ろ** = 画像 paste は最優先で維持する
+        //    ・下の `if (!clipText) { return; }` より**前** = text/plain を持たない payload が
+        //      preventDefault されず生テキストとして流入するのを防ぐ
+        //    ・`if (selectedNodeIds.size > 0)`（選択置換）より**前**。ただし選択モードでは
+        //      **発火させない**（下記ガード）— 後ろに置くと複製要件が「選択 node 全削除」に化ける（データロス）
+        // 🔴 `!isSelectMode()` ガードが必須（design-review SYS-4）: これが無いと選択モード中でも
+        //    ここで発火し、FR-CBD-02 の「選択モードでは既存の選択置換が走る」（TC-CBD-08）に反する。
+        // 🔴 条件不成立時は **1 行も副作用を出さない**（HM-3。preventDefault は成立時のみ）
+        if (!isSelectMode()) {
+            var fvClip = hasFvClipPayload(e.clipboardData);
+            if (fvClip) {
+                // 挿入位置は 'after'（対象 node の直後の兄弟）に固定 = D11。
+                // clipboard には座標が無いので D&D の 3 帯から 1 値に固定するしかなく、
+                // 既存 paste（現ノードの直後に兄弟として挿入）と一致する 'after' が唯一の整合解。
+                if (applyFolderViewEntries(fvClip, nodeId, 'after')) {
+                    e.preventDefault();
                     return;
                 }
             }
@@ -41592,6 +41912,11 @@ var Outliner = (function() {
             return;
         }
 
+        // FR-OSM-04 / ADRL-0114: 選択モードのゲート。printable は no-op（本文を変えない）。
+        // 🔴 位置は「既存の『選択状態で文字キーが来たら clearSelection』ブロック（下記）より前」。
+        //    後ろに置くと先に選択が消えて no-op にならない。
+        if (handleSelectModeKeydown(e)) { return; }
+
         // スコープヘッダーノードかどうか判定
         var isScopeHeader = (currentScope.type === 'subtree' && currentScope.rootId === nodeId);
 
@@ -41609,8 +41934,14 @@ var Outliner = (function() {
         // や、Option / CapsLock / 英数・かな（IME モード切替）を叩いた瞬間に複数選択が消えていた。
         // = ユーザー報告「cmd を離すと複数選択が解除される」の候補機序。文字も移動も生まない key は
         // 選択に触らない（実際に文字が入るのは keydown 後の input で、そこは既存経路が扱う）。
+        // 🔴 TASK-21 (QUAL-4 / FR-OSM-03): **Escape はこのブロックから除外する**。
+        // このブロックは `switch (e.key)` より前にあるため、除外しないと `clearSelection('keydown:Escape')` が
+        // 先に走って選択が空になり、`case 'Escape'` の明示分岐（`if (isSelectMode()) clearSelection('Escape')`）が
+        // **到達不能な dead code** になる。FR-OSM-03 が要求したのは「副作用依存を明示分岐へ昇格させる」ことなので、
+        // 分岐を足すだけでは要件が満たされない（最終状態は同じなので既存 TC では区別できない = TC-OSM-14 が番人）。
         if (selectedNodeIds.size > 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey
             && !isNonTextKeyEvent(e)
+            && e.key !== 'Escape'
             && e.key !== 'Backspace' && e.key !== 'Delete' && e.key !== 'Tab') {
             clearSelection('keydown:' + e.key);
         }
@@ -41971,7 +42302,14 @@ var Outliner = (function() {
                 break;
 
             case 'Escape':
+                // FR-OSM-03（出口 X1）: 選択モードの解除を**明示分岐に昇格**する。
+                // 従来は上記「選択状態で文字キー等が来たら clearSelection」ブロックの**副作用**で
+                // 消えていただけで、入退出条件が実装上どこにも書かれていなかった（番人も書けない）。
+                // 検索クリアとは**両立**させる（副作用経路でも両方走っていたので byte 互換）。
                 e.preventDefault();
+                if (isSelectMode()) {
+                    clearSelection('Escape');
+                }
                 if (currentSearchResult) {
                     clearSearch();
                 }
@@ -42142,13 +42480,20 @@ var Outliner = (function() {
                         var copyText = getSelectedText();
                         var copyNodesData = getSelectedNodesData();
                         var copyIdC = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-                        writeClipboardWithHtml(copyText, copyNodesData, false, copyIdC);
+                        // FR-CBD-03 / HM-9: **生の selectedNodeIds を渡さない**。
+                        // host の `buildExportNodesFromOutData` に祖先-子孫の重複排除が無いため、
+                        // 生集合だと子孫が「祖先の children」と「トップレベル entry」の 2 箇所に出力され
+                        // linkedfd に二重書き出しされる。既存 D&D / メニューと同じ
+                        // `selectionExportRoots()`（可視順 + 最上位のみ）を必ず通す。
+                        var copyNodeIdsC = selectionExportRoots();
+                        writeClipboardWithHtml(copyText, copyNodesData, false, copyIdC, copyNodeIdsC);
                         internalClipboard = {
                             plainText: copyText,
                             isCut: false,
                             nodes: copyNodesData,
                             sourceOutFileKey: currentOutFileKey,
-                            copyId: copyIdC
+                            copyId: copyIdC,
+                            nodeIds: copyNodeIdsC
                         };
                         host.saveOutlinerClipboard(copyText, false, copyNodesData);
                     } else {
@@ -42239,12 +42584,25 @@ var Outliner = (function() {
                     break;
                 // case 'v': paste イベントで処理するため keydown では不要
                 case 'a':
-                    // Cmd+A: 全ノード選択
+                    // Cmd+A: モード分岐 + 2 段階 escalation（FR-MSEL-06 rev3 / ADRL-0116）
+                    //
+                    // ① 選択モード           → 常に全 node 選択（モード維持）
+                    // ② 編集モード・全選択済み → 全 node 選択へ**昇格**（removeAllRanges は selectRange 内で必須実施）
+                    // ③ 編集モード・それ以外   → その node の text 全選択（**removeAllRanges を呼ばない**）
+                    // ④ 全 node 選択済みで再押下 → ① に落ちて冪等（= no-op）
+                    //
+                    // 🔴 全分岐で preventDefault（native の全選択が走ると webview のツールバー/パネルまで
+                    //    選択される = GitHub issue #2 の症状。outliner-select-all.spec.ts:102 が番人）
                     e.preventDefault();
-                    var allIds = model.getFlattenedIds(true);
-                    if (allIds.length > 0) {
-                        selectionAnchorId = allIds[0];
-                        selectRange(allIds[0], allIds[allIds.length - 1]);
+                    // 🔴 FR-OSM-06 rev1: この case は **mindmap と共有**（handler は 1 箇所）。
+                    //    mindmap 面はモード二態を導入しない（本 sprint のスコープ外）ので 2 段階から免除し
+                    //    従来どおり 1 段階にする。免除しないと focusNodeText 直後（選択 0 件）に 1 回押す
+                    //    既存 TC（mindmap-keyboard TC-168 / outliner-select-all:165）が 1 段目に落ちて壊れる。
+                    if (VIEW_MODE === 'mindmap') { selectAllNodes(); break; }
+                    if (isSelectMode() || isNodeTextFullySelected(textEl)) {
+                        selectAllNodes();
+                    } else {
+                        selectNodeTextAll(textEl);
                     }
                     break;
                 case 'b':
@@ -44007,6 +44365,48 @@ var Outliner = (function() {
     }
 
     /**
+     * FR-OMV-01（sprint 20260906-024639 / 裁定 D）: outliner **内部**の D&D で動かす node id 群。
+     *
+     * 掴んだ node が複数選択に含まれていれば `selectionExportRoots()`（可視順 + 最上位のみ）を返す。
+     * **新しい順序計算・新しい root 抽出を書かない** — 「linkedfd に送る」（FR-SND-03/04）と同じ関数を使う
+     * （親と子孫が同時に選択されていても最上位だけが動き、子孫は subtree として随伴する）。
+     * 選択外の node を掴んだ場合は従来どおり 1 件（契約不変 = TC-OMV-11）。
+     */
+    function internalMoveIds(draggedId) {
+        if (!draggedId) { return []; }
+        if (!(selectedNodeIds.size > 1 && selectedNodeIds.has(draggedId))) { return [draggedId]; }
+        var roots = selectionExportRoots();
+        return roots.length ? roots : [draggedId];
+    }
+
+    /**
+     * FR-OMV-02.3: drop 先が **移動対象のいずれか自身 / その子孫**なら drop 全体を拒否する。
+     * 1 件でも不正なら全体拒否（部分適用の中間状態を作らない = NFR-OMV-01）。
+     */
+    function internalMoveRejected(targetId, ids) {
+        for (var i = 0; i < ids.length; i++) {
+            if (targetId === ids[i] || model.isDescendant(targetId, ids[i])) { return true; }
+        }
+        return false;
+    }
+
+    /**
+     * FR-OMV-02 / NFR-OMV-02（reviewer iteration 1 FINDING-DC-1）: `ids` が **既に `rootIds` の末尾に
+     * 同じ順で並んでいる**か。true なら root 末尾 drop は結果が変わらない（no-op）ので何もしない。
+     * 新しい状態を持たず、配列比較だけで判定する。
+     */
+    function isAlreadyRootTail(ids) {
+        if (!ids || !ids.length) { return true; }
+        var roots = model.rootIds;
+        if (ids.length > roots.length) { return false; }
+        var offset = roots.length - ids.length;
+        for (var i = 0; i < ids.length; i++) {
+            if (roots[offset + i] !== ids[i]) { return false; }
+        }
+        return true;
+    }
+
+    /**
      * FR-SND-03 (§6-2 段 2): 選択集合を `ExportNode[]` に変換する。
      *
      * 抽出した root **ごとに** `buildExportTree(rootId)` を呼んで配列化する
@@ -44146,6 +44546,13 @@ var Outliner = (function() {
                 openPage(nodeId);
                 hideContextMenu();
             }, modLabel + '+Enter');
+            // FR-ONT-01 (sprint 20260906-024639): page md を**新規タブ**で開く。
+            // Notes = webview 内タブ / Single = VS Code タブ（分岐は host 側 = ADRL-0008。webview に面判定を持たせない）。
+            // shortcut ラベルで新しい修飾（ADRL-0112）を発見可能にする。
+            addMenuItem(contextMenuEl, i18n.outlinerOpenPageInNewTab || 'Open page in new tab', function() {
+                if (node.pageId && host.openPageInTab) { host.openPageInTab(nodeId, node.pageId); }
+                hideContextMenu();
+            }, modLabel + '+Shift+Click');
             // FR-FR-02: md ページ実体を Finder (OS ファイラ) で選択状態表示
             addMenuItem(contextMenuEl, i18n.outlinerRevealInFinder || 'Reveal in Finder', function() {
                 if (host.revealPageInOS) { host.revealPageInOS(nodeId); }
@@ -44181,6 +44588,15 @@ var Outliner = (function() {
                 host.openAttachedFile(nodeId);
                 hideContextMenu();
             });
+            // FR-ONT-02: 📎 file 添付を**新規タブ**で開く（FR-FTB の経路。nodeId のみ送る）。
+            // ★ page と file は排他でないので、両方持つ node ではこの項目と上の page 項目が**並ぶ**。
+            //   ラベルは別キーで分ける（同名 2 項目にしない = FR-ONT-03）。
+            // FR-FTB-03: viewer 非対象 / 50MB 超は host 側で OS 既定アプリへ縮退するので、
+            //   **項目は常に表示**する（addMenuItem の disabled 引数は使わない）。
+            addMenuItem(contextMenuEl, i18n.outlinerOpenFileInNewTab || 'Open file in new tab', function() {
+                if (host.openNodeFileInTab) { host.openNodeFileInTab(nodeId); }
+                hideContextMenu();
+            }, modLabel + '+Shift+Click');
             // FR-FR-01: 添付ファイルを Finder (OS ファイラ) で選択状態表示
             addMenuItem(contextMenuEl, i18n.outlinerRevealInFinder || 'Reveal in Finder', function() {
                 if (host.revealAttachedFileInOS) { host.revealAttachedFileInOS(nodeId); }
@@ -47765,6 +48181,13 @@ var notesFilePanel = (function() {
     // fetch → blob → same-origin blob URL 経由でダウンロードする（viewer の fetch 経路と同じ到達性）
     window.addEventListener('message', function (e) {
         var m = e.data;
+        // FR-TKN-08 / NFR-TKN-02: Enter で開いた直後の host 応答で **1 回だけ**ツリーへフォーカスを戻す。
+        // 開いた先（メインペイン / sidepanel / viewer）が focus を奪う実機挙動への対処で、
+        // **固定 setTimeout で「当たること」を期待する実装にしない**（イベント駆動の one-shot）。
+        if (m && _navRefocusPending && (m.type === 'updateData' || m.type === 'showNoteViewer' || m.type === 'showFolderView')) {
+            _navRefocusPending = false;
+            if (listEl && typeof listEl.focus === 'function') { listEl.focus(); }
+        }
         if (!m || m.type !== 'triggerFileDownload' || !m.fileUri) { return; }
         fetch(m.fileUri).then(function (resp) {
             if (!resp.ok) { throw new Error('fetch ' + resp.status); }
@@ -47964,6 +48387,16 @@ var notesFilePanel = (function() {
     var treeSelection = [];   // 選択集合（描画順に正規化）
     var treeAnchorId = null;  // 範囲の起点
     var treeFocusId = null;   // キーボードの現在位置
+    // FR-TKN-03 / ADRL-0113: **ナビ専用の第 2 行順配列**。
+    //   `visibleItemIds` = 選択集合と D&D の順序の単一真実（`.file-panel-item` のみ・不変）
+    //   `navRowIds`      = キーボード移動の行順の単一真実（**仮想フォルダのヘッダ行を含む**）
+    // 走査根はどちらも `listEl`（`#notesFileList`）。Favorites（`#notesFavoritesList`）と
+    // 検索結果（`#notesSearchResults`）は listEl の**兄弟**なので構造的に混入しない（TC-TKN-07 / TC-TKN-19）。
+    // folder 行は `'folder:' + id` の prefix 付きで持つ（file item の id 空間と衝突させない）。
+    var navRowIds = [];
+    // FR-TKN-08: Enter で開いた直後の 1 回だけ、host 応答（updateData 等）でツリーへフォーカスを戻す。
+    // **固定 setTimeout に依存しない**（NFR-TKN-02）— イベント駆動の one-shot フラグ。
+    var _navRefocusPending = false;
 
     /** Hard MUST（NFR-MSEL-01）: テキスト範囲を捨てる（clipboard / D&D を奪われないため）。 */
     function dropTextSelection() {
@@ -47989,11 +48422,60 @@ var notesFilePanel = (function() {
         });
     }
 
+    /**
+     * FR-TKN-03: ナビ行順配列を作り直す（`rebuildVisibleItemIds` と**必ず対で呼ぶ** = ADRL-0113 Consequences）。
+     * `visibleItemIds` と同じ DOM 走査順・同じ除外規則（Favorites / collapsed 配下）に
+     * **仮想フォルダのヘッダ行**を加えるだけ。したがって `visibleItemIds` は常に `navRowIds` の部分列。
+     */
+    function rebuildNavRowIds() {
+        navRowIds = [];
+        if (!listEl) { return; }
+        var rows = listEl.querySelectorAll('.file-panel-item, .file-panel-folder > .file-panel-folder-header');
+        Array.prototype.forEach.call(rows, function (el) {
+            if (el.classList.contains('file-panel-folder-header')) {
+                var wrap = el.parentElement;
+                if (!wrap || !wrap.dataset || !wrap.dataset.folderId) { return; }
+                // 親が collapsed のフォルダの中にあるヘッダ（= 入れ子）は非表示なので除外。
+                // 自分自身が collapsed でも**ヘッダは見えている**ので除外しない。
+                var ancestor = wrap.parentElement && wrap.parentElement.closest
+                    ? wrap.parentElement.closest('.file-panel-folder.collapsed') : null;
+                if (ancestor) { return; }
+                navRowIds.push('folder:' + wrap.dataset.folderId);
+                return;
+            }
+            if (el.dataset && el.dataset.favSection === '1') { return; }
+            if (el.closest && el.closest('.file-panel-folder.collapsed')) { return; }
+            var id = el.dataset && el.dataset.fileId;
+            if (id) { navRowIds.push(id); }
+        });
+    }
+
+    /** ナビ行 id → { el, kind, id }（`jumpToExploreItem` と同じセレクタ規約）。 */
+    function resolveNavRow(navId) {
+        if (!navId || !listEl) { return null; }
+        if (navId.indexOf('folder:') === 0) {
+            var fid = navId.slice('folder:'.length);
+            var fel = listEl.querySelector('[data-folder-id="' + CSS.escape(fid) + '"] > .file-panel-folder-header');
+            return fel ? { el: fel, kind: 'folder', id: fid } : null;
+        }
+        var iel = listEl.querySelector('[data-item-id="' + CSS.escape(navId) + '"]');
+        return iel ? { el: iel, kind: 'item', id: navId } : null;
+    }
+
     function paintTreeSelection() {
         if (!listEl) { return; }
         Array.prototype.forEach.call(listEl.querySelectorAll('.file-panel-item'), function (el) {
             var id = el.dataset && el.dataset.fileId;
             el.classList.toggle('file-panel-selected', !!id && treeSelection.indexOf(id) >= 0);
+        });
+        // FR-TKN-06: folder header に focus が乗るケースだけは選択集合に入らない（FR-MSEL-05 優先 = ADRL-0113 の例外）。
+        // 見た目は既存の選択色を流用する（新しい CSS クラス・新色は追加しない）。
+        var focusFolderId = (treeFocusId && treeFocusId.indexOf('folder:') === 0)
+            ? treeFocusId.slice('folder:'.length) : null;
+        Array.prototype.forEach.call(listEl.querySelectorAll('.file-panel-folder > .file-panel-folder-header'), function (el) {
+            var wrap = el.parentElement;
+            var fid = wrap && wrap.dataset ? wrap.dataset.folderId : null;
+            el.classList.toggle('file-panel-selected', !!fid && fid === focusFolderId);
         });
     }
 
@@ -48046,9 +48528,13 @@ var notesFilePanel = (function() {
     function renderTree() {
         renderTreeInner();
         rebuildVisibleItemIds();
+        rebuildNavRowIds();   // ★ ADRL-0113: 2 本の行順配列は**必ず同時に**更新する（片方だけの地点を作らない）
         // 再描画で消えた item の選択を落とす（折りたたみ / 削除 / フィルタ）
         treeSelection = treeSelection.filter(function (id) { return visibleItemIds.indexOf(id) >= 0; });
         if (treeAnchorId && visibleItemIds.indexOf(treeAnchorId) < 0) { treeAnchorId = null; }
+        // FR-TKN-07: focus id の生存確認（index はキャッシュせず毎回引き直す）。消えていたら null に落とし、
+        // 次の ↑↓ が先頭/末尾から再開できるようにする（例外にしない）。
+        if (treeFocusId && navRowIds.indexOf(treeFocusId) < 0) { treeFocusId = null; }
         paintTreeSelection();
     }
 
@@ -48132,6 +48618,120 @@ var notesFilePanel = (function() {
 
     // FR-FLV-10: folder link click → folder view 表示（dispatcher は TASK-07 実装。
     // typeof ガード付き — 不在時は no-op。broken は呼び出し側で relink に分岐）
+    /** 行の kind を **file 記述子から**判定する純述語（createFileElement の closure を持たない Enter 経路でも使う）。 */
+    function rowKindOf(f) {
+        if (!f) { return 'out'; }
+        return f.kind || (/\.md$/i.test(f.filePath || '') ? 'md' : 'out');
+    }
+    function isFolderLinkRow(f) { return rowKindOf(f) === 'folder'; }
+    function isAttachRow(f) { return rowKindOf(f) === 'file'; }
+
+    /**
+     * FR-TKN-04: 行を「開く」（kind 別の既存 3 経路）。**click / pointerup 保険 / Enter の共有**。
+     * 選択の更新は呼び出し側が済ませておく（この関数は open だけを担う）。
+     * 3 kind 分岐が click と pointerup に二重に書かれていたのを 1 本に寄せた（3 箇所目 = Enter を足す前に解消）。
+     */
+    function openTreeRow(f) {
+        if (!f) { return; }
+        if (isFolderLinkRow(f)) {
+            if (f.broken) {
+                if (bridge.relinkFolderLink) { bridge.relinkFolderLink(f.id); }
+            } else {
+                openFolderView(f.id, f.title || 'Folder');
+            }
+            return;
+        }
+        if (isAttachRow(f)) { openAttachExternal(f.id); return; }
+        openItemFile(f.filePath);
+    }
+
+    /** ナビ行 id → 記述子（folder は structure.items / item は fileList から引く）。 */
+    function navRowDescriptor(navId) {
+        if (!navId) { return null; }
+        if (navId.indexOf('folder:') === 0) {
+            var fid = navId.slice('folder:'.length);
+            var folder = (structure && structure.items) ? structure.items[fid] : null;
+            return folder ? { kind: 'folder', id: fid, folder: folder } : { kind: 'folder', id: fid, folder: { id: fid } };
+        }
+        for (var i = 0; i < fileList.length; i++) {
+            if (fileList[i] && fileList[i].id === navId) { return { kind: 'item', id: navId, f: fileList[i] }; }
+        }
+        return null;
+    }
+
+    /** FR-TKN-05: focus 行を可視範囲に入れる（↑↓ 連打で画面が跳ねないよう `nearest`）。 */
+    function revealNavRow(navId) {
+        var r = resolveNavRow(navId);
+        if (!r || !r.el || typeof r.el.scrollIntoView !== 'function') { return; }
+        r.el.scrollIntoView({ block: 'nearest' });
+    }
+
+    /**
+     * FR-TKN-02: focus を navId へ移す。**focus ≡ selection**（選択も 1 件に置き換える）。
+     * 例外: folder header は選択集合に入れない（FR-MSEL-05 優先 = ADRL-0113）。
+     * **open 系を 1 つも呼ばない**（右コンテンツは変わらない）。
+     */
+    function setNavFocus(navId) {
+        if (!navId) { return; }
+        if (navId.indexOf('folder:') === 0) {
+            treeFocusId = navId;
+            treeSelection = [];
+            treeAnchorId = null;
+            dropTextSelection();
+            paintTreeSelection();
+        } else {
+            selectTreeItem(navId);   // focus = anchor = id / selection = [id]（既存関数と意味論が一致）
+        }
+        revealNavRow(navId);
+    }
+
+    /** ↑↓ の 1 行移動（端で留まる = 循環しない。focus が無ければ先頭/末尾から）。 */
+    function moveNavFocus(delta) {
+        if (!navRowIds.length) { return; }
+        var cur = treeFocusId ? navRowIds.indexOf(treeFocusId) : -1;
+        var next;
+        if (cur < 0) {
+            next = delta > 0 ? 0 : navRowIds.length - 1;
+        } else {
+            next = cur + delta;
+            if (next < 0) { next = 0; }
+            if (next > navRowIds.length - 1) { next = navRowIds.length - 1; }
+        }
+        setNavFocus(navRowIds[next]);
+    }
+
+    /** FR-TKN-04: Enter = 決定（item は kind 別に開く / 仮想フォルダは展開トグル）。 */
+    function activateNavFocus() {
+        if (!treeFocusId) { return; }
+        var d = navRowDescriptor(treeFocusId);
+        if (!d) { return; }
+        if (d.kind === 'folder') {
+            if (bridge && typeof bridge.toggleFolder === 'function') { bridge.toggleFolder(d.id); }
+            return;
+        }
+        // FR-TKN-08: 開いた先がフォーカスを奪う実機挙動に備え、host 応答で 1 回だけツリーへ戻す
+        //（固定 timer は使わない = NFR-TKN-02）。
+        _navRefocusPending = true;
+        openTreeRow(d.f);
+        if (listEl && typeof listEl.focus === 'function') { listEl.focus(); }
+    }
+
+    /** FR-TKN-01: 要素ローカル keydown（document レベルにしない — 既存の入力欄 keydown と競合させない）。 */
+    function onNavKeyDown(e) {
+        if (!e) { return; }
+        // 入力欄・contenteditable（rename / タイトル編集）が起点なら何もしない
+        var t = e.target;
+        if (t && t !== listEl) {
+            var tag = t.tagName ? String(t.tagName).toUpperCase() : '';
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || t.isContentEditable) { return; }
+        }
+        // NFR-TKN-03: IME 変換中の Enter は変換確定が正（open に使わない）
+        if (e.isComposing || e.keyCode === 229) { return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); moveNavFocus(1); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); moveNavFocus(-1); return; }
+        if (e.key === 'Enter') { e.preventDefault(); activateNavFocus(); return; }
+    }
+
     function openFolderView(folderLinkId, title) {
         var d = window.__folderViewDispatcher;
         if (d && typeof d.showFolderView === 'function') {
@@ -48144,7 +48744,9 @@ var notesFilePanel = (function() {
         // FR-TF-02 (sprint 20260809): listFiles が付与する kind ('out'|'md'|'file') で 3 値描画。
         // 拡張子推測 (/\.md$/i) をやめる — 添付 file が `a.md` という名でも file として扱う (誤判定防止)。
         // 後方互換: kind 未付与の旧 entry は従来どおり拡張子で md/out を推測 (file 扱いにはしない)。
-        var kind = f.kind || (/\.md$/i.test(f.filePath || '') ? 'md' : 'out');
+        // ★ reviewer iteration 1 QUAL-2: 判定式は `rowKindOf(f)` に一本化（Enter 経路と同じ 1 箇所）。
+        //   kind の新値を足すときに片側だけ直る drift を構造的に消す。
+        var kind = rowKindOf(f);
         var isMd = kind === 'md';
         var isAttach = kind === 'file';
         // FR-FLV-03: folder link（第 4 kind）。broken = リンク切れ表示（listFiles の派生フラグ）
@@ -48182,6 +48784,29 @@ var notesFilePanel = (function() {
         item.innerHTML = icon + '<span class="file-panel-item-title">' + escapeHtml(f.title || 'Untitled') + '</span>';
 
         item.addEventListener('click', function(e) {
+            // FR-CT-01/02 rev2 + FR-CT-04（ADRL-0112 / 裁定 R1・R13）: **cmd(ctrl)+shift+click = 新規タブ**。
+            // 掴む場所は行のどこでもよい（アイコンに限定しない = FR-MSC-01 と同じ思想）。
+            // ★ この分岐は shift 範囲選択・cmd トグルより**前**に置く（後ろだと修飾の組合せが先に食われる）。
+            if (e && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+                e.preventDefault();
+                selectTreeItem(f.id);        // 選択は 1 件に（focus も移す）
+                if (isFolderLink) {
+                    // linkedfd は既存の folder タブ経路（host 往復なしの webview 完結）
+                    var tmNew = window.__notesTabManager;
+                    if (!isBrokenLink && tmNew && typeof tmNew.openInNewTab === 'function') {
+                        tmNew.openInNewTab(f.id, 'folder', f.title || 'Folder');
+                    }
+                    return;
+                }
+                if (isAttach) {
+                    // FR-CT-04 / FR-FTB: file item は id ベースの新 bridge（絶対パスは送らない）
+                    if (bridge && typeof bridge.openTreeFileInTab === 'function') { bridge.openTreeFileInTab(f.id); }
+                    return;
+                }
+                // md / .out は既存の webview 内タブ経路
+                if (bridge && typeof bridge.openFileInTab === 'function') { bridge.openFileInTab(f.filePath); }
+                return;
+            }
             // FR-MSEL-03: shift+click = 連続範囲選択（**開かない**）。
             if (e && e.shiftKey && !(e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
@@ -48191,25 +48816,17 @@ var notesFilePanel = (function() {
             // FR-MSEL-03 rev2（ユーザー裁定 2026-09-04・手動テスト (1)）: cmd/ctrl+click = **不連続の単品トグル選択**
             //（**開かない**）。旧 FR-CT-01 の「cmd+click = webview 内タブで開く」は右クリック
             // 「Open in new tab」に一本化する（ADRL-0108「不連続選択は非対応」を supersede）。
-            if (e && (e.metaKey || e.ctrlKey)) {
+            // ★ rev3（ADRL-0112）: cmd+shift は上の新規タブ分岐が処理済みなので `!e.shiftKey` で絞る。
+            if (e && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
                 e.preventDefault();
                 toggleTreeItem(f.id);
                 return;
             }
             // 修飾なし click: 従来どおり開く + 選択を 1 件にリセットして anchor を移す
             selectTreeItem(f.id);
-            // FR-FLV-10/25: folder link — broken は再指定 / 通常はフォルダビュー
-            if (isFolderLink) {
-                if (isBrokenLink) {
-                    if (bridge.relinkFolderLink) bridge.relinkFolderLink(f.id);
-                    return;
-                }
-                openFolderView(f.id, f.title || 'Folder');
-                return;
-            }
-            // FR-TF-02: 添付 file は OS 既定アプリで開く（file はタブ化不可）。
-            if (isAttach) { openAttachExternal(f.id); return; }
-            openItemFile(f.filePath);
+            if (listEl && typeof listEl.focus === 'function') { listEl.focus(); }   // FR-TKN-01: 以降の ↑↓ をツリーで受ける
+            // FR-FLV-10/25 / FR-TF-02: kind 別の open は openTreeRow に一本化（click / pointerup / Enter で共有）
+            openTreeRow(f);
         });
         // bug-fix 2026-08-05: D&D 直後の 1 回目 click が無視される件。
         // D&D 応答の notesFileListChanged → renderTree() が item を全再構築するため、
@@ -48217,27 +48834,21 @@ var notesFilePanel = (function() {
         // 発火しない（mousedown/mouseup が別要素）。pointerup ベースの保険を張り、
         // 「直近の pointerdown と同じ item 上で pointerup」なら click 相当として openFile する。
         // click も発火した場合は openItemFile 内の currentFile ガードで二重送信されない。
+        // ★ FR-CT-06（ADRL-0112 決定 5）: `e.shiftKey` を early return に加える。
+        //   shift 単独 click は範囲選択のみで **open を発火させない**（従来は保険経路が open を
+        //   二重発火しうる既存の潜在バグだった）。cmd/ctrl（トグル・新規タブ）も従来どおり除外。
         item.addEventListener('pointerdown', function(e) {
-            if (e.button !== 0 || e.metaKey || e.ctrlKey) { _pointerDownItemId = null; return; }
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) { _pointerDownItemId = null; return; }
             _pointerDownItemId = f.id || f.filePath;
         });
         item.addEventListener('pointerup', function(e) {
-            if (e.button !== 0 || e.metaKey || e.ctrlKey) { return; }
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) { return; }
             if (_pointerDownItemId !== (f.id || f.filePath)) { return; }
             _pointerDownItemId = null;
             if (dragItemId) { return; } // drag セッション中（dragend 前）は発火しない
-            // FR-FLV-10: folder link も pointerup 保険（renderTree 全再構築で click 合成が死ぬ既知 race）
-            if (isFolderLink) {
-                if (isBrokenLink) {
-                    if (bridge.relinkFolderLink) bridge.relinkFolderLink(f.id);
-                } else {
-                    openFolderView(f.id, f.title || 'Folder');
-                }
-                return;
-            }
-            // FR-TF-02: 添付 file は click と同じく OS 既定アプリで開く（openAttachExternal 内で二重呼び出し dedup）
-            if (isAttach) { openAttachExternal(f.id); return; }
-            openItemFile(f.filePath);
+            // FR-FLV-10: folder link も pointerup 保険（renderTree 全再構築で click 合成が死ぬ既知 race）。
+            // 分岐は click / Enter と同じ openTreeRow を共有する（二重記述を作らない）。
+            openTreeRow(f);
         });
         item.addEventListener('dblclick', function(e) {
             e.stopPropagation();
@@ -48440,9 +49051,13 @@ var notesFilePanel = (function() {
         var fileParentId = (fileItemEl && fileItemEl.dataset && fileItemEl.dataset.parentId) ? fileItemEl.dataset.parentId : null;
 
         // FR-TF-10 (sprint 20260809): kind==='file' の添付ファイルは専用メニュー集合。
-        // 表示: Open（OS 既定アプリ）/ Reveal in Finder / Rename（title のみ）/ Favorite /
+        // 表示: Open（OS 既定アプリ）/ **Open in new tab**（FR-TF-10/11 rev・sprint 20260906-024639）/
+        //       Reveal in Finder / Rename（title のみ）/ Favorite /
         //       Copy Path（絶対パスは host→webview 応答で NFR-TF-02 非抵触）/ Set Color / Move Other Note / Delete。
-        // 非表示: Copy In-App Link・Open in new tab（file は .md/.out stem を持たずタブ化・アプリ内リンク不可）。
+        // 非表示: Copy In-App Link（アプリ内リンクは .md/.out の stem 前提で、この前提は失効していない）。
+        // ★ 旧記述「file はタブ化不可」は **撤回**（sprint 20260906-024639 / ADRL-0112 / FR-FTB）:
+        //   id ベースの新 bridge `openTreeFileInTab` → host が kind='file' タブ（viewer 素材つき）を作る。
+        //   viewer 非対象 / 50MB 超は host が OS 既定アプリへ縮退する。
         // 実体パスは .md/.out stem 前提の既存経路（deleteFile(filePath) 等）に流さず、id ベースの新 bridge を使う。
         var menuKind = file.kind || (/\.md$/i.test(file.filePath || '') ? 'md' : 'out');
         // FR-FLV-06: folder link の専用メニュー集合（requirement FR-FLV-06 表が唯一の正）。
@@ -48526,6 +49141,14 @@ var notesFilePanel = (function() {
             addContextItem(contextMenu, i18n.notesOpen || 'Open', function() {
                 closeContextMenu();
                 openAttachExternal(treeFileId);
+            });
+            // FR-TF-10/11 rev (sprint 20260906-024639): file item も**新規タブ**で開ける。
+            // 実処理は id ベースの新 bridge（FR-FTB）。viewer 非対象 / 50MB 超は host 側で
+            // OS 既定アプリへ縮退するので**項目は常に表示**する（FR-FTB-03）。
+            // i18n は tree 面の既存キー `notesOpenInNewTab` を再利用（新規キーを増やさない）。
+            addContextItem(contextMenu, i18n.notesOpenInNewTab || 'Open in new tab', function() {
+                closeContextMenu();
+                if (bridge && typeof bridge.openTreeFileInTab === 'function') { bridge.openTreeFileInTab(treeFileId); }
             });
             addContextItem(contextMenu, i18n.notesRevealInFinder || 'Reveal in Finder', function() {
                 closeContextMenu();
@@ -50876,6 +51499,13 @@ var notesFilePanel = (function() {
 
         listEl = document.getElementById('notesFileList');
         panelEl = document.getElementById('notesFilePanel');
+
+        // FR-TKN-01: ナビの keydown は **listEl 要素ローカル**に 1 本だけ張る（standalone harness は init が
+        // 2 回走ることがあるので __navWired で冪等化）。tabindex は notes-body-html 側で静的に付与済み。
+        if (listEl && !listEl.__navWired) {
+            listEl.__navWired = true;
+            listEl.addEventListener('keydown', onNavKeyDown);
+        }
 
         // FR-TF-16: drag 中 hover 抑止の set/clear 配線（受け側完結ライフサイクル）。
         // capture で拾う: 個別 handler（setupDropTarget 等）が preventDefault/return しても
@@ -60673,12 +61303,23 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         return 'move';
     }
 
-    /** drop 先ディレクトリ解決: dir 行 = その中 / file 行 = その親 / 余白 = ルート */
+    /**
+     * drop / paste 先ディレクトリの**規則**（座標非依存）: dir 行 = その中 / file 行 = その親 / 余白 = ルート。
+     *
+     * FR-CBD-04/07（sprint 20260906-095357）で clipboard（G / H）と共有するため、
+     * 座標依存部分（`e` から行を引く）と規則部分を分けた。この 1 行が
+     * **ユーザー依頼原文（「フォルダで cmd+v したらその中。ファイルで cmd+v されたら同じ階層」）と完全一致**する。
+     */
+    function resolveDstFromRel(rel, isDir) {
+        if (!rel) { return ''; }                 // 余白 / 選択なし = ルート
+        return isDir ? rel : parentRelOf(rel);
+    }
+
+    /** drop 先ディレクトリ解決（座標 → 行 → 規則）。規則は `resolveDstFromRel` が単一真実。 */
     function resolveDropDst(e) {
         var row = e.target && e.target.closest ? e.target.closest('.fv-row') : null;
-        if (row && row.dataset.isdir === '1') { return { dst: row.dataset.rel, row: row }; }
-        if (row) { return { dst: parentRelOf(row.dataset.rel), row: row }; }
-        return { dst: '', row: null };
+        if (!row) { return { dst: '', row: null }; }
+        return { dst: resolveDstFromRel(row.dataset.rel, row.dataset.isdir === '1'), row: row };
     }
 
     function onTreeDragOver(e) {
@@ -60720,15 +61361,31 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         var src = fvDragSrc;
         fvDragSrc = null; // one-shot 消費（2 連続 drag で stale を引き継がない）
         var b = bridge();
-        // W1: ビュー内移動（同一 view の FV MIME）
+        // W1: ビュー内移動（同一 view の FV MIME）— FR-FMV-01/02/03
+        //
+        // 🔴 修正前は `fv.relPath !== undefined` の**単数 payload 前提**で、複数選択 payload
+        //    （`{v:1, items:[…]}` は top-level relPath を持たない）を素通りさせて下の
+        //    `notifyDropUnsupported()` に落としていた（TASK-02 probe の実測 = folderViewMove 0 回 + 通知 1 回）。
+        //    全件は one-shot の `fvDragSrc.relPaths` にも入っていたが `void src;` で捨てられていた。
         var fv = readJson(e, FV_ENTRY_MIME);
-        if (fv && fv.relPath !== undefined) {
+        if (fv && (fv.relPath !== undefined || Array.isArray(fv.items))) {
             if (fv.folderLinkId !== currentLinkId) { notifyDropUnsupported(); return; }
-            // no-op ガード: 自己/自己子孫/同一親（fs 移動の意味が無い）
-            if (fv.relPath === dst) { return; }
-            if (fv.isDir && (dst === fv.relPath || dst.indexOf(fv.relPath + '/') === 0)) { return; }
-            if (parentRelOf(fv.relPath) === dst) { return; }
-            if (typeof b.folderViewMove === 'function') { b.folderViewMove(currentLinkId, fv.relPath, dst); }
+            // 複数 = items[]（正規化は共有ヘルパに委ねる。手書きしない）/ 単一 = 従来形式
+            var moveIds = Array.isArray(fv.items)
+                ? window.__batchPayload.extractBatchItems(fv).map(function (it) { return it.relPath; })
+                : [fv.relPath];
+            // FR-FMV-02 / INV-4: **全件検証 → 1 件でも不正なら drop 全体を拒否**（0 件処理）。
+            // 呼び出し元はここだけ（NFR-REL-1。dispatchFvMove の内部にも H 経路にも置かない）。
+            var pf = fvMovePreflight(moveIds, dst);
+            if (!pf.ok) {
+                // `same_parent` は純粋な no-op（既存の単数経路は**無通知 return**）。
+                // fs が壊れる self / descendant だけ理由を 1 回通知する（トーストを増やさない）。
+                if (pf.reason !== 'same_parent' && typeof b.notifyError === 'function') {
+                    b.notifyError(i18n().folderViewMoveIntoSelf || 'Cannot move a folder into itself.');
+                }
+                return;
+            }
+            dispatchFvMove(moveIds, dst, 'move');
             return;
         }
         // W3: tree md / file item（既存 MIME）→ #13 folderViewMoveIn
@@ -60780,7 +61437,9 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             return;
         }
         // それ以外（.out item / folder item / 外部 files / uri-list）= 不受理通知
-        //（受理 MIME は 4 群 — dnd-wiring §1 の明示裁定 + 2026-09-05 R25。src は W1 の one-shot なのでここでは不使用）
+        //（受理 MIME は 4 群 — dnd-wiring §1 の明示裁定 + 2026-09-05 R25）
+        // FR-FMV-01: W1 は payload の items[] を直接読むので one-shot の `src` は使わない
+        //（複数選択の全件を `src.relPaths` から拾う旧案は payload を単一真実にする方針で採らない）。
         void src;
         notifyDropUnsupported();
     }
@@ -61012,6 +61671,114 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
     }
 
     /**
+     * 移動のプリフライト（FR-FMV-02 / DOM-FvMovePreflight / INV-4）。
+     *
+     * **全件を検証して 1 件でも不正なら drop 全体を拒否**する（0 件処理）。
+     * per-item 除外にしないのは **fs 操作が部分適用を巻き戻せない**ため（generator_failures 2026-09-05）。
+     * 既存 2 面で方針が不揃い（FR-OMV-02.3 = 全体拒否 / FR-TMV の `moveItems` = per-id 除外）なので、
+     * fs を触る本 context は安全側（全体拒否）に倒す。
+     *
+     * 🔴 **呼び出し元は W1（D&D の drop ハンドラ）だけ**（NFR-REL-1）。
+     *    `dispatchFvMove` の内部には置かず、clipboard の H 経路（`mode:'copy'`）からも呼ばない。
+     *    H の最基本シナリオ（同じ階層への複製 = TC-CBD-40）は「既に同じ親」が**正常系**であり、
+     *    ここで全体拒否すると H が原理的に動かなくなる。
+     *
+     * @returns {{ ok: boolean, reason?: string }}
+     */
+    function fvMovePreflight(ids, dstDirRel) {
+        var dst = dstDirRel || '';
+        for (var i = 0; i < ids.length; i++) {
+            var rel = ids[i];
+            var e = findEntry(rel);
+            // ① 移動先 = 自分自身
+            if (rel === dst) { return { ok: false, reason: 'self' }; }
+            // ② フォルダを自分の子孫へ
+            if (e && e.isDir && (dst === rel || dst.indexOf(rel + '/') === 0)) { return { ok: false, reason: 'descendant' }; }
+            // ③ 既に同じ親（fs 移動の意味が無い = no-op）
+            if (parentRelOf(rel) === dst) { return { ok: false, reason: 'same_parent' }; }
+        }
+        return { ok: true };
+    }
+
+    /**
+     * F/G/H の clipboard payload を `text/html` の先頭タグに埋める属性名（DOM-ClipPayload）。
+     * OS clipboard に custom MIME は載せられないため、outliner 正典
+     * （`data-outliner-clipboard`）と同型の「HTML の data 属性に encodeURIComponent(JSON)」方式にする。
+     */
+    var FV_CLIP_ATTR = 'data-fractal-fv-clip';
+
+    function escapeHtmlText(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    /**
+     * linkedfd の選択を clipboard に書く（FR-CBD-01 / DOM-FvClipCopy）。
+     *
+     * 🔴 **keydown 駆動が必須**（HM-4）: linkedfd は `dropTextSelection()` でテキスト選択を毎回捨てるため
+     *    selection が常に collapsed で、**`copy` イベントがブラウザから発火しない**
+     *    （in-repo 前例: `editor.js` の table select モードの逐語コメント）。
+     * 🔴 **収集対象は `selection` 全件（フォルダを含む）**: `selectedFilesForDnd()` を使わない。
+     *    フォルダ除外は **HTML DataTransfer にディレクトリを載せられないという D&D 固有の制約**への救済で、
+     *    clipboard に持ち込むと機能を不要に削る（host 入口 `sendFolderViewToOutliner` は dir を
+     *    `walkFolderForImport` で構造ごと取り込める）。
+     * 🔴 実体を載せない（識別子のみ）。host が disk から解決する。
+     */
+    function writeFvClipboard() {
+        var rels = selection.slice();       // visibleRows 順に正規化済み（toggleRow / selectRange が保証）
+        if (rels.length === 0) { return false; }
+        var copyId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        var meta = { v: 1, folderLinkId: currentLinkId, relPaths: rels, copyId: copyId };
+        var plain = rels.join('\n');
+        var html = '<div ' + FV_CLIP_ATTR + '="' + encodeURIComponent(JSON.stringify(meta)) + '">'
+            + rels.map(escapeHtmlText).join('<br>') + '</div>';
+        var fallback = function () { try { navigator.clipboard.writeText(plain); } catch (e2) { /* ignore */ } };
+        try {
+            navigator.clipboard.write([
+                new ClipboardItem({
+                    'text/plain': new Blob([plain], { type: 'text/plain' }),
+                    'text/html': new Blob([html], { type: 'text/html' }),
+                }),
+            ]).catch(function (err) {
+                console.warn('[Notes] fv clipboard.write failed, falling back to plain text:', err);
+                fallback();
+            });
+        } catch (err) { fallback(); }
+        return true;
+    }
+
+    /**
+     * fv 内移動の dispatch 一元化（FR-FMV-03 / DOM-FvMoveDispatch）。
+     * precedent: `notes-file-panel.js` の `dispatchTreeMove`（裁定 R38 で webview 6 経路を 1 点に集約した形）。
+     *
+     * - 1 件 = 既存の単数 `folderViewMove`（**契約不変・byte 不変**。既存 spec を red にしない）
+     * - 複数 = 新 `folderViewMoveBatch` を **1 回**（NFR-FMV-01 / SEC-1: webview から N 回呼ぶと
+     *   host 側の件数ゲート `checkBatchLimit` を構造的に迂回する）
+     *
+     * 🔴 `mode` は**必ず forward** する（リテラルを書かない = design-review SYS-1）。
+     *    既定 `'move'` は引数のデフォルト値としてのみ存在し、H（clipboard 複製）が `'copy'` を渡したら
+     *    最後まで `'copy'` のまま host に届くこと（リテラルを書くと copy が move に化けて source が消える）。
+     * 🔴 `fvMovePreflight` は**ここでは呼ばない**（NFR-REL-1）。呼び出し元 = W1 の drop ハンドラだけ。
+     */
+    function dispatchFvMove(ids, dstDirRel, mode) {
+        var b = bridge();
+        var m = mode || 'move';
+        if (!ids || ids.length === 0) { return; }
+        if (ids.length === 1) {
+            if (typeof b.folderViewMove !== 'function') { return; }
+            // 🔴 `mode === 'move'`（= D&D）のときは **第 4 引数を渡さない**。
+            //    既存 spec（`folder-view-dnd.spec.ts` TC-FLV-39）が bridge 呼び出しの
+            //    **引数配列を完全一致で assert** しているため、引数を増やすと byte 不変が崩れる（実測で検出）。
+            //    `'copy'`（= H の clipboard 複製）のときだけ明示的に渡す。
+            if (m === 'copy') { b.folderViewMove(currentLinkId, ids[0], dstDirRel, m); }
+            else { b.folderViewMove(currentLinkId, ids[0], dstDirRel); }
+            return;
+        }
+        if (typeof b.folderViewMoveBatch === 'function') {
+            b.folderViewMoveBatch(currentLinkId, ids, dstDirRel, m);
+        }
+    }
+
+    /**
      * FR-MSEL-04 / NFR-MSEL-02 (§4-3b / TASK-29): note ツリー item を fv へ受け入れる dispatch。
      *
      * 🔴 **複数は配列 bridge を 1 回**呼ぶ。ここで N 回ループすると host 側の件数ゲート
@@ -61110,6 +61877,15 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 var parent = parentRelOf(selectedRel);
                 if (parent !== selectedRel && visibleRows.indexOf(parent) >= 0) { selectRow(parent); }
             }
+        } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey
+                   && (e.key === 'c' || e.key === 'C' || e.code === 'KeyC')) {
+            // FR-CBD-01 / DOM-FvClipCopy: 選択全件を clipboard へ。
+            // `e.metaKey || e.ctrlKey` の**両受け**（Linux/CI Chromium は copy/cut/paste を Control に束ねる）。
+            // rename 入力中は素通し = input のテキスト copy として動く（guard の 1 段目）。
+            if (renaming) { return; }
+            if (selection.length === 0) { return; }   // 何もしない（clipboard を上書きしない）
+            e.preventDefault();
+            writeFvClipboard();
         } else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
             // FR-FLV-28: Enter 単独 = インライン rename（IME 変換確定の Enter は除外 — precedent ガード）
             if (!selectedRel || e.isComposing || e.keyCode === 229 || renaming) { return; }
@@ -61304,7 +62080,119 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         setTimeout(function () { document.addEventListener('click', closeMenu, { once: true }); }, 0);
     }
 
-    window.__folderView = { open: open, destroy: destroy };
+    /**
+     * linkedfd の cmd+v 受け口（FR-CBD-04/07 / DOM-FvClipPaste / **ADRL-0118 = 案 B**）。
+     *
+     * 🔴 **treeEl への paste listener は採用不可**（HM-5）: Chromium は clipboard event の target を
+     *    selection 起点で決め `document.activeElement` を見ないため、collapsed / 空 selection では
+     *    **document.body** に落ちる（treeEl は body の子孫なので永久に来ない）。
+     * 🔴 **OS clipboard を単一の真実にする**（案 A = window 変数受け渡しを却下した根拠）:
+     *    案 A だと「linkedfd で cmd+c → outliner で cmd+c → linkedfd で cmd+v」で
+     *    **古い fv payload が貼られる**（clipboard の真実が 2 つに分裂）。TC-CBD-62 がその番人。
+     * 🔴 getData() は **await の前に同期で読み切る**（HM-6）。navigator.clipboard.readText() は使わない。
+     */
+    function onDocumentPaste(e) {
+        // ── guard 4 段（HM-B-11）。1 つでも欠けると既存の paste を奪う ──
+        if (renaming) { return; }                                    // ① rename 入力中
+        var t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) { return; }  // ②
+        var disp = window.__folderViewDispatcher;
+        // ③ active 面。
+        // 🔴 TASK-26 (DESIGN-3): ADRL-0118 は guard③ を
+        //    「`isFolderViewShown()` **かつ** `treeEl.contains(document.activeElement)`」と書いているが、
+        //    ここは前者だけにしている。理由 = **pane 排他**: `folder-view-dispatcher.js` の
+        //    `showFolderView()` は fv を出すとき outliner / markdown コンテナを `display:none` にするため、
+        //    `isFolderViewShown() === true` の間 outliner は DOM 上非表示で focus を保持できない
+        //    （後者を足しても真偽が一致する）。
+        //    ⚠️ この無害性は **pane 排他が保たれる限り**の話。将来 2-pane 表示（outliner + linkedfd 同時可視）が
+        //    入ると outliner にフォーカスしたまま `isFolderViewShown()===true` になり、
+        //    古い fv/outliner clipboard payload が outliner 内の通常 paste で誤爆しうる
+        //    （ADRL-0118 が案 A の却下理由に挙げた stale payload 誤爆と同種）。その時は後者を足す。
+        if (!disp || typeof disp.isFolderViewShown !== 'function' || !disp.isFolderViewShown()) { return; }
+        if (e.defaultPrevented) { return; }                          // ④
+        if (!e.clipboardData) { return; }
+
+        var html = '';
+        try { html = e.clipboardData.getData('text/html') || ''; } catch (err) { return; }
+        if (!html) { return; }
+
+        // 🔴 selectedRel が null（選択 0 件 = 余白相当）のとき findEntry を呼ばない
+        //    （parentRelOf(null) が例外になり、handler ごと落ちて **無反応**になる。実測で検出）
+        var selEntry = selectedRel ? findEntry(selectedRel) : null;
+        var dst = resolveDstFromRel(selectedRel, !!(selEntry && selEntry.isDir));
+        var b = bridge();
+
+        // ── G: outliner → linkedfd（data-outliner-clipboard の nodeIds）──
+        var om = html.match(/data-outliner-clipboard="([^"]*)"/);
+        if (om) {
+            var ometa = null;
+            try { ometa = JSON.parse(decodeURIComponent(om[1])); } catch (err) { ometa = null; }
+            if (ometa && Array.isArray(ometa.nodeIds) && ometa.nodeIds.length > 0 && ometa.sourceOutFileKey) {
+                e.preventDefault();
+                var mv = { outFileKey: ometa.sourceOutFileKey, nodeId: ometa.nodeIds[0] };
+                if (ometa.nodeIds.length > 1) { mv.nodeIds = ometa.nodeIds; }
+                // HM-8: 既存 host 入口（D&D / 「linkedfd に送る」と共有）。clipboard 専用 handler は作らない
+                if (typeof b.sendOutNodesToFolderLinkFromDrop === 'function') {
+                    b.sendOutNodesToFolderLinkFromDrop(mv, currentLinkId, dst);
+                }
+                return;
+            }
+        }
+
+        // ── H: linkedfd 内 c→v（data-fractal-fv-clip の relPaths）= **複製** ──
+        var fm = html.match(new RegExp(FV_CLIP_ATTR + '="([^"]*)"'));
+        if (fm) {
+            var fmeta = null;
+            try { fmeta = JSON.parse(decodeURIComponent(fm[1])); } catch (err) { fmeta = null; }
+            if (fmeta && fmeta.folderLinkId === currentLinkId && Array.isArray(fmeta.relPaths)) {
+                // ADRL-0120 の受容事項: **フォルダは skip**（fs の再帰複製経路が既存に無い。
+                // folderViewDuplicate も dir を拒否しているのでその方針に揃える）。
+                var files = [];
+                for (var i = 0; i < fmeta.relPaths.length; i++) {
+                    var en = findEntry(fmeta.relPaths[i]);
+                    if (en && !en.isDir) { files.push(fmeta.relPaths[i]); }
+                }
+                if (files.length === 0) { return; }   // 複製できるものが無い = 何もしない
+                e.preventDefault();
+                // 🔴 fvMovePreflight は**通さない**（NFR-REL-1）。H は「同じ階層への複製」が正常系で、
+                //    D&D 用の全体拒否ガード（既に同じ親 → reject）を掛けると原理的に動かなくなる。
+                dispatchFvMove(files, dst, 'copy');
+                return;
+            }
+        }
+        // fractal の payload が無ければ **何もしない**（preventDefault もしない = 既存の挙動を奪わない）。
+        // これだけで ADRL-0118 が却下した案 A の誤動作（他アプリ / outliner でコピーした後に
+        // 古い fv payload が貼られる）が構造的に消える。
+    }
+
+    // HM-B-12: **プロセス内で 1 回だけ登録**する。destroy() は document / window レベルの listener を
+    // 剥がさないため、open ごとに張ると累積して「cmd+v で N 枚貼られる」既発バグを再演する。
+    // precedent: folder-view-dispatcher.js の window keydown（IIFE 内 module レベルで 1 回登録し、
+    // ハンドラ内で isFolderViewShown() を動的に引く形）。
+    if (!window.__fvClipboardBound) {
+        window.__fvClipboardBound = true;
+        document.addEventListener('paste', onDocumentPaste);
+    }
+
+    // `fvMovePreflight` は D&D の判断ロジックそのもの（純関数）。
+    // precedent: `outliner.js` が `Outliner.selectionExportRoots()` を公開して
+    // `outliner-multiselect-internal-move.spec.ts` が直接検証しているのと同型。
+    //
+    // 🔴 TASK-24 (DET-5 / QUAL-5): **`fvMoveIds` は削除した**。
+    // 移動対象の解決規則（掴んだ行が選択に含まれるか / フォルダ除外 / 描画順）は
+    // dragstart handler が payload を組む時点で既に適用されており（`:402-405` の
+    // `inSelection` / `multi` / `selectedFilesForDnd()` / `selectedDirCount()`）、
+    // drop 側（W1）はその payload を `extractBatchItems` で読むだけ。
+    // `fvMoveIds` はこの規則の**二重実装**で、しかも**本番からは一度も呼ばれていなかった**
+    // （spec が公開 API 経由で直叩きするだけの dead seam = ハーネス限定登録）。
+    // dragstart が DataTransfer を組む以上この規則は dragstart 側に置くしかないので、
+    // 配線し直すのではなく削除して payload を単一真実にした。
+    // 解決規則の番人は TC-FMV-04/04b/04c（payload 観測）と TC-MSEL-05/05c/07。
+    window.__folderView = {
+        open: open, destroy: destroy,
+        fvMovePreflight: fvMovePreflight, dispatchFvMove: dispatchFvMove,
+        resolveDstFromRel: resolveDstFromRel,
+    };
 })();
 
     /**
@@ -62287,6 +63175,29 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             panelWidth || null,
             folderName
         );
+    };
+    // FR-TKN-08 / TC-TKN-13 (sprint 20260906-024639): host からの「open 完了応答」をテストから発火する。
+    // 本番では webview が host の postMessage を window 'message' で受け、
+    // notes-file-panel.js の window listener（:27）と bridge.onMessage 登録 handler の**両系統**が受信する。
+    // どちらの受け口でも駆動できるように 2 系統へ配送する（片方だけだと配線の片側を検証できない）。
+    // 固定 setTimeout に依存しない実装（NFR-TKN-02）を検証するため、**同期**の MessageEvent を使う。
+    window.__testApi.emitHostMessage = function(msg) {
+        var delivered = 0;
+        try {
+            window.dispatchEvent(new MessageEvent('message', { data: msg }));
+            delivered++;
+        } catch (e) { /* 環境差 — 下の handler 経路で代替 */ }
+        if (typeof window.__hostMessageHandler === 'function') {
+            window.__hostMessageHandler(msg);
+            delivered++;
+        }
+        return delivered;
+    };
+    /** open 応答の定型（メインペインのファイル切替 = fileChangeId 付き updateData）。 */
+    window.__testApi.emitUpdateData = function(fileChangeId, extra) {
+        var msg = { type: 'updateData', fileChangeId: (fileChangeId === undefined ? 1 : fileChangeId) };
+        if (extra) { Object.keys(extra).forEach(function(k) { msg[k] = extra[k]; }); }
+        return window.__testApi.emitHostMessage(msg);
     };
     window.__testApi.getSerializedData = function() {
         if (window.__testApi.lastSyncData) {

@@ -325,6 +325,8 @@ test.describe('FR-SE-03/04: 下流保護 + H1 先頭行同期 (TASK-02)', () => 
         await page.evaluate(() => { (window as any).__testApi.messages = []; });
         // Cmd+A で全 node 選択 → Cmd+C（実キー経路）
         await page.locator('.outliner-node[data-id="n2"] .outliner-text').click();
+        // FR-MSEL-06 rev3 / ADRL-0116: Cmd+A は 2 段階（1 回目 = node の text 全選択 / 2 回目 = 全 node 選択）
+        await page.keyboard.press('Meta+a');
         await page.keyboard.press('Meta+a');
         await page.waitForTimeout(50);
         await page.keyboard.press('Meta+c');

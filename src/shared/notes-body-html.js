@@ -116,6 +116,11 @@ function generateNotesFilePanelHtml(options) {
             border-color: transparent;
         }
         .file-panel-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+        /* FR-TKN-01 rev（ユーザー裁定 2026-09-06・手動検収）: キーボードナビのために tabindex="0" を持たせた
+         * 結果、フォーカス時にブラウザ既定の focus ring（青枠）がパネル全体に出るのを止める。
+         * **フォーカス位置の情報は失われない** — focus 行は選択色（water-blue）で示される（FR-TKN-06）。 */
+        .file-panel-list:focus,
+        .file-panel-list:focus-visible { outline: none; }
 
         /* ── File item ── */
         .file-panel-item {
@@ -138,6 +143,14 @@ function generateNotesFilePanelHtml(options) {
         .file-panel-item.file-panel-selected:hover {
             /* 2026-09-04 R16 rev2（ユーザー裁定）: note tree / linkedfd の複数選択は青系 --fr-color-selection-bg
              *（黄色は「うざい」で却下。outliner の範囲選択だけ黄色 = 編集面の focus 行（青）と区別する役割差） */
+            background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8));
+        }
+        /* FR-TKN-06 rev（ユーザー裁定 2026-09-06・手動検収）: **仮想フォルダのヘッダ行**も ↑↓ の focus 行に
+         * なるので同じ選択色を出す。旧実装は paintTreeSelection がクラスを付けていたのに、色のルールが
+         * .file-panel-item. 限定で folder header に当たらず「フォルダだけ青くならない」状態だった。
+         * 色は item と**同一の変数**を使う（新色を作らない）。 */
+        .file-panel-folder-header.file-panel-selected,
+        .file-panel-folder-header.file-panel-selected:hover {
             background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8));
         }
         .file-panel-item:hover,
@@ -630,7 +643,8 @@ function generateNotesFilePanelHtml(options) {
                     <span style="flex:1"></span>
                     <button class="file-panel-btn" id="filePanelToday" title="${m('notesToday', 'Today')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="16" height="16" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ${m('notesToday', 'Today')}</button>
                 </div>
-                <div class="file-panel-list" id="notesFileList"></div>
+                <!-- FR-TKN-01: キーボードナビ（↑↓ + Enter）の受け口。要素ローカル keydown を張るため tabindex を持たせる -->
+                <div class="file-panel-list" id="notesFileList" tabindex="0"></div>
             </div>
             <div class="file-panel-content" id="filePanelContentSearch" style="display:none">
                 <div class="file-panel-search-input-wrap">

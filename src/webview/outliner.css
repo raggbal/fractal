@@ -39,8 +39,8 @@
         --outliner-subtext-color: #888;
         --outliner-error-color: #d00;
         --outliner-accent-fg: #fff;
-        --outliner-selection-bg: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
-        --outliner-selection-text-bg: rgba(125, 196, 223, 0.38);
+        --outliner-selection-bg: rgba(255, 193, 7, 0.30);
+        --outliner-selection-text-bg: rgba(125, 196, 223, 0.45);
     }
 }
 
@@ -470,9 +470,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 /* hover での色反転は削除 (ユーザー要望: 強調しない)。
  * is-focused (keyboard / cursor active 行) は notes 右サイドパネルの hover と同じ淡 water-blue で全行ハイライト
  * (table mode は他 cell も同色、toggleRowCellsClass で同期)。
- * is-selected (範囲選択) は同じ water-blue 系だが濃い tint (mindmap の複数選択と同色) で、
- * focus (最薄) との濃度差で区別する。orange tint は撤廃 (2026-09-05 / 裁定 R35 / FR-OSC-01 —
- * filetree / linkedfd / mindmap が全部 blue の中で outliner だけ黄色く浮いていた)。 */
+ * is-selected (選択モードの node 選択) は **amber** (--outliner-selection-bg)。
+ * focus (淡 water-blue) と**色相**で区別する — 濃度差ではない (FR-OSC-01 rev2 / ADRL-0115)。
+ * ::selection (--outliner-selection-text-bg) も青系のままにして、Cmd+A の 2 段階
+ * (1 回目 = text 範囲 / 2 回目 = 全 node) が色で見分けられるようにしている。
+ * 履歴: 2026-09-05 の裁定 R35 で一度 blue に統一したが、2026-09-06 のユーザー裁定で
+ * 「outliner だけ黄色」に戻した (他 3 面 = filetree / linkedfd / mindmap は blue のまま。
+ * --fr-color-selection-bg と --fr-bg-selection を黄色にしないことで波及を防ぐ = TC-OSM-34)。 */
 .outliner-node.is-focused {
     background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8));
 }
@@ -487,6 +491,16 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 
 .outliner-container ::selection {
     background: var(--outliner-selection-text-bg);
+}
+
+/* FR-OSM-05 / ADRL-0114: 選択モードでは caret を視覚的に消す。
+ * 手段は caret-color のみ（paint-time 専用なので keydown / input / ::selection / clipboard に影響しない）。
+ * 🔴 blur() / contenteditable=false は禁止 — outliner の cmd+v の入口は textEl の paste イベント 1 本だけで
+ *    （document / window レベルの clipboard listener はリポ全体に無い）、focus を捨てると
+ *    cmd+c/x/v と Cmd+A が全滅し FR-CBD（面間 clipboard 複写）が実装不能になる（HM-1）。
+ * precedent: styles.css の table.tbl-select-mode th/td（md エディタの表の select モード）。 */
+.outliner-tree.is-select-mode .outliner-text {
+    caret-color: transparent;
 }
 
 .outliner-node.is-search-match {
@@ -1074,8 +1088,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     --outliner-text: #d4d4d4;
     --outliner-hover: rgba(255,255,255,0.05);
     --outliner-active: rgba(0,120,212,0.2);
-    --outliner-selection-bg: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
-    --outliner-selection-text-bg: rgba(125, 196, 223, 0.38);
+    --outliner-selection-bg: rgba(255, 202, 40, 0.22);
+    --outliner-selection-text-bg: rgba(125, 196, 223, 0.45);
     --outliner-subtext: #888;
     --outliner-subtext-color: #888;
     --outliner-error-color: #f44747;
@@ -1105,8 +1119,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         --outliner-text: #d4d4d4;
         --outliner-hover: rgba(255,255,255,0.05);
         --outliner-active: rgba(0,120,212,0.2);
-        --outliner-selection-bg: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
-        --outliner-selection-text-bg: rgba(125, 196, 223, 0.38);
+        --outliner-selection-bg: rgba(255, 202, 40, 0.22);
+        --outliner-selection-text-bg: rgba(125, 196, 223, 0.45);
         --outliner-subtext: #888;
         --outliner-subtext-color: #888;
         --outliner-error-color: #f44747;
@@ -1705,9 +1719,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 /* 行 state ハイライト (table mode の text / multiselect / date cell)。
  * is-focused (cursor 行) は notes 右サイドパネル hover と同じ淡 water-blue で全行ハイライト
  * — outline 列以外 (text / multiselect / date / datetime) も同色になり行が一目で分かる。
- * is-selected (範囲選択) は同じ water-blue 系だが濃い tint (mindmap の複数選択と同色) で、
- * focus (最薄) との濃度差で区別する。orange tint は撤廃 (2026-09-05 / 裁定 R35 / FR-OSC-01 —
- * filetree / linkedfd / mindmap が全部 blue の中で outliner だけ黄色く浮いていた)。 */
+ * is-selected (選択モードの node 選択) は **amber** (--outliner-selection-bg)。
+ * focus (淡 water-blue) と**色相**で区別する — 濃度差ではない (FR-OSC-01 rev2 / ADRL-0115)。
+ * ::selection (--outliner-selection-text-bg) も青系のままにして、Cmd+A の 2 段階
+ * (1 回目 = text 範囲 / 2 回目 = 全 node) が色で見分けられるようにしている。
+ * 履歴: 2026-09-05 の裁定 R35 で一度 blue に統一したが、2026-09-06 のユーザー裁定で
+ * 「outliner だけ黄色」に戻した (他 3 面 = filetree / linkedfd / mindmap は blue のまま。
+ * --fr-color-selection-bg と --fr-bg-selection を黄色にしないことで波及を防ぐ = TC-OSM-34)。 */
 .outliner-cell-text.is-focused,
 .outliner-cell-multiselect.is-focused,
 .outliner-cell-date.is-focused {

@@ -47,13 +47,15 @@ const focIds = (page: any) => page.evaluate(() =>
     Array.from(document.querySelectorAll('.outliner-node.is-focused')).map(e => (e as HTMLElement).dataset.id));
 const rowCount = (page: any) => page.locator('.outliner-node').count();
 
-async function clickAt(page: any, selector: string, opts: { meta?: boolean; frac?: number } = {}) {
+async function clickAt(page: any, selector: string, opts: { meta?: boolean; shift?: boolean; frac?: number } = {}) {
     const bb = await page.locator(selector).first().boundingBox();
     expect(bb, 'target must be present: ' + selector).toBeTruthy();
     const x = bb!.x + bb!.width * (opts.frac === undefined ? 0.5 : opts.frac);
     const y = bb!.y + bb!.height / 2;
     if (opts.meta) { await page.keyboard.down('Meta'); }
+    if (opts.shift) { await page.keyboard.down('Shift'); }
     await page.mouse.click(x, y);
+    if (opts.shift) { await page.keyboard.up('Shift'); }
     if (opts.meta) { await page.keyboard.up('Meta'); }
     await page.waitForTimeout(60);
 }
@@ -152,12 +154,24 @@ test.describe('FR-MSC-01 cmd+click は行のどこでも複数選択', () => {
         expect(selectedBg).not.toBe(plainBg);
     });
 
-    test('TC-MSC-07: 📄 page icon の cmd+click は従来どおり新規タブ（選択は作らない・FR-CT-03 非退行）', async ({ page }) => {
+    // rev（sprint 20260906-024639 / ADRL-0112 / FR-CT-03 rev2 / FR-CT-06）:
+    // 「新規タブで開く」の修飾は **cmd+shift+click** に振り替わった。cmd **単独**は通常 open（sidepanel）に戻る。
+    // どちらの場合も「選択は作らない」（アイコン click は行の複数選択トグルに入らない）= 本 TC の本来の主題は不変。
+    // 許可: test_update（仕様変更起因）
+    test('TC-MSC-07 rev: 📄 page icon の cmd+shift+click は新規タブ / cmd 単独は通常 open（どちらも選択は作らない）', async ({ page }) => {
         await boot(page);
         await page.evaluate(() => { (window as any).__testApi.messages.length = 0; });
+        await clickAt(page, '.outliner-node[data-id="p"] .outliner-page-icon', { meta: true, shift: true });
+        let types = await page.evaluate(() => (window as any).__testApi.messages.map((m: any) => m.type));
+        expect(types, 'cmd+shift+click = 新規タブ').toContain('openPageInTab');
+        expect(await selIds(page), '選択は作らない').toEqual([]);
+
+        // cmd 単独は通常 open（「何も起きない面」を作らない = ADRL-0112 決定 2）
+        await page.evaluate(() => { (window as any).__testApi.messages.length = 0; });
         await clickAt(page, '.outliner-node[data-id="p"] .outliner-page-icon', { meta: true });
-        const types = await page.evaluate(() => (window as any).__testApi.messages.map((m: any) => m.type));
-        expect(types).toContain('openPageInTab');
+        types = await page.evaluate(() => (window as any).__testApi.messages.map((m: any) => m.type));
+        expect(types, 'cmd 単独 = sidepanel で開く').toContain('openPageInSidePanel');
+        expect(types, 'cmd 単独でタブは開かない').not.toContain('openPageInTab');
         expect(await selIds(page)).toEqual([]);
     });
 

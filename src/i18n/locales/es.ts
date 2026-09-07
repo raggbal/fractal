@@ -278,6 +278,8 @@ export const webviewMessages = {
   notesTabSearch: 'Buscar',
   notesNewFolder: 'Nueva carpeta',
   notesOpenInNewTab: 'Abrir en una nueva pestaña',
+  outlinerOpenPageInNewTab: 'Abrir la página en una nueva pestaña',
+  outlinerOpenFileInNewTab: 'Abrir el archivo en una nueva pestaña',
   tabOpenInStandalone: 'Abrir en modo independiente',
   tabOpenInOsDefaultApp: 'Abrir con la aplicación predeterminada del SO',
   tabDuplicate: 'Duplicar pestaña',

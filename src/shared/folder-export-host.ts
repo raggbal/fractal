@@ -113,5 +113,12 @@ export async function runFolderExportWithDialog(target: FolderExportTarget): Pro
                 .replace('{skipped}', String(skipped));
             vscode.window.showInformationMessage(msg);
         },
+        // FR-CBD-06 / DOM-ExportLimitParity: >FOLDER_EXPORT_MAX_FILES は 0 件処理で中断し理由を通知する。
+        // 🔴 ここを配線しないと「呼び出し元ゼロのゲート」（generator_failures 2026-09-02）になり、
+        //    2001 件が **無言で 0 件処理**されてユーザーには何も起きなかったように見える。
+        //    文言は import 側と同じ既存キーを使う（新 i18n key を作らない = 7 locale の追随を増やさない）。
+        notifyLimitExceeded: () => {
+            vscode.window.showWarningMessage(t('importFolderTooMany'));
+        },
     });
 }

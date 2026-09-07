@@ -26,6 +26,13 @@ var notesFilePanel = (function() {
     // fetch → blob → same-origin blob URL 経由でダウンロードする（viewer の fetch 経路と同じ到達性）
     window.addEventListener('message', function (e) {
         var m = e.data;
+        // FR-TKN-08 / NFR-TKN-02: Enter で開いた直後の host 応答で **1 回だけ**ツリーへフォーカスを戻す。
+        // 開いた先（メインペイン / sidepanel / viewer）が focus を奪う実機挙動への対処で、
+        // **固定 setTimeout で「当たること」を期待する実装にしない**（イベント駆動の one-shot）。
+        if (m && _navRefocusPending && (m.type === 'updateData' || m.type === 'showNoteViewer' || m.type === 'showFolderView')) {
+            _navRefocusPending = false;
+            if (listEl && typeof listEl.focus === 'function') { listEl.focus(); }
+        }
         if (!m || m.type !== 'triggerFileDownload' || !m.fileUri) { return; }
         fetch(m.fileUri).then(function (resp) {
             if (!resp.ok) { throw new Error('fetch ' + resp.status); }
@@ -225,6 +232,16 @@ var notesFilePanel = (function() {
     var treeSelection = [];   // 選択集合（描画順に正規化）
     var treeAnchorId = null;  // 範囲の起点
     var treeFocusId = null;   // キーボードの現在位置
+    // FR-TKN-03 / ADRL-0113: **ナビ専用の第 2 行順配列**。
+    //   `visibleItemIds` = 選択集合と D&D の順序の単一真実（`.file-panel-item` のみ・不変）
+    //   `navRowIds`      = キーボード移動の行順の単一真実（**仮想フォルダのヘッダ行を含む**）
+    // 走査根はどちらも `listEl`（`#notesFileList`）。Favorites（`#notesFavoritesList`）と
+    // 検索結果（`#notesSearchResults`）は listEl の**兄弟**なので構造的に混入しない（TC-TKN-07 / TC-TKN-19）。
+    // folder 行は `'folder:' + id` の prefix 付きで持つ（file item の id 空間と衝突させない）。
+    var navRowIds = [];
+    // FR-TKN-08: Enter で開いた直後の 1 回だけ、host 応答（updateData 等）でツリーへフォーカスを戻す。
+    // **固定 setTimeout に依存しない**（NFR-TKN-02）— イベント駆動の one-shot フラグ。
+    var _navRefocusPending = false;
 
     /** Hard MUST（NFR-MSEL-01）: テキスト範囲を捨てる（clipboard / D&D を奪われないため）。 */
     function dropTextSelection() {
@@ -250,11 +267,60 @@ var notesFilePanel = (function() {
         });
     }
 
+    /**
+     * FR-TKN-03: ナビ行順配列を作り直す（`rebuildVisibleItemIds` と**必ず対で呼ぶ** = ADRL-0113 Consequences）。
+     * `visibleItemIds` と同じ DOM 走査順・同じ除外規則（Favorites / collapsed 配下）に
+     * **仮想フォルダのヘッダ行**を加えるだけ。したがって `visibleItemIds` は常に `navRowIds` の部分列。
+     */
+    function rebuildNavRowIds() {
+        navRowIds = [];
+        if (!listEl) { return; }
+        var rows = listEl.querySelectorAll('.file-panel-item, .file-panel-folder > .file-panel-folder-header');
+        Array.prototype.forEach.call(rows, function (el) {
+            if (el.classList.contains('file-panel-folder-header')) {
+                var wrap = el.parentElement;
+                if (!wrap || !wrap.dataset || !wrap.dataset.folderId) { return; }
+                // 親が collapsed のフォルダの中にあるヘッダ（= 入れ子）は非表示なので除外。
+                // 自分自身が collapsed でも**ヘッダは見えている**ので除外しない。
+                var ancestor = wrap.parentElement && wrap.parentElement.closest
+                    ? wrap.parentElement.closest('.file-panel-folder.collapsed') : null;
+                if (ancestor) { return; }
+                navRowIds.push('folder:' + wrap.dataset.folderId);
+                return;
+            }
+            if (el.dataset && el.dataset.favSection === '1') { return; }
+            if (el.closest && el.closest('.file-panel-folder.collapsed')) { return; }
+            var id = el.dataset && el.dataset.fileId;
+            if (id) { navRowIds.push(id); }
+        });
+    }
+
+    /** ナビ行 id → { el, kind, id }（`jumpToExploreItem` と同じセレクタ規約）。 */
+    function resolveNavRow(navId) {
+        if (!navId || !listEl) { return null; }
+        if (navId.indexOf('folder:') === 0) {
+            var fid = navId.slice('folder:'.length);
+            var fel = listEl.querySelector('[data-folder-id="' + CSS.escape(fid) + '"] > .file-panel-folder-header');
+            return fel ? { el: fel, kind: 'folder', id: fid } : null;
+        }
+        var iel = listEl.querySelector('[data-item-id="' + CSS.escape(navId) + '"]');
+        return iel ? { el: iel, kind: 'item', id: navId } : null;
+    }
+
     function paintTreeSelection() {
         if (!listEl) { return; }
         Array.prototype.forEach.call(listEl.querySelectorAll('.file-panel-item'), function (el) {
             var id = el.dataset && el.dataset.fileId;
             el.classList.toggle('file-panel-selected', !!id && treeSelection.indexOf(id) >= 0);
+        });
+        // FR-TKN-06: folder header に focus が乗るケースだけは選択集合に入らない（FR-MSEL-05 優先 = ADRL-0113 の例外）。
+        // 見た目は既存の選択色を流用する（新しい CSS クラス・新色は追加しない）。
+        var focusFolderId = (treeFocusId && treeFocusId.indexOf('folder:') === 0)
+            ? treeFocusId.slice('folder:'.length) : null;
+        Array.prototype.forEach.call(listEl.querySelectorAll('.file-panel-folder > .file-panel-folder-header'), function (el) {
+            var wrap = el.parentElement;
+            var fid = wrap && wrap.dataset ? wrap.dataset.folderId : null;
+            el.classList.toggle('file-panel-selected', !!fid && fid === focusFolderId);
         });
     }
 
@@ -307,9 +373,13 @@ var notesFilePanel = (function() {
     function renderTree() {
         renderTreeInner();
         rebuildVisibleItemIds();
+        rebuildNavRowIds();   // ★ ADRL-0113: 2 本の行順配列は**必ず同時に**更新する（片方だけの地点を作らない）
         // 再描画で消えた item の選択を落とす（折りたたみ / 削除 / フィルタ）
         treeSelection = treeSelection.filter(function (id) { return visibleItemIds.indexOf(id) >= 0; });
         if (treeAnchorId && visibleItemIds.indexOf(treeAnchorId) < 0) { treeAnchorId = null; }
+        // FR-TKN-07: focus id の生存確認（index はキャッシュせず毎回引き直す）。消えていたら null に落とし、
+        // 次の ↑↓ が先頭/末尾から再開できるようにする（例外にしない）。
+        if (treeFocusId && navRowIds.indexOf(treeFocusId) < 0) { treeFocusId = null; }
         paintTreeSelection();
     }
 
@@ -393,6 +463,120 @@ var notesFilePanel = (function() {
 
     // FR-FLV-10: folder link click → folder view 表示（dispatcher は TASK-07 実装。
     // typeof ガード付き — 不在時は no-op。broken は呼び出し側で relink に分岐）
+    /** 行の kind を **file 記述子から**判定する純述語（createFileElement の closure を持たない Enter 経路でも使う）。 */
+    function rowKindOf(f) {
+        if (!f) { return 'out'; }
+        return f.kind || (/\.md$/i.test(f.filePath || '') ? 'md' : 'out');
+    }
+    function isFolderLinkRow(f) { return rowKindOf(f) === 'folder'; }
+    function isAttachRow(f) { return rowKindOf(f) === 'file'; }
+
+    /**
+     * FR-TKN-04: 行を「開く」（kind 別の既存 3 経路）。**click / pointerup 保険 / Enter の共有**。
+     * 選択の更新は呼び出し側が済ませておく（この関数は open だけを担う）。
+     * 3 kind 分岐が click と pointerup に二重に書かれていたのを 1 本に寄せた（3 箇所目 = Enter を足す前に解消）。
+     */
+    function openTreeRow(f) {
+        if (!f) { return; }
+        if (isFolderLinkRow(f)) {
+            if (f.broken) {
+                if (bridge.relinkFolderLink) { bridge.relinkFolderLink(f.id); }
+            } else {
+                openFolderView(f.id, f.title || 'Folder');
+            }
+            return;
+        }
+        if (isAttachRow(f)) { openAttachExternal(f.id); return; }
+        openItemFile(f.filePath);
+    }
+
+    /** ナビ行 id → 記述子（folder は structure.items / item は fileList から引く）。 */
+    function navRowDescriptor(navId) {
+        if (!navId) { return null; }
+        if (navId.indexOf('folder:') === 0) {
+            var fid = navId.slice('folder:'.length);
+            var folder = (structure && structure.items) ? structure.items[fid] : null;
+            return folder ? { kind: 'folder', id: fid, folder: folder } : { kind: 'folder', id: fid, folder: { id: fid } };
+        }
+        for (var i = 0; i < fileList.length; i++) {
+            if (fileList[i] && fileList[i].id === navId) { return { kind: 'item', id: navId, f: fileList[i] }; }
+        }
+        return null;
+    }
+
+    /** FR-TKN-05: focus 行を可視範囲に入れる（↑↓ 連打で画面が跳ねないよう `nearest`）。 */
+    function revealNavRow(navId) {
+        var r = resolveNavRow(navId);
+        if (!r || !r.el || typeof r.el.scrollIntoView !== 'function') { return; }
+        r.el.scrollIntoView({ block: 'nearest' });
+    }
+
+    /**
+     * FR-TKN-02: focus を navId へ移す。**focus ≡ selection**（選択も 1 件に置き換える）。
+     * 例外: folder header は選択集合に入れない（FR-MSEL-05 優先 = ADRL-0113）。
+     * **open 系を 1 つも呼ばない**（右コンテンツは変わらない）。
+     */
+    function setNavFocus(navId) {
+        if (!navId) { return; }
+        if (navId.indexOf('folder:') === 0) {
+            treeFocusId = navId;
+            treeSelection = [];
+            treeAnchorId = null;
+            dropTextSelection();
+            paintTreeSelection();
+        } else {
+            selectTreeItem(navId);   // focus = anchor = id / selection = [id]（既存関数と意味論が一致）
+        }
+        revealNavRow(navId);
+    }
+
+    /** ↑↓ の 1 行移動（端で留まる = 循環しない。focus が無ければ先頭/末尾から）。 */
+    function moveNavFocus(delta) {
+        if (!navRowIds.length) { return; }
+        var cur = treeFocusId ? navRowIds.indexOf(treeFocusId) : -1;
+        var next;
+        if (cur < 0) {
+            next = delta > 0 ? 0 : navRowIds.length - 1;
+        } else {
+            next = cur + delta;
+            if (next < 0) { next = 0; }
+            if (next > navRowIds.length - 1) { next = navRowIds.length - 1; }
+        }
+        setNavFocus(navRowIds[next]);
+    }
+
+    /** FR-TKN-04: Enter = 決定（item は kind 別に開く / 仮想フォルダは展開トグル）。 */
+    function activateNavFocus() {
+        if (!treeFocusId) { return; }
+        var d = navRowDescriptor(treeFocusId);
+        if (!d) { return; }
+        if (d.kind === 'folder') {
+            if (bridge && typeof bridge.toggleFolder === 'function') { bridge.toggleFolder(d.id); }
+            return;
+        }
+        // FR-TKN-08: 開いた先がフォーカスを奪う実機挙動に備え、host 応答で 1 回だけツリーへ戻す
+        //（固定 timer は使わない = NFR-TKN-02）。
+        _navRefocusPending = true;
+        openTreeRow(d.f);
+        if (listEl && typeof listEl.focus === 'function') { listEl.focus(); }
+    }
+
+    /** FR-TKN-01: 要素ローカル keydown（document レベルにしない — 既存の入力欄 keydown と競合させない）。 */
+    function onNavKeyDown(e) {
+        if (!e) { return; }
+        // 入力欄・contenteditable（rename / タイトル編集）が起点なら何もしない
+        var t = e.target;
+        if (t && t !== listEl) {
+            var tag = t.tagName ? String(t.tagName).toUpperCase() : '';
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || t.isContentEditable) { return; }
+        }
+        // NFR-TKN-03: IME 変換中の Enter は変換確定が正（open に使わない）
+        if (e.isComposing || e.keyCode === 229) { return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); moveNavFocus(1); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); moveNavFocus(-1); return; }
+        if (e.key === 'Enter') { e.preventDefault(); activateNavFocus(); return; }
+    }
+
     function openFolderView(folderLinkId, title) {
         var d = window.__folderViewDispatcher;
         if (d && typeof d.showFolderView === 'function') {
@@ -405,7 +589,9 @@ var notesFilePanel = (function() {
         // FR-TF-02 (sprint 20260809): listFiles が付与する kind ('out'|'md'|'file') で 3 値描画。
         // 拡張子推測 (/\.md$/i) をやめる — 添付 file が `a.md` という名でも file として扱う (誤判定防止)。
         // 後方互換: kind 未付与の旧 entry は従来どおり拡張子で md/out を推測 (file 扱いにはしない)。
-        var kind = f.kind || (/\.md$/i.test(f.filePath || '') ? 'md' : 'out');
+        // ★ reviewer iteration 1 QUAL-2: 判定式は `rowKindOf(f)` に一本化（Enter 経路と同じ 1 箇所）。
+        //   kind の新値を足すときに片側だけ直る drift を構造的に消す。
+        var kind = rowKindOf(f);
         var isMd = kind === 'md';
         var isAttach = kind === 'file';
         // FR-FLV-03: folder link（第 4 kind）。broken = リンク切れ表示（listFiles の派生フラグ）
@@ -443,6 +629,29 @@ var notesFilePanel = (function() {
         item.innerHTML = icon + '<span class="file-panel-item-title">' + escapeHtml(f.title || 'Untitled') + '</span>';
 
         item.addEventListener('click', function(e) {
+            // FR-CT-01/02 rev2 + FR-CT-04（ADRL-0112 / 裁定 R1・R13）: **cmd(ctrl)+shift+click = 新規タブ**。
+            // 掴む場所は行のどこでもよい（アイコンに限定しない = FR-MSC-01 と同じ思想）。
+            // ★ この分岐は shift 範囲選択・cmd トグルより**前**に置く（後ろだと修飾の組合せが先に食われる）。
+            if (e && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+                e.preventDefault();
+                selectTreeItem(f.id);        // 選択は 1 件に（focus も移す）
+                if (isFolderLink) {
+                    // linkedfd は既存の folder タブ経路（host 往復なしの webview 完結）
+                    var tmNew = window.__notesTabManager;
+                    if (!isBrokenLink && tmNew && typeof tmNew.openInNewTab === 'function') {
+                        tmNew.openInNewTab(f.id, 'folder', f.title || 'Folder');
+                    }
+                    return;
+                }
+                if (isAttach) {
+                    // FR-CT-04 / FR-FTB: file item は id ベースの新 bridge（絶対パスは送らない）
+                    if (bridge && typeof bridge.openTreeFileInTab === 'function') { bridge.openTreeFileInTab(f.id); }
+                    return;
+                }
+                // md / .out は既存の webview 内タブ経路
+                if (bridge && typeof bridge.openFileInTab === 'function') { bridge.openFileInTab(f.filePath); }
+                return;
+            }
             // FR-MSEL-03: shift+click = 連続範囲選択（**開かない**）。
             if (e && e.shiftKey && !(e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
@@ -452,25 +661,17 @@ var notesFilePanel = (function() {
             // FR-MSEL-03 rev2（ユーザー裁定 2026-09-04・手動テスト (1)）: cmd/ctrl+click = **不連続の単品トグル選択**
             //（**開かない**）。旧 FR-CT-01 の「cmd+click = webview 内タブで開く」は右クリック
             // 「Open in new tab」に一本化する（ADRL-0108「不連続選択は非対応」を supersede）。
-            if (e && (e.metaKey || e.ctrlKey)) {
+            // ★ rev3（ADRL-0112）: cmd+shift は上の新規タブ分岐が処理済みなので `!e.shiftKey` で絞る。
+            if (e && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
                 e.preventDefault();
                 toggleTreeItem(f.id);
                 return;
             }
             // 修飾なし click: 従来どおり開く + 選択を 1 件にリセットして anchor を移す
             selectTreeItem(f.id);
-            // FR-FLV-10/25: folder link — broken は再指定 / 通常はフォルダビュー
-            if (isFolderLink) {
-                if (isBrokenLink) {
-                    if (bridge.relinkFolderLink) bridge.relinkFolderLink(f.id);
-                    return;
-                }
-                openFolderView(f.id, f.title || 'Folder');
-                return;
-            }
-            // FR-TF-02: 添付 file は OS 既定アプリで開く（file はタブ化不可）。
-            if (isAttach) { openAttachExternal(f.id); return; }
-            openItemFile(f.filePath);
+            if (listEl && typeof listEl.focus === 'function') { listEl.focus(); }   // FR-TKN-01: 以降の ↑↓ をツリーで受ける
+            // FR-FLV-10/25 / FR-TF-02: kind 別の open は openTreeRow に一本化（click / pointerup / Enter で共有）
+            openTreeRow(f);
         });
         // bug-fix 2026-08-05: D&D 直後の 1 回目 click が無視される件。
         // D&D 応答の notesFileListChanged → renderTree() が item を全再構築するため、
@@ -478,27 +679,21 @@ var notesFilePanel = (function() {
         // 発火しない（mousedown/mouseup が別要素）。pointerup ベースの保険を張り、
         // 「直近の pointerdown と同じ item 上で pointerup」なら click 相当として openFile する。
         // click も発火した場合は openItemFile 内の currentFile ガードで二重送信されない。
+        // ★ FR-CT-06（ADRL-0112 決定 5）: `e.shiftKey` を early return に加える。
+        //   shift 単独 click は範囲選択のみで **open を発火させない**（従来は保険経路が open を
+        //   二重発火しうる既存の潜在バグだった）。cmd/ctrl（トグル・新規タブ）も従来どおり除外。
         item.addEventListener('pointerdown', function(e) {
-            if (e.button !== 0 || e.metaKey || e.ctrlKey) { _pointerDownItemId = null; return; }
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) { _pointerDownItemId = null; return; }
             _pointerDownItemId = f.id || f.filePath;
         });
         item.addEventListener('pointerup', function(e) {
-            if (e.button !== 0 || e.metaKey || e.ctrlKey) { return; }
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) { return; }
             if (_pointerDownItemId !== (f.id || f.filePath)) { return; }
             _pointerDownItemId = null;
             if (dragItemId) { return; } // drag セッション中（dragend 前）は発火しない
-            // FR-FLV-10: folder link も pointerup 保険（renderTree 全再構築で click 合成が死ぬ既知 race）
-            if (isFolderLink) {
-                if (isBrokenLink) {
-                    if (bridge.relinkFolderLink) bridge.relinkFolderLink(f.id);
-                } else {
-                    openFolderView(f.id, f.title || 'Folder');
-                }
-                return;
-            }
-            // FR-TF-02: 添付 file は click と同じく OS 既定アプリで開く（openAttachExternal 内で二重呼び出し dedup）
-            if (isAttach) { openAttachExternal(f.id); return; }
-            openItemFile(f.filePath);
+            // FR-FLV-10: folder link も pointerup 保険（renderTree 全再構築で click 合成が死ぬ既知 race）。
+            // 分岐は click / Enter と同じ openTreeRow を共有する（二重記述を作らない）。
+            openTreeRow(f);
         });
         item.addEventListener('dblclick', function(e) {
             e.stopPropagation();
@@ -701,9 +896,13 @@ var notesFilePanel = (function() {
         var fileParentId = (fileItemEl && fileItemEl.dataset && fileItemEl.dataset.parentId) ? fileItemEl.dataset.parentId : null;
 
         // FR-TF-10 (sprint 20260809): kind==='file' の添付ファイルは専用メニュー集合。
-        // 表示: Open（OS 既定アプリ）/ Reveal in Finder / Rename（title のみ）/ Favorite /
+        // 表示: Open（OS 既定アプリ）/ **Open in new tab**（FR-TF-10/11 rev・sprint 20260906-024639）/
+        //       Reveal in Finder / Rename（title のみ）/ Favorite /
         //       Copy Path（絶対パスは host→webview 応答で NFR-TF-02 非抵触）/ Set Color / Move Other Note / Delete。
-        // 非表示: Copy In-App Link・Open in new tab（file は .md/.out stem を持たずタブ化・アプリ内リンク不可）。
+        // 非表示: Copy In-App Link（アプリ内リンクは .md/.out の stem 前提で、この前提は失効していない）。
+        // ★ 旧記述「file はタブ化不可」は **撤回**（sprint 20260906-024639 / ADRL-0112 / FR-FTB）:
+        //   id ベースの新 bridge `openTreeFileInTab` → host が kind='file' タブ（viewer 素材つき）を作る。
+        //   viewer 非対象 / 50MB 超は host が OS 既定アプリへ縮退する。
         // 実体パスは .md/.out stem 前提の既存経路（deleteFile(filePath) 等）に流さず、id ベースの新 bridge を使う。
         var menuKind = file.kind || (/\.md$/i.test(file.filePath || '') ? 'md' : 'out');
         // FR-FLV-06: folder link の専用メニュー集合（requirement FR-FLV-06 表が唯一の正）。
@@ -787,6 +986,14 @@ var notesFilePanel = (function() {
             addContextItem(contextMenu, i18n.notesOpen || 'Open', function() {
                 closeContextMenu();
                 openAttachExternal(treeFileId);
+            });
+            // FR-TF-10/11 rev (sprint 20260906-024639): file item も**新規タブ**で開ける。
+            // 実処理は id ベースの新 bridge（FR-FTB）。viewer 非対象 / 50MB 超は host 側で
+            // OS 既定アプリへ縮退するので**項目は常に表示**する（FR-FTB-03）。
+            // i18n は tree 面の既存キー `notesOpenInNewTab` を再利用（新規キーを増やさない）。
+            addContextItem(contextMenu, i18n.notesOpenInNewTab || 'Open in new tab', function() {
+                closeContextMenu();
+                if (bridge && typeof bridge.openTreeFileInTab === 'function') { bridge.openTreeFileInTab(treeFileId); }
             });
             addContextItem(contextMenu, i18n.notesRevealInFinder || 'Reveal in Finder', function() {
                 closeContextMenu();
@@ -3137,6 +3344,13 @@ var notesFilePanel = (function() {
 
         listEl = document.getElementById('notesFileList');
         panelEl = document.getElementById('notesFilePanel');
+
+        // FR-TKN-01: ナビの keydown は **listEl 要素ローカル**に 1 本だけ張る（standalone harness は init が
+        // 2 回走ることがあるので __navWired で冪等化）。tabindex は notes-body-html 側で静的に付与済み。
+        if (listEl && !listEl.__navWired) {
+            listEl.__navWired = true;
+            listEl.addEventListener('keydown', onNavKeyDown);
+        }
 
         // FR-TF-16: drag 中 hover 抑止の set/clear 配線（受け側完結ライフサイクル）。
         // capture で拾う: 個別 handler（setupDropTarget 等）が preventDefault/return しても

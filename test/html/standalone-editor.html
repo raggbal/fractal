@@ -5495,6 +5495,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         openPageInTab: function(nodeId, pageId) {
             postFn({ type: 'openPageInTab', nodeId: nodeId, pageId: pageId });
         },
+        // FR-ONT-02 / FR-FTB-01: node の 📎 file 添付を新規タブで開く。**nodeId のみ送る**
+        // （パス解決・kind 判定・50MB 縮退はすべて host = ADRL-0021 Decision 2 / FR-FTB-03）
+        openNodeFileInTab: function(nodeId) {
+            postFn({ type: 'openNodeFileInTab', nodeId: nodeId });
+        },
 
         // outliner node subtree の Export bundle (FR-EB)。dialog/出力は host
         exportOutlinerNodesBundle: function(nodeId, nodes) {
@@ -7470,7 +7475,7 @@ var SHORTCUTS_OUTLINER = [
         { keys: 'Cmd+]', desc: 'Scope in (zoom)' },
         { keys: 'Cmd+Shift+]', desc: 'Scope out' },
         { keys: 'Opt+← / Opt+→', desc: 'Navigation history back / forward' },
-        { keys: 'Cmd+A', desc: 'Select all nodes' },
+        { keys: 'Cmd+A', desc: 'Select node text (press again: all nodes)' },
     ] },
     { category: 'search', items: [
         { keys: 'Cmd+F', desc: 'Text search' },
@@ -7523,6 +7528,11 @@ var SHORTCUTS_MINDMAP = [
         { keys: 'Cmd+Shift+Option+X', desc: 'Remove checkbox' },
     ] },
     { category: 'other', items: [
+        // 🔴 TASK-22 (QUAL-2 / DESIGN-2): **mindmap は 1 段階の説明のまま**にする。
+        // FR-OSM-06 は「mindmap は Cmd+A の 2 段階 escalation から免除する / mindmap 面のモード二態化 UI は
+        // 本 sprint のスコープ外」と明記し、実装も `VIEW_MODE === 'mindmap'` で 1 回押し = 全 node 選択のまま。
+        // ここを SHORTCUTS_OUTLINER と同じ 2 段階文言にすると "press again" が成立しない誤説明になる
+        //（iteration 1 は Cmd+A の grep で 2 箇所を機械的に置換してこれを踏んだ）。TC-OSM-29 が番人。
         { keys: 'Cmd+A / Cmd+Z', desc: 'Select all / undo' },
         { keys: 'Cmd+Shift+/', desc: 'Show / hide this shortcut list' },
         { keys: 'Right-click', desc: 'Color, shape, group, relation line, checkbox' },
@@ -14732,7 +14742,10 @@ class EditorInstance {
             e.stopPropagation();
             var linkHref = clickedLink.getAttribute('href');
             logger.log('[Any MD] Link clicked:', linkHref, 'metaKey:', e.metaKey, 'ctrlKey:', e.ctrlKey);
-            if (e.metaKey || e.ctrlKey) {
+            // FR-CT-05 rev2（ADRL-0112）: **cmd/ctrl+shift+click = 新規タブ**。
+            // cmd/ctrl 単独は通常 open に戻す（裁定 R13）。適用範囲は従来どおり**全 <a href>**
+            // （C は修飾キーの差し替えであってアンカー種別の絞り込みではない = 裁定 R12）。
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
                 host.openLinkInTab(linkHref);
             } else {
                 host.openLink(linkHref);

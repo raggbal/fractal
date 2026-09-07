@@ -278,6 +278,12 @@ export interface WebviewMessages {
   notesTabSearch: string;
   notesNewFolder: string;
   notesOpenInNewTab: string;
+  // FR-ONT-01/02/03 (sprint 20260906-024639): outliner node の右クリック「新規タブで開く」。
+  // page と file は排他ではなく**両方持つ node では 2 項目が並ぶ**ため、ラベルを対象別に分ける
+  // （同名 2 項目にすると判別不能 = 裁定 R7 rev）。webview 側の文言なので **WebviewMessages** に置く
+  // （host 側 Messages に置くと全 locale 英語固定になる）。
+  outlinerOpenPageInNewTab: string;
+  outlinerOpenFileInNewTab: string;
   // FR-OCM-01 (sprint 20260818-183407): outliner 統合パスコピー
   outlinerCopyPath: string;
   outlinerDuplicate: string;

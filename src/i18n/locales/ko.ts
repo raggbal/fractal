@@ -278,6 +278,8 @@ export const webviewMessages = {
   notesTabSearch: '검색',
   notesNewFolder: '새 폴더',
   notesOpenInNewTab: '새 탭에서 열기',
+  outlinerOpenPageInNewTab: '페이지를 새 탭에서 열기',
+  outlinerOpenFileInNewTab: '파일을 새 탭에서 열기',
   tabOpenInStandalone: '독립 창으로 열기',
   tabOpenInOsDefaultApp: 'OS 기본 앱으로 열기',
   tabDuplicate: '탭 복제',

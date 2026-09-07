@@ -271,6 +271,8 @@ test.describe('Outliner ページ機能・クリップボード', () => {
         await page.waitForTimeout(100);
 
         // Select all nodes
+        // FR-MSEL-06 rev3 / ADRL-0116: Cmd+A は 2 段階（1 回目 = node の text 全選択 / 2 回目 = 全 node 選択）
+        await page.keyboard.press('Meta+a');
         await page.keyboard.press('Meta+a');
         await page.waitForTimeout(100);
 
@@ -489,7 +491,9 @@ test.describe('Outliner ページ機能・クリップボード', () => {
         await nodeEl.click({ button: 'right' });
         await page.waitForTimeout(200);
 
-        const openPageItem = page.locator('.outliner-context-menu-item', { hasText: 'Open Page' });
+        // rev(20260906-024639 / FR-ONT-01): 「Open page in new tab」追加で部分一致が 2 件になるため完全一致（許可: test_update）
+        // 項目本体の textContent には shortcut ラベル（Cmd+Enter）も含まれるので、**ラベル span を完全一致**で見る
+        const openPageItem = page.locator('.outliner-context-menu-item .context-menu-label', { hasText: /^Open Page$/ });
         expect(await openPageItem.count()).toBe(1);
     });
 

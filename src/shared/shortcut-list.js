@@ -101,7 +101,7 @@ var SHORTCUTS_OUTLINER = [
         { keys: 'Cmd+]', desc: 'Scope in (zoom)' },
         { keys: 'Cmd+Shift+]', desc: 'Scope out' },
         { keys: 'Opt+← / Opt+→', desc: 'Navigation history back / forward' },
-        { keys: 'Cmd+A', desc: 'Select all nodes' },
+        { keys: 'Cmd+A', desc: 'Select node text (press again: all nodes)' },
     ] },
     { category: 'search', items: [
         { keys: 'Cmd+F', desc: 'Text search' },
@@ -154,6 +154,11 @@ var SHORTCUTS_MINDMAP = [
         { keys: 'Cmd+Shift+Option+X', desc: 'Remove checkbox' },
     ] },
     { category: 'other', items: [
+        // 🔴 TASK-22 (QUAL-2 / DESIGN-2): **mindmap は 1 段階の説明のまま**にする。
+        // FR-OSM-06 は「mindmap は Cmd+A の 2 段階 escalation から免除する / mindmap 面のモード二態化 UI は
+        // 本 sprint のスコープ外」と明記し、実装も `VIEW_MODE === 'mindmap'` で 1 回押し = 全 node 選択のまま。
+        // ここを SHORTCUTS_OUTLINER と同じ 2 段階文言にすると "press again" が成立しない誤説明になる
+        //（iteration 1 は Cmd+A の grep で 2 箇所を機械的に置換してこれを踏んだ）。TC-OSM-29 が番人。
         { keys: 'Cmd+A / Cmd+Z', desc: 'Select all / undo' },
         { keys: 'Cmd+Shift+/', desc: 'Show / hide this shortcut list' },
         { keys: 'Right-click', desc: 'Color, shape, group, relation line, checkbox' },

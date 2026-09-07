@@ -278,6 +278,8 @@ export const webviewMessages = {
   notesTabSearch: '搜索',
   notesNewFolder: '新建文件夹',
   notesOpenInNewTab: '在新标签页打开',
+  outlinerOpenPageInNewTab: '在新标签页打开页面',
+  outlinerOpenFileInNewTab: '在新标签页打开文件',
   tabOpenInStandalone: '在独立窗口中打开',
   tabOpenInOsDefaultApp: '用系统默认应用打开',
   tabDuplicate: '复制标签页',

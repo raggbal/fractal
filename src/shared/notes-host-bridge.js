@@ -508,6 +508,13 @@
         openFileInTab: function(filePath) {
             api.postMessage({ type: 'notesOpenFileInTab', filePath: filePath });
         },
+        // FR-FTB-01 / FR-CT-04 / FR-TF-10 rev (sprint 20260906-024639): tree の file item を
+        // 新規タブ（kind='file'）で開く。**id のみ送る**（絶対パスは host が唯一の解決者 = ADRL-0021 Decision 2）。
+        // 置き場は note tree bridge（ADRL-0021 Decision 5 の factory は sidepanel/outliner bridge family が
+        // 対象で tree bridge は別系統 — 既存 openFileInTab と同じ 2 点登録の precedent）。
+        openTreeFileInTab: function(id) {
+            api.postMessage({ type: 'notesOpenTreeFileInTab', id: id });
+        },
         // sprint 20260724-063158 (FR-TP-06): タブ右クリック「Open in VS Code Tab」→ standalone で開く
         openInVscodeTab: function(filePath) {
             api.postMessage({ type: 'notesOpenInVscodeTab', filePath: filePath });
@@ -856,8 +863,22 @@
         folderViewDuplicate: function(id, relPath) {
             api.postMessage({ type: 'folderViewDuplicate', id: id, relPath: relPath || '' });
         },
-        folderViewMove: function(id, srcRelPath, dstDirRelPath) {
-            api.postMessage({ type: 'folderViewMove', id: id, srcRelPath: srcRelPath || '', dstDirRelPath: dstDirRelPath || '' });
+        folderViewMove: function(id, srcRelPath, dstDirRelPath, mode) {
+            api.postMessage({
+                type: 'folderViewMove', id: id, srcRelPath: srcRelPath || '', dstDirRelPath: dstDirRelPath || '',
+                // ADRL-0120: 'copy' は clipboard 経路（H）だけ。未指定 = 'move'（既存呼び出しと byte 互換）
+                mode: mode === 'copy' ? 'copy' : 'move',
+            });
+        },
+        // FR-FMV-01/03 / FR-CBD-07: linkedfd 内の一括移動 / 一括複製。
+        // 🔴 **配列を 1 回**渡す（webview から N 回呼ぶと host の件数ゲート checkBatchLimit を
+        //    構造的に迂回する — SEC-1。既存 folderViewMoveToTreeBatch / folderViewMoveInBatch と同じ規律）。
+        folderViewMoveBatch: function(id, srcRelPaths, dstDirRelPath, mode) {
+            api.postMessage({
+                type: 'folderViewMoveBatch', id: id,
+                srcRelPaths: srcRelPaths || [], dstDirRelPath: dstDirRelPath || '',
+                mode: mode === 'copy' ? 'copy' : 'move',
+            });
         },
         folderViewRevealEntry: function(id, relPath) {
             api.postMessage({ type: 'folderViewRevealEntry', id: id, relPath: relPath || '' });

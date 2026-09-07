@@ -5,6 +5,38 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.15] - 2026-09-07
+
+### Added
+- **Two clear modes in the outliner** — the outliner now distinguishes **node edit mode** (the default: you have a caret and typing goes into the node) from **selection mode** (one or more nodes selected). In selection mode the **caret disappears**, printable keys do nothing instead of damaging the node, and the selection colour is **amber again** so it never looks like a text range (text selection stays blue — the two are told apart by hue, not by shade). You leave selection mode with `Esc`, a bare `↑` / `↓`, or a plain click
+- **`Cmd+A` now escalates in two steps** — the first press selects **the text of the node you are in**, and pressing it again selects **every node** in the outliner. An empty node skips straight to selecting all nodes. Mindmap view is unchanged: one press still selects every node there
+- **Move several files at once inside a linked folder** — selecting multiple files in a linked folder view and dragging them now moves **all of them** in one go (previously nothing moved and you got a "not accepted" toast). If any one of them cannot be moved the whole drop is refused rather than half-applied, and you get a single summary notification instead of one toast per file
+- **Copy / paste between the outliner and a linked folder** — `Cmd+C` in a linked folder then `Cmd+V` on an outliner node **duplicates** the files as siblings right after that node (multi-selection is reproduced). `Cmd+C` on outliner nodes then `Cmd+V` in a linked folder duplicates them there — onto a folder row puts them **inside** it, onto a file row puts them **at the same level**, and onto empty space puts them at the root. `Cmd+C` → `Cmd+V` **within** a linked folder duplicates in place. Dragging still *moves*; the clipboard always *duplicates*
+
+### Changed
+- Export to a linked folder now refuses folders over 2000 files with an explanation instead of grinding, matching the import side
+- The confirmation dialog for moving or duplicating many items inside a linked folder now says **Transfer** rather than **Import** (nothing is being imported — the files stay in the same linked folder, and the operation cannot be undone)
+
+### Fixed
+- **Pasting rich text copied from another application can no longer make Fractal read an unrelated `.out` file.** The source of a paste is now verified against what you actually copied (or the file you have open) before anything is read from disk. Ordinary `Cmd+V` is unaffected
+- Duplicating a folder by `Cmd+C` / `Cmd+V` inside a linked folder used to do nothing at all with no message; it now tells you folders cannot be duplicated that way
+- When moving several `.md` files at once, a file whose attachments could not all be copied is no longer counted as a success — the summary now reports it, and the original file and its attachments are left untouched
+
+## [1.3.14] - 2026-09-06
+
+### Added
+- **Keyboard navigation in the note file tree** — `↑` / `↓` move the focused row **without changing the content pane** (no file is loaded while moving), and `Enter` decides: md / `.out` open in the main pane, a 📎 file opens the way clicking it does, a 🔗 linked folder opens its folder view, and a virtual folder row toggles expand / collapse. Focus stays in the tree after `Enter`, so `↓ Enter ↓ Enter` walks through files. The focused row is scrolled into view, IME composition never triggers an open, and inline rename keeps the arrows to itself
+- **`Open in new tab` on outliner nodes** — separate entries for the md page and for the 📎 file, so a node that has both shows two items you cannot mix up (with the `Cmd+Shift+Click` hint). **Attached files can now be opened as a tab** (the note tree's file items too); formats the viewer cannot render, and files over 50MB, fall back to the OS default app instead of opening an empty tab
+- **Multi-node drag inside the outliner** — with several nodes selected, dragging a bullet moves **every selected node in one go** (before / after / into a node / into the empty area below), keeping the order they had. One `Cmd+Z` undoes the whole move. When an ancestor and its descendant are both selected only the topmost moves, and dropping into the moving set itself is refused without moving anything
+
+### Changed
+- **`Open in new tab` is now cmd+shift+click** (Windows / Linux: ctrl+shift+click) across all three surfaces — the note tree row (**anywhere on the row**, not just the icon), the outliner's 📄 / 📎 icons, and links in the markdown body. **cmd / ctrl on its own goes back to its per-surface meaning**: toggle-select in the tree, plain open in the outliner and markdown
+- The note file tree is focusable for keyboard use but **shows no focus ring** — the current row is indicated by its highlight instead. Virtual folder rows now highlight in the same colour as file rows when they hold the keyboard position
+
+### Fixed
+- shift+click range selection in the note file tree could also open a file (a click-fallback path fired twice)
+- Operations whose result does not change anything — e.g. `Cmd+A` then dropping onto the empty area — no longer perform useless reordering or add an undo entry
+
 ## [1.3.13] - 2026-09-06
 
 ### Added

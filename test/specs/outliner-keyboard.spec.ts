@@ -707,6 +707,8 @@ test.describe('Outliner Keyboard Operations', () => {
         test('30. Cmd+A selects all visible nodes', async ({ page }) => {
             await init(page, threeNodes('one', 'two', 'three'));
             await focusNode(page, 0);
+            // FR-MSEL-06 rev3 / ADRL-0116: Cmd+A は 2 段階（1 回目 = node の text 全選択 / 2 回目 = 全 node 選択）
+            await page.keyboard.press('Meta+a');
             await page.keyboard.press('Meta+a');
             await page.waitForTimeout(200);
 

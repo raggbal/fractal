@@ -3171,8 +3171,8 @@ tr.tbl-row-filtered {
         --outliner-subtext-color: #888;
         --outliner-error-color: #d00;
         --outliner-accent-fg: #fff;
-        --outliner-selection-bg: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
-        --outliner-selection-text-bg: rgba(125, 196, 223, 0.38);
+        --outliner-selection-bg: rgba(255, 193, 7, 0.30);
+        --outliner-selection-text-bg: rgba(125, 196, 223, 0.45);
     }
 }
 
@@ -3602,9 +3602,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 /* hover での色反転は削除 (ユーザー要望: 強調しない)。
  * is-focused (keyboard / cursor active 行) は notes 右サイドパネルの hover と同じ淡 water-blue で全行ハイライト
  * (table mode は他 cell も同色、toggleRowCellsClass で同期)。
- * is-selected (範囲選択) は同じ water-blue 系だが濃い tint (mindmap の複数選択と同色) で、
- * focus (最薄) との濃度差で区別する。orange tint は撤廃 (2026-09-05 / 裁定 R35 / FR-OSC-01 —
- * filetree / linkedfd / mindmap が全部 blue の中で outliner だけ黄色く浮いていた)。 */
+ * is-selected (選択モードの node 選択) は **amber** (--outliner-selection-bg)。
+ * focus (淡 water-blue) と**色相**で区別する — 濃度差ではない (FR-OSC-01 rev2 / ADRL-0115)。
+ * ::selection (--outliner-selection-text-bg) も青系のままにして、Cmd+A の 2 段階
+ * (1 回目 = text 範囲 / 2 回目 = 全 node) が色で見分けられるようにしている。
+ * 履歴: 2026-09-05 の裁定 R35 で一度 blue に統一したが、2026-09-06 のユーザー裁定で
+ * 「outliner だけ黄色」に戻した (他 3 面 = filetree / linkedfd / mindmap は blue のまま。
+ * --fr-color-selection-bg と --fr-bg-selection を黄色にしないことで波及を防ぐ = TC-OSM-34)。 */
 .outliner-node.is-focused {
     background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8));
 }
@@ -3619,6 +3623,16 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 
 .outliner-container ::selection {
     background: var(--outliner-selection-text-bg);
+}
+
+/* FR-OSM-05 / ADRL-0114: 選択モードでは caret を視覚的に消す。
+ * 手段は caret-color のみ（paint-time 専用なので keydown / input / ::selection / clipboard に影響しない）。
+ * 🔴 blur() / contenteditable=false は禁止 — outliner の cmd+v の入口は textEl の paste イベント 1 本だけで
+ *    （document / window レベルの clipboard listener はリポ全体に無い）、focus を捨てると
+ *    cmd+c/x/v と Cmd+A が全滅し FR-CBD（面間 clipboard 複写）が実装不能になる（HM-1）。
+ * precedent: styles.css の table.tbl-select-mode th/td（md エディタの表の select モード）。 */
+.outliner-tree.is-select-mode .outliner-text {
+    caret-color: transparent;
 }
 
 .outliner-node.is-search-match {
@@ -4206,8 +4220,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     --outliner-text: #d4d4d4;
     --outliner-hover: rgba(255,255,255,0.05);
     --outliner-active: rgba(0,120,212,0.2);
-    --outliner-selection-bg: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
-    --outliner-selection-text-bg: rgba(125, 196, 223, 0.38);
+    --outliner-selection-bg: rgba(255, 202, 40, 0.22);
+    --outliner-selection-text-bg: rgba(125, 196, 223, 0.45);
     --outliner-subtext: #888;
     --outliner-subtext-color: #888;
     --outliner-error-color: #f44747;
@@ -4237,8 +4251,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         --outliner-text: #d4d4d4;
         --outliner-hover: rgba(255,255,255,0.05);
         --outliner-active: rgba(0,120,212,0.2);
-        --outliner-selection-bg: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
-        --outliner-selection-text-bg: rgba(125, 196, 223, 0.38);
+        --outliner-selection-bg: rgba(255, 202, 40, 0.22);
+        --outliner-selection-text-bg: rgba(125, 196, 223, 0.45);
         --outliner-subtext: #888;
         --outliner-subtext-color: #888;
         --outliner-error-color: #f44747;
@@ -4837,9 +4851,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 /* 行 state ハイライト (table mode の text / multiselect / date cell)。
  * is-focused (cursor 行) は notes 右サイドパネル hover と同じ淡 water-blue で全行ハイライト
  * — outline 列以外 (text / multiselect / date / datetime) も同色になり行が一目で分かる。
- * is-selected (範囲選択) は同じ water-blue 系だが濃い tint (mindmap の複数選択と同色) で、
- * focus (最薄) との濃度差で区別する。orange tint は撤廃 (2026-09-05 / 裁定 R35 / FR-OSC-01 —
- * filetree / linkedfd / mindmap が全部 blue の中で outliner だけ黄色く浮いていた)。 */
+ * is-selected (選択モードの node 選択) は **amber** (--outliner-selection-bg)。
+ * focus (淡 water-blue) と**色相**で区別する — 濃度差ではない (FR-OSC-01 rev2 / ADRL-0115)。
+ * ::selection (--outliner-selection-text-bg) も青系のままにして、Cmd+A の 2 段階
+ * (1 回目 = text 範囲 / 2 回目 = 全 node) が色で見分けられるようにしている。
+ * 履歴: 2026-09-05 の裁定 R35 で一度 blue に統一したが、2026-09-06 のユーザー裁定で
+ * 「outliner だけ黄色」に戻した (他 3 面 = filetree / linkedfd / mindmap は blue のまま。
+ * --fr-color-selection-bg と --fr-bg-selection を黄色にしないことで波及を防ぐ = TC-OSM-34)。 */
 .outliner-cell-text.is-focused,
 .outliner-cell-multiselect.is-focused,
 .outliner-cell-date.is-focused {
@@ -8515,7 +8533,7 @@ var SHORTCUTS_OUTLINER = [
         { keys: 'Cmd+]', desc: 'Scope in (zoom)' },
         { keys: 'Cmd+Shift+]', desc: 'Scope out' },
         { keys: 'Opt+← / Opt+→', desc: 'Navigation history back / forward' },
-        { keys: 'Cmd+A', desc: 'Select all nodes' },
+        { keys: 'Cmd+A', desc: 'Select node text (press again: all nodes)' },
     ] },
     { category: 'search', items: [
         { keys: 'Cmd+F', desc: 'Text search' },
@@ -8568,6 +8586,11 @@ var SHORTCUTS_MINDMAP = [
         { keys: 'Cmd+Shift+Option+X', desc: 'Remove checkbox' },
     ] },
     { category: 'other', items: [
+        // 🔴 TASK-22 (QUAL-2 / DESIGN-2): **mindmap は 1 段階の説明のまま**にする。
+        // FR-OSM-06 は「mindmap は Cmd+A の 2 段階 escalation から免除する / mindmap 面のモード二態化 UI は
+        // 本 sprint のスコープ外」と明記し、実装も `VIEW_MODE === 'mindmap'` で 1 回押し = 全 node 選択のまま。
+        // ここを SHORTCUTS_OUTLINER と同じ 2 段階文言にすると "press again" が成立しない誤説明になる
+        //（iteration 1 は Cmd+A の grep で 2 箇所を機械的に置換してこれを踏んだ）。TC-OSM-29 が番人。
         { keys: 'Cmd+A / Cmd+Z', desc: 'Select all / undo' },
         { keys: 'Cmd+Shift+/', desc: 'Show / hide this shortcut list' },
         { keys: 'Right-click', desc: 'Color, shape, group, relation line, checkbox' },
@@ -15969,7 +15992,10 @@ class EditorInstance {
             e.stopPropagation();
             var linkHref = clickedLink.getAttribute('href');
             logger.log('[Any MD] Link clicked:', linkHref, 'metaKey:', e.metaKey, 'ctrlKey:', e.ctrlKey);
-            if (e.metaKey || e.ctrlKey) {
+            // FR-CT-05 rev2（ADRL-0112）: **cmd/ctrl+shift+click = 新規タブ**。
+            // cmd/ctrl 単独は通常 open に戻す（裁定 R13）。適用範囲は従来どおり**全 <a href>**
+            // （C は修飾キーの差し替えであってアンカー種別の絞り込みではない = 裁定 R12）。
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
                 host.openLinkInTab(linkHref);
             } else {
                 host.openLink(linkHref);
@@ -33008,6 +33034,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         openPageInTab: function(nodeId, pageId) {
             postFn({ type: 'openPageInTab', nodeId: nodeId, pageId: pageId });
         },
+        // FR-ONT-02 / FR-FTB-01: node の 📎 file 添付を新規タブで開く。**nodeId のみ送る**
+        // （パス解決・kind 判定・50MB 縮退はすべて host = ADRL-0021 Decision 2 / FR-FTB-03）
+        openNodeFileInTab: function(nodeId) {
+            postFn({ type: 'openNodeFileInTab', nodeId: nodeId });
+        },
 
         // outliner node subtree の Export bundle (FR-EB)。dialog/出力は host
         exportOutlinerNodesBundle: function(nodeId, nodes) {
@@ -40045,6 +40076,9 @@ var Outliner = (function() {
                 if (selectedNodeIds && selectedNodeIds.size > 0) {
                     _selTracePush('clear', '(leave-mindmap-view) ids=' + selectedNodeIds.size);
                     selectedNodeIds.clear();
+                    // ADRL-0119: 生の .clear() を残すとここだけ is-select-mode が残り
+                    // 「選択 0 件なのに caret 無し」= INV-1 の乖離になる
+                    syncSelectionModeClass();
                 }
             }
             renderTree();
@@ -41261,10 +41295,25 @@ var Outliner = (function() {
             if (!dragState) { return; }
             if (e.target === treeEl) {
                 e.preventDefault();
-                saveSnapshot();
                 var lastRootId = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
                 var movedId = dragState.nodeId;
-                model.moveNode(movedId, null, lastRootId);
+                // FR-OMV-01: 余白 drop（root 末尾）も複数選択を全件移動する（node 行 drop と同型の 4 セル目）。
+                var rootMoveIds = internalMoveIds(movedId);
+                // ★ reviewer iteration 1 FINDING-DC-1: この経路には node 側の拒否ガード（targetId 基準）が
+                //   存在しない。**既に rootIds の末尾に同じ順で並んでいる集合**の drop は結果が完全に同じ
+                //   （視覚も model も no-op）なので、`saveSnapshot()` も `moveNode` も行わず終了する。
+                //   Cmd+A 全選択（FR-MSEL-06）の drop がその典型 — 無駄な N 回 splice と
+                //   無駄な undo エントリを作らない（NFR-OMV-02）。
+                if (isAlreadyRootTail(rootMoveIds)) {
+                    dragState.nodeEl.classList.remove('is-dragging');
+                    dragState = null;
+                    removeDropIndicator();
+                    return;
+                }
+                saveSnapshot();
+                for (var mi = 0; mi < rootMoveIds.length; mi++) {
+                    model.moveNode(rootMoveIds[mi], null, mi === 0 ? lastRootId : rootMoveIds[mi - 1]);
+                }
                 dragState.nodeEl.classList.remove('is-dragging');
                 dragState = null;
                 removeDropIndicator();
@@ -41473,14 +41522,64 @@ var Outliner = (function() {
         if (!raw) { return; }
         var payload = null;
         try { payload = JSON.parse(raw); } catch (err) { return; }
-        var items = (window.__batchPayload && typeof window.__batchPayload.extractBatchItems === 'function')
-            ? window.__batchPayload.extractBatchItems(payload) : [payload];
-        var linkId = payload.folderLinkId || (items[0] && items[0].folderLinkId);
+        applyFolderViewEntries(payload, targetNodeId, position);
+    }
+
+    /**
+     * linkedfd の entry payload を outliner に取り込む（DataTransfer 非依存の seam）。
+     *
+     * FR-CBD-02（sprint 20260906-095357）で **D&D と clipboard の共有点**として切り出した。
+     * 元の `handleFolderViewEntriesDrop` の DataTransfer 依存は `getData` の 2 行だけだったので、
+     * payload オブジェクトを受け取る形にして両経路から呼ぶ（規則を複製しない）。
+     *
+     * 受ける payload の形は 2 系統:
+     *   - D&D（`x-fractal-folderview-entry`）: 単一 `{relPath}` / 複数 `{v:1, items:[{relPath}]}`
+     *   - clipboard（`data-fractal-fv-clip`）: `{v:1, folderLinkId, relPaths:[string]}`
+     *
+     * 🔴 **host 入口 `sendFolderViewToOutliner` は 1 行も変えない**（HM-8）。
+     *    件数ゲート・確認 modal・集計通知 1 回・closure 抑止・随伴転送は既存入口の共有で自動継承する。
+     */
+    function applyFolderViewEntries(payload, targetNodeId, position) {
+        if (!payload) { return false; }
         var rels = [];
-        for (var i = 0; i < items.length; i++) { if (items[i] && items[i].relPath !== undefined) { rels.push(items[i].relPath); } }
+        var linkId = payload.folderLinkId;
+        if (Array.isArray(payload.relPaths)) {
+            // clipboard 形式（識別子のみ）
+            for (var k = 0; k < payload.relPaths.length; k++) {
+                if (typeof payload.relPaths[k] === 'string') { rels.push(payload.relPaths[k]); }
+            }
+        } else {
+            var items = (window.__batchPayload && typeof window.__batchPayload.extractBatchItems === 'function')
+                ? window.__batchPayload.extractBatchItems(payload) : [payload];
+            linkId = linkId || (items[0] && items[0].folderLinkId);
+            for (var i = 0; i < items.length; i++) {
+                if (items[i] && items[i].relPath !== undefined) { rels.push(items[i].relPath); }
+            }
+        }
         var nb = window.notesHostBridge;
-        if (!linkId || rels.length === 0 || !nb || typeof nb.sendFolderViewToOutliner !== 'function') { return; }
+        if (!linkId || rels.length === 0 || !nb || typeof nb.sendFolderViewToOutliner !== 'function') { return false; }
         nb.sendFolderViewToOutliner(linkId, rels, null, targetNodeId, position);
+        return true;
+    }
+
+    /**
+     * clipboard に linkedfd の payload（F）が載っているか（FR-CBD-02 / DOM-ClipPayload）。
+     *
+     * 🔴 `e.clipboardData.getData()` を **await の前に同期で読み切る**（HM-6）。
+     *    `navigator.clipboard.readText()` は使わない — ハーネス（素の Chromium）では通るが
+     *    実 VS Code webview では `clipboard-read` が下りず「TC green / 実機で無反応」になる。
+     */
+    function hasFvClipPayload(clipboardData) {
+        if (!clipboardData) { return null; }
+        var html = '';
+        try { html = clipboardData.getData('text/html') || ''; } catch (err) { return null; }
+        if (!html) { return null; }
+        var m = html.match(/data-fractal-fv-clip="([^"]*)"/);
+        if (!m) { return null; }
+        try {
+            var meta = JSON.parse(decodeURIComponent(m[1]));
+            return (meta && Array.isArray(meta.relPaths) && meta.relPaths.length > 0 && meta.folderLinkId) ? meta : null;
+        } catch (err) { return null; }
     }
 
     /** FR-B08 (sprint 20260804-145603): Notes ファイルツリーの md item ドラッグ
@@ -42299,6 +42398,8 @@ var Outliner = (function() {
             renderNodes(rootIds, fragment, 0, searchQuery);
         }
         treeEl.appendChild(fragment);
+        // ADRL-0119: prune で選択が減った場合もモード表示を選択集合に追従させる（INV-1）
+        syncSelectionModeClass();
     }
 
     // ========================================================================
@@ -43850,8 +43951,9 @@ var Outliner = (function() {
             pageIcon.textContent = '\uD83D\uDCC4'; // 📄
             pageIcon.addEventListener('click', function(e) {
                 e.stopPropagation();
-                // FR-CT-03: cmd/ctrl+click → 新規タブ（pageId のみ送る。パス解決は host）
-                if (e.metaKey || e.ctrlKey) {
+                // FR-CT-03 rev2（ADRL-0112）: **cmd/ctrl+shift+click** → 新規タブ（pageId のみ送る。パス解決は host）。
+                // cmd/ctrl 単独は下の通常 open（sidepanel）へ落ちる（裁定 R13 — 何も起きない面を作らない）。
+                if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
                     if (node.isPage && node.pageId && host.openPageInTab) {
                         host.openPageInTab(node.id, node.pageId);
                     }
@@ -43895,6 +43997,14 @@ var Outliner = (function() {
                 ? MarkdownLinkParser.fileIconGlyph(node.filePath) : '\uD83D\uDCCE'; // 📎
             fileIcon.addEventListener('click', function(e) {
                 e.stopPropagation();
+                // FR-ONT-02 / FR-CT-03 rev2（ADRL-0112）: cmd/ctrl+shift+click → 新規タブ（nodeId のみ送る）。
+                // cmd/ctrl 単独は従来どおり通常 open（viewer / OS 既定アプリ）。
+                if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+                    if (host && typeof host.openNodeFileInTab === 'function') {
+                        host.openNodeFileInTab(node.id);
+                        return;
+                    }
+                }
                 host.openAttachedFile(node.id);
             });
             // FR-TF-05b (§4e :96): file 添付 node の 📎 アイコン → Notes ツリーへ D&D（所有移し替え）。
@@ -44021,6 +44131,20 @@ var Outliner = (function() {
                 // クリアボタンの表示更新を明示的に呼ぶ
                 updateSearchClearButton();
                 searchInput.focus();
+            }
+        });
+
+        // FR-OSM-04 / ADRL-0114: 選択モードでは **text を挿入する入力をすべて抑止**する。
+        // keydown の printable ゲートだけでは **IME 合成が止まらない**（合成確定のテキストは
+        // keydown ではなく composition / beforeinput 経路で入る）。
+        // `insertFromPaste` は除外する — cmd+v は既存の paste ハンドラ（選択 node の置換 = `:5061` 系）が
+        // 担う契約なので、ここで潰すと選択モードの cmd+v が無反応になる（HM-1 と対）。
+        textEl.addEventListener('beforeinput', function (e) {
+            if (!isSelectMode()) { return; }
+            var t = e.inputType || '';
+            if (t === 'insertFromPaste' || t === 'insertFromPasteAsQuotation') { return; }
+            if (t.indexOf('insert') === 0 || t === 'insertCompositionText') {
+                e.preventDefault();
             }
         });
 
@@ -44161,7 +44285,8 @@ var Outliner = (function() {
             e.dataTransfer.dropEffect = 'move';
 
             var targetId = el.dataset.id;
-            if (targetId === dragState.nodeId || model.isDescendant(targetId, dragState.nodeId)) {
+            // FR-OMV-02.3: 複数選択なら**全 root**に対して判定する（1 件でも不正なら受け付けない）
+            if (internalMoveRejected(targetId, internalMoveIds(dragState.nodeId))) {
                 e.dataTransfer.dropEffect = 'none';
                 removeDropIndicator();
                 return;
@@ -44214,7 +44339,10 @@ var Outliner = (function() {
             if (!dragState) { return; }
 
             var targetId = el.dataset.id;
-            if (targetId === dragState.nodeId || model.isDescendant(targetId, dragState.nodeId)) {
+            // FR-OMV-01: 複数選択中（掴んだ node が選択に含まれる）なら選択集合の全 root を動かす。
+            var moveIds = internalMoveIds(dragState.nodeId);
+            // FR-OMV-02.3: 1 件でも「drop 先が自身 or その子孫」なら **drop 全体を拒否**（部分適用を作らない）
+            if (internalMoveRejected(targetId, moveIds)) {
                 removeDropIndicator();
                 return;
             }
@@ -44223,30 +44351,43 @@ var Outliner = (function() {
             var y = e.clientY - rect.top;
             var h = rect.height;
 
+            // FR-OMV-02.4: snapshot は**ループの外で 1 回**（Cmd+Z 1 回で全件が戻る）
             saveSnapshot();
             var movedNodeId = dragState.nodeId;
             var targetNode = model.getNode(targetId);
 
+            // FR-OMV-02.2: 挿入は「1 件目 = 従来の単一移動と同じ引数 / 2 件目以降 = afterId が直前に置いた id」。
+            // これで選択時の可視順（selectionExportRoots の順）が保たれる。
             if (y < h * 0.25) {
                 // before: targetの前に兄弟として挿入
                 var info = model._getSiblingInfo(targetId);
                 var afterId = info && info.index > 0 ? info.siblings[info.index - 1] : null;
-                model.moveNode(movedNodeId, targetNode.parentId, afterId);
+                for (var bi = 0; bi < moveIds.length; bi++) {
+                    model.moveNode(moveIds[bi], targetNode.parentId, bi === 0 ? afterId : moveIds[bi - 1]);
+                }
             } else if (y > h * 0.60) {
                 // after: sprint 20260802-010347 (FR-DII-02/03): dragover で解決済みの
                 // depth 選択結果（lastDropResolution）を消費。null なら従来の一意解決。
                 var resolved = consumeDropResolution(targetId, 'after');
                 if (resolved && resolved.asChildOfTarget) {
-                    model.moveNode(movedNodeId, targetId, null);
+                    for (var ai = 0; ai < moveIds.length; ai++) {
+                        model.moveNode(moveIds[ai], targetId, ai === 0 ? null : moveIds[ai - 1]);
+                    }
                     targetNode.collapsed = false;
                 } else if (resolved) {
-                    model.moveNode(movedNodeId, resolved.parentId, resolved.beforeId);
+                    for (var ri = 0; ri < moveIds.length; ri++) {
+                        model.moveNode(moveIds[ri], resolved.parentId, ri === 0 ? resolved.beforeId : moveIds[ri - 1]);
+                    }
                 } else {
-                    model.moveNode(movedNodeId, targetNode.parentId, targetId);
+                    for (var si = 0; si < moveIds.length; si++) {
+                        model.moveNode(moveIds[si], targetNode.parentId, si === 0 ? targetId : moveIds[si - 1]);
+                    }
                 }
             } else {
                 // child: targetの子の先頭に挿入
-                model.moveNode(movedNodeId, targetId, null);
+                for (var ci = 0; ci < moveIds.length; ci++) {
+                    model.moveNode(moveIds[ci], targetId, ci === 0 ? null : moveIds[ci - 1]);
+                }
                 targetNode.collapsed = false;
             }
 
@@ -44254,6 +44395,8 @@ var Outliner = (function() {
             dragState = null;
             removeDropIndicator();
 
+            // FR-OMV-02.5: 選択集合は**クリアしない**（移動後も続けて D&D できる）。
+            // renderTree / scheduleSyncToHost はループの外で 1 回だけ（TC-OMV-12）。
             renderTree();
             focusNode(movedNodeId);
             scheduleSyncToHost();
@@ -44577,6 +44720,110 @@ var Outliner = (function() {
 
     // --- 複数ノード選択管理 ---
 
+    /**
+     * 選択モードか（ADRL-0119: 独立変数を持たず選択集合から**派生**させる純関数）。
+     *
+     * outliner のモードは 2 状態で全域かつ排他で、その 2 状態は選択集合の空/非空と 1:1 に対応する。
+     * 派生にすることで NFR-OSM-01（選択 0 件 ⇔ caret 表示）は「維持すべき不変条件」ではなく
+     * **恒真式**になる（守り忘れる余地が消える）。md エディタの表（`editor.js` の `tableSel.mode`）が
+     * 独立変数なのは 3 状態 + 所属情報を持つ必然があるためで、こちらには当たらない。
+     */
+    function isSelectMode() {
+        return !!selectedNodeIds && selectedNodeIds.size > 0;
+    }
+
+    /**
+     * モードを CSS へ投影する単一関数（ADRL-0119）。コンテナ 1 クラスなので再描画に強い。
+     * precedent = md 表の `table.classList.add('tbl-select-mode')`（`editor.js:4857`）。
+     *
+     * 🔴 呼び出し点は **3 種類**（design/system/mode-state-machine.md §1）:
+     *   1. 選択集合を変える既存関数の末尾（clearSelection / clearSelectionVisual / selectRange / toggleNodeSelection）
+     *   2. `selectAllNodes()` の末尾 — bulk 追加 / Set 再代入は
+     *      `selectedNodeIds\.(clear|delete|add)` の grep に掛からないので明示的に呼ぶ（design-review SYS-3）
+     *   3. `renderTree` の末尾（prune で選択が減るため）
+     * 冪等なので余分に呼んでも害はない。
+     */
+    function syncSelectionModeClass() {
+        if (!treeEl) { return; }
+        treeEl.classList.toggle('is-select-mode', isSelectMode());
+    }
+
+    /**
+     * 全 node を選択する（FR-MSEL-06 rev3 の 2 段目 / 選択モードの Cmd+A）。
+     *
+     * 従来は `case 'a'` にインラインで書かれていた（= `DOM-SelectAllNodes`）。named 関数に切ることで
+     * 呼び出し元（Cmd+A の 3 分岐 / 将来のメニュー等）が増えても投影の配線が 1 箇所に閉じる。
+     *
+     * 🔴 末尾で `syncSelectionModeClass()` を**明示的に呼ぶ**（design-review SYS-3）。
+     *    `selectRange` 経由で既に呼ばれてはいるが、bulk 追加や `selectedNodeIds = new Set(allIds)` 型の
+     *    再代入に実装が変わると `.clear()/.delete()/.add()` の grep に掛からず
+     *    「選択件数 > 0 なのに caret が見える」（INV-1 の破れ）が静かに入る。冪等なので二重呼びは無害。
+     */
+    function selectAllNodes() {
+        var allIds = model.getFlattenedIds(true);
+        if (allIds.length === 0) { return; }
+        selectionAnchorId = allIds[0];
+        selectRange(allIds[0], allIds[allIds.length - 1]);
+        syncSelectionModeClass();
+    }
+
+    /**
+     * その node の text が**すでに全選択されているか**（FR-MSEL-06 rev3 の段階判定）。
+     *
+     * 🔴 `textContent` の長さ比較で判定する。Range の start/end offset 比較にすると
+     *    inline 要素（`<b>` / `<code>` / `<a>`）で節点が分かれた瞬間に誤判定する（TC-OSM-25 が番人）。
+     * 🔴 空 node は **true**（1 段目をスキップして即 2 段目へ昇格）。さもないと
+     *    `selectNodeTextAll` が何も選択できず「何回押しても昇格しない」状態になる（TC-OSM-24 が番人）。
+     */
+    function isNodeTextFullySelected(textEl) {
+        if (!textEl) { return false; }
+        var len = (textEl.textContent || '').length;
+        if (len === 0) { return true; }
+        var sel = window.getSelection();
+        if (!sel || sel.rangeCount !== 1 || sel.isCollapsed) { return false; }
+        if (!textEl.contains(sel.anchorNode) || !textEl.contains(sel.focusNode)) { return false; }
+        return sel.toString().length === len;
+    }
+
+    /**
+     * その node の text を全選択する（FR-MSEL-06 rev3 の 1 段目）。
+     * **`removeAllRanges()` だけを呼んで終わってはいけない** — 直後に `addRange` して
+     * text 範囲を残すのが 1 段目の成果物（2 段目はこれを捨てる）。
+     */
+    function selectNodeTextAll(textEl) {
+        if (!textEl) { return; }
+        var sel = window.getSelection();
+        if (!sel) { return; }
+        var r = document.createRange();
+        r.selectNodeContents(textEl);
+        sel.removeAllRanges();
+        sel.addRange(r);
+    }
+
+    /**
+     * 選択モードで keydown をゲートする（FR-OSM-04 / ADRL-0114）。
+     * **true を返したら呼び出し元（handleNodeKeydown）は即 return** する。
+     * precedent = md エディタの表の `tslHandleKeydown`（`editor.js`）と同じ「true で終了」の形。
+     *
+     * 🔴 printable の帰結だけが precedent と**逆**（表 = 編集へ昇格 + 内容置換 / ここ = no-op）。
+     *    根拠 = ADRL-0114: **outliner は既定が編集モード**（↑↓ 1 つで戻れる）ので選択モード中に
+     *    文字を打つ意図がほぼ存在せず、no-op が非破壊で正しい。表は既定が選択モードなので逆になる。
+     */
+    function handleSelectModeKeydown(e) {
+        if (!isSelectMode()) { return false; }
+        // 修飾キー単体 / IME モードキー / lock キー → 素通し（選択維持 = FR-MSC-02 / 裁定 R31 の本体）
+        if (isNonTextKeyEvent(e)) { return false; }
+        // 修飾キー併用（cmd+c / cmd+x / cmd+v / Cmd+A / cmd+z 等）は既存経路に委譲する。
+        // ここで奪うと選択モードの clipboard が全滅する（HM-1 と対）。
+        if (e.metaKey || e.ctrlKey || e.altKey) { return false; }
+        // printable（修飾なしの 1 文字）= **no-op**。選択も解除しない。
+        if (e.key && e.key.length === 1) {
+            e.preventDefault();
+            return true;
+        }
+        return false;
+    }
+
     /** 選択をクリアしてDOM反映（reason = 選択トレースに残す契機のラベル） */
     function clearSelection(reason) {
         if (selectedNodeIds.size > 0) { _selTracePush('clear', '(' + (reason || 'unknown') + ') ids=' + selectedNodeIds.size); }
@@ -44587,6 +44834,7 @@ var Outliner = (function() {
         });
         selectedNodeIds.clear();
         selectionAnchorId = null;
+        syncSelectionModeClass();
     }
 
     /** DOMの選択ハイライトだけクリア (anchorはリセットしない) */
@@ -44598,6 +44846,7 @@ var Outliner = (function() {
             toggleRowCellsClass(id, 'is-selected', false);
         });
         selectedNodeIds.clear();
+        syncSelectionModeClass();
     }
 
     /**
@@ -44620,6 +44869,7 @@ var Outliner = (function() {
             toggleRowCellsClass(nodeId, 'is-selected', true);
         }
         selectionAnchorId = nodeId;
+        syncSelectionModeClass();
         _selTracePush('toggle', nodeId);
     }
 
@@ -44645,6 +44895,7 @@ var Outliner = (function() {
             if (el) { el.classList.add('is-selected'); }
             toggleRowCellsClass(flat[i], 'is-selected', true);
         }
+        syncSelectionModeClass();
         _selTracePush('selectRange', fromId + '..' + toId);
     }
 
@@ -44804,10 +45055,19 @@ var Outliner = (function() {
     }
 
     /** クリップボードに text/plain + text/html を書き込む (cross-outlinerメタデータ埋め込み) */
-    function writeClipboardWithHtml(plainText, nodesData, isCut, copyId) {
+    function writeClipboardWithHtml(plainText, nodesData, isCut, copyId, nodeIds) {
         var htmlText = buildSelectedNodesHtml(nodesData);
         // メタデータをHTMLに埋め込み (cross-webview paste用)。copyId(nonce) で同一コピー操作を識別。
-        var metaJson = JSON.stringify({ nodes: nodesData, sourceOutFileKey: currentOutFileKey, isCut: !!isCut, copyId: copyId });
+        //
+        // FR-CBD-03（sprint 20260906-095357 / DOM-ClipPayload）: `nodeIds` を **additive** に足す。
+        // G（outliner → linkedfd の clipboard 複写）の受け手がこれを読んで既存 host 入口
+        // `sendOutNodesToFolderLinkFromDrop` に渡す（実体は載せず識別子だけ = host が disk から解決する）。
+        // 🔴 既存の paste 判定（`OutlinerClipSelect.selectClipSource`）は `copyId` + `plainText` の一致だけを
+        //    見るので **このフィールドは既存経路に対して inert**（OS clipboard の text/plain は byte 不変）。
+        var metaJson = JSON.stringify({
+            nodes: nodesData, sourceOutFileKey: currentOutFileKey, isCut: !!isCut, copyId: copyId,
+            nodeIds: Array.isArray(nodeIds) ? nodeIds : undefined,
+        });
         htmlText = htmlText.replace(/^<ul>/, '<ul data-outliner-clipboard="' + encodeURIComponent(metaJson) + '">');
         // sprint 20260728-200503: write() は async — 従来の try/catch は同期例外しか捕まえず、
         // 書き込み失敗時に OS クリップボードへ「過去の cut/copy の HTML メタ」が残り、
@@ -44885,6 +45145,30 @@ var Outliner = (function() {
                         };
                         reader.readAsDataURL(imgFile);
                     }
+                    return;
+                }
+            }
+        }
+
+        // ── F: linkedfd → outliner の clipboard 複写（FR-CBD-02 / DOM-OutlinerClipPaste）──
+        //
+        // 🔴 挿入位置は **ここ以外に無い**（HM-2）:
+        //    ・上の画像分岐（stopPropagation 付き）より**後ろ** = 画像 paste は最優先で維持する
+        //    ・下の `if (!clipText) { return; }` より**前** = text/plain を持たない payload が
+        //      preventDefault されず生テキストとして流入するのを防ぐ
+        //    ・`if (selectedNodeIds.size > 0)`（選択置換）より**前**。ただし選択モードでは
+        //      **発火させない**（下記ガード）— 後ろに置くと複製要件が「選択 node 全削除」に化ける（データロス）
+        // 🔴 `!isSelectMode()` ガードが必須（design-review SYS-4）: これが無いと選択モード中でも
+        //    ここで発火し、FR-CBD-02 の「選択モードでは既存の選択置換が走る」（TC-CBD-08）に反する。
+        // 🔴 条件不成立時は **1 行も副作用を出さない**（HM-3。preventDefault は成立時のみ）
+        if (!isSelectMode()) {
+            var fvClip = hasFvClipPayload(e.clipboardData);
+            if (fvClip) {
+                // 挿入位置は 'after'（対象 node の直後の兄弟）に固定 = D11。
+                // clipboard には座標が無いので D&D の 3 帯から 1 値に固定するしかなく、
+                // 既存 paste（現ノードの直後に兄弟として挿入）と一致する 'after' が唯一の整合解。
+                if (applyFolderViewEntries(fvClip, nodeId, 'after')) {
+                    e.preventDefault();
                     return;
                 }
             }
@@ -45379,6 +45663,11 @@ var Outliner = (function() {
             return;
         }
 
+        // FR-OSM-04 / ADRL-0114: 選択モードのゲート。printable は no-op（本文を変えない）。
+        // 🔴 位置は「既存の『選択状態で文字キーが来たら clearSelection』ブロック（下記）より前」。
+        //    後ろに置くと先に選択が消えて no-op にならない。
+        if (handleSelectModeKeydown(e)) { return; }
+
         // スコープヘッダーノードかどうか判定
         var isScopeHeader = (currentScope.type === 'subtree' && currentScope.rootId === nodeId);
 
@@ -45396,8 +45685,14 @@ var Outliner = (function() {
         // や、Option / CapsLock / 英数・かな（IME モード切替）を叩いた瞬間に複数選択が消えていた。
         // = ユーザー報告「cmd を離すと複数選択が解除される」の候補機序。文字も移動も生まない key は
         // 選択に触らない（実際に文字が入るのは keydown 後の input で、そこは既存経路が扱う）。
+        // 🔴 TASK-21 (QUAL-4 / FR-OSM-03): **Escape はこのブロックから除外する**。
+        // このブロックは `switch (e.key)` より前にあるため、除外しないと `clearSelection('keydown:Escape')` が
+        // 先に走って選択が空になり、`case 'Escape'` の明示分岐（`if (isSelectMode()) clearSelection('Escape')`）が
+        // **到達不能な dead code** になる。FR-OSM-03 が要求したのは「副作用依存を明示分岐へ昇格させる」ことなので、
+        // 分岐を足すだけでは要件が満たされない（最終状態は同じなので既存 TC では区別できない = TC-OSM-14 が番人）。
         if (selectedNodeIds.size > 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey
             && !isNonTextKeyEvent(e)
+            && e.key !== 'Escape'
             && e.key !== 'Backspace' && e.key !== 'Delete' && e.key !== 'Tab') {
             clearSelection('keydown:' + e.key);
         }
@@ -45758,7 +46053,14 @@ var Outliner = (function() {
                 break;
 
             case 'Escape':
+                // FR-OSM-03（出口 X1）: 選択モードの解除を**明示分岐に昇格**する。
+                // 従来は上記「選択状態で文字キー等が来たら clearSelection」ブロックの**副作用**で
+                // 消えていただけで、入退出条件が実装上どこにも書かれていなかった（番人も書けない）。
+                // 検索クリアとは**両立**させる（副作用経路でも両方走っていたので byte 互換）。
                 e.preventDefault();
+                if (isSelectMode()) {
+                    clearSelection('Escape');
+                }
                 if (currentSearchResult) {
                     clearSearch();
                 }
@@ -45929,13 +46231,20 @@ var Outliner = (function() {
                         var copyText = getSelectedText();
                         var copyNodesData = getSelectedNodesData();
                         var copyIdC = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-                        writeClipboardWithHtml(copyText, copyNodesData, false, copyIdC);
+                        // FR-CBD-03 / HM-9: **生の selectedNodeIds を渡さない**。
+                        // host の `buildExportNodesFromOutData` に祖先-子孫の重複排除が無いため、
+                        // 生集合だと子孫が「祖先の children」と「トップレベル entry」の 2 箇所に出力され
+                        // linkedfd に二重書き出しされる。既存 D&D / メニューと同じ
+                        // `selectionExportRoots()`（可視順 + 最上位のみ）を必ず通す。
+                        var copyNodeIdsC = selectionExportRoots();
+                        writeClipboardWithHtml(copyText, copyNodesData, false, copyIdC, copyNodeIdsC);
                         internalClipboard = {
                             plainText: copyText,
                             isCut: false,
                             nodes: copyNodesData,
                             sourceOutFileKey: currentOutFileKey,
-                            copyId: copyIdC
+                            copyId: copyIdC,
+                            nodeIds: copyNodeIdsC
                         };
                         host.saveOutlinerClipboard(copyText, false, copyNodesData);
                     } else {
@@ -46026,12 +46335,25 @@ var Outliner = (function() {
                     break;
                 // case 'v': paste イベントで処理するため keydown では不要
                 case 'a':
-                    // Cmd+A: 全ノード選択
+                    // Cmd+A: モード分岐 + 2 段階 escalation（FR-MSEL-06 rev3 / ADRL-0116）
+                    //
+                    // ① 選択モード           → 常に全 node 選択（モード維持）
+                    // ② 編集モード・全選択済み → 全 node 選択へ**昇格**（removeAllRanges は selectRange 内で必須実施）
+                    // ③ 編集モード・それ以外   → その node の text 全選択（**removeAllRanges を呼ばない**）
+                    // ④ 全 node 選択済みで再押下 → ① に落ちて冪等（= no-op）
+                    //
+                    // 🔴 全分岐で preventDefault（native の全選択が走ると webview のツールバー/パネルまで
+                    //    選択される = GitHub issue #2 の症状。outliner-select-all.spec.ts:102 が番人）
                     e.preventDefault();
-                    var allIds = model.getFlattenedIds(true);
-                    if (allIds.length > 0) {
-                        selectionAnchorId = allIds[0];
-                        selectRange(allIds[0], allIds[allIds.length - 1]);
+                    // 🔴 FR-OSM-06 rev1: この case は **mindmap と共有**（handler は 1 箇所）。
+                    //    mindmap 面はモード二態を導入しない（本 sprint のスコープ外）ので 2 段階から免除し
+                    //    従来どおり 1 段階にする。免除しないと focusNodeText 直後（選択 0 件）に 1 回押す
+                    //    既存 TC（mindmap-keyboard TC-168 / outliner-select-all:165）が 1 段目に落ちて壊れる。
+                    if (VIEW_MODE === 'mindmap') { selectAllNodes(); break; }
+                    if (isSelectMode() || isNodeTextFullySelected(textEl)) {
+                        selectAllNodes();
+                    } else {
+                        selectNodeTextAll(textEl);
                     }
                     break;
                 case 'b':
@@ -47794,6 +48116,48 @@ var Outliner = (function() {
     }
 
     /**
+     * FR-OMV-01（sprint 20260906-024639 / 裁定 D）: outliner **内部**の D&D で動かす node id 群。
+     *
+     * 掴んだ node が複数選択に含まれていれば `selectionExportRoots()`（可視順 + 最上位のみ）を返す。
+     * **新しい順序計算・新しい root 抽出を書かない** — 「linkedfd に送る」（FR-SND-03/04）と同じ関数を使う
+     * （親と子孫が同時に選択されていても最上位だけが動き、子孫は subtree として随伴する）。
+     * 選択外の node を掴んだ場合は従来どおり 1 件（契約不変 = TC-OMV-11）。
+     */
+    function internalMoveIds(draggedId) {
+        if (!draggedId) { return []; }
+        if (!(selectedNodeIds.size > 1 && selectedNodeIds.has(draggedId))) { return [draggedId]; }
+        var roots = selectionExportRoots();
+        return roots.length ? roots : [draggedId];
+    }
+
+    /**
+     * FR-OMV-02.3: drop 先が **移動対象のいずれか自身 / その子孫**なら drop 全体を拒否する。
+     * 1 件でも不正なら全体拒否（部分適用の中間状態を作らない = NFR-OMV-01）。
+     */
+    function internalMoveRejected(targetId, ids) {
+        for (var i = 0; i < ids.length; i++) {
+            if (targetId === ids[i] || model.isDescendant(targetId, ids[i])) { return true; }
+        }
+        return false;
+    }
+
+    /**
+     * FR-OMV-02 / NFR-OMV-02（reviewer iteration 1 FINDING-DC-1）: `ids` が **既に `rootIds` の末尾に
+     * 同じ順で並んでいる**か。true なら root 末尾 drop は結果が変わらない（no-op）ので何もしない。
+     * 新しい状態を持たず、配列比較だけで判定する。
+     */
+    function isAlreadyRootTail(ids) {
+        if (!ids || !ids.length) { return true; }
+        var roots = model.rootIds;
+        if (ids.length > roots.length) { return false; }
+        var offset = roots.length - ids.length;
+        for (var i = 0; i < ids.length; i++) {
+            if (roots[offset + i] !== ids[i]) { return false; }
+        }
+        return true;
+    }
+
+    /**
      * FR-SND-03 (§6-2 段 2): 選択集合を `ExportNode[]` に変換する。
      *
      * 抽出した root **ごとに** `buildExportTree(rootId)` を呼んで配列化する
@@ -47933,6 +48297,13 @@ var Outliner = (function() {
                 openPage(nodeId);
                 hideContextMenu();
             }, modLabel + '+Enter');
+            // FR-ONT-01 (sprint 20260906-024639): page md を**新規タブ**で開く。
+            // Notes = webview 内タブ / Single = VS Code タブ（分岐は host 側 = ADRL-0008。webview に面判定を持たせない）。
+            // shortcut ラベルで新しい修飾（ADRL-0112）を発見可能にする。
+            addMenuItem(contextMenuEl, i18n.outlinerOpenPageInNewTab || 'Open page in new tab', function() {
+                if (node.pageId && host.openPageInTab) { host.openPageInTab(nodeId, node.pageId); }
+                hideContextMenu();
+            }, modLabel + '+Shift+Click');
             // FR-FR-02: md ページ実体を Finder (OS ファイラ) で選択状態表示
             addMenuItem(contextMenuEl, i18n.outlinerRevealInFinder || 'Reveal in Finder', function() {
                 if (host.revealPageInOS) { host.revealPageInOS(nodeId); }
@@ -47968,6 +48339,15 @@ var Outliner = (function() {
                 host.openAttachedFile(nodeId);
                 hideContextMenu();
             });
+            // FR-ONT-02: 📎 file 添付を**新規タブ**で開く（FR-FTB の経路。nodeId のみ送る）。
+            // ★ page と file は排他でないので、両方持つ node ではこの項目と上の page 項目が**並ぶ**。
+            //   ラベルは別キーで分ける（同名 2 項目にしない = FR-ONT-03）。
+            // FR-FTB-03: viewer 非対象 / 50MB 超は host 側で OS 既定アプリへ縮退するので、
+            //   **項目は常に表示**する（addMenuItem の disabled 引数は使わない）。
+            addMenuItem(contextMenuEl, i18n.outlinerOpenFileInNewTab || 'Open file in new tab', function() {
+                if (host.openNodeFileInTab) { host.openNodeFileInTab(nodeId); }
+                hideContextMenu();
+            }, modLabel + '+Shift+Click');
             // FR-FR-01: 添付ファイルを Finder (OS ファイラ) で選択状態表示
             addMenuItem(contextMenuEl, i18n.outlinerRevealInFinder || 'Reveal in Finder', function() {
                 if (host.revealAttachedFileInOS) { host.revealAttachedFileInOS(nodeId); }

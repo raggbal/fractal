@@ -66,6 +66,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         openPageInTab: function(nodeId, pageId) {
             postFn({ type: 'openPageInTab', nodeId: nodeId, pageId: pageId });
         },
+        // FR-ONT-02 / FR-FTB-01: node の 📎 file 添付を新規タブで開く。**nodeId のみ送る**
+        // （パス解決・kind 判定・50MB 縮退はすべて host = ADRL-0021 Decision 2 / FR-FTB-03）
+        openNodeFileInTab: function(nodeId) {
+            postFn({ type: 'openNodeFileInTab', nodeId: nodeId });
+        },
 
         // outliner node subtree の Export bundle (FR-EB)。dialog/出力は host
         exportOutlinerNodesBundle: function(nodeId, nodes) {

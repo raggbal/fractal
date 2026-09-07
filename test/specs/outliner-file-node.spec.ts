@@ -318,7 +318,7 @@ test.describe('Outliner File Node Features', () => {
         await page.waitForTimeout(200);
 
         // Verify 'Open File' menu item exists
-        const openFileItem = page.locator('.outliner-context-menu-item', { hasText: 'Open File' });
+        const openFileItem = page.locator('.outliner-context-menu-item', { hasText: /^Open File$/ });   // rev(20260906-024639 / FR-ONT-02): 「Open file in new tab」追加で部分一致が 2 件になるため完全一致（許可: test_update）
         expect(await openFileItem.count()).toBe(1);
 
         // Verify 'Remove File' menu item exists
@@ -351,7 +351,7 @@ test.describe('Outliner File Node Features', () => {
         await nodeEl.click({ button: 'right' });
         await page.waitForTimeout(200);
 
-        const openFileItem = page.locator('.outliner-context-menu-item', { hasText: 'Open File' });
+        const openFileItem = page.locator('.outliner-context-menu-item', { hasText: /^Open File$/ });   // rev(20260906-024639 / FR-ONT-02): 「Open file in new tab」追加で部分一致が 2 件になるため完全一致（許可: test_update）
         await openFileItem.click();
         await page.waitForTimeout(300);
 

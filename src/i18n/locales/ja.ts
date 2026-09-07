@@ -324,6 +324,8 @@ export const webviewMessages = {
   notesTabTools: 'ツール',
   notesNewFolder: '新規フォルダ',
   notesOpenInNewTab: '新しいタブで開く',
+  outlinerOpenPageInNewTab: 'ページを新しいタブで開く',
+  outlinerOpenFileInNewTab: 'ファイルを新しいタブで開く',
   tabOpenInStandalone: 'スタンドアロンで開く',
   tabOpenInOsDefaultApp: 'OS の既定アプリで開く',
   tabDuplicate: 'タブを複製',

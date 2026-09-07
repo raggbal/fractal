@@ -35,6 +35,8 @@ test.describe('Outliner コピー HTML リスト形式', () => {
         await page.waitForTimeout(100);
 
         // 全ノードを選択 (Cmd+A)
+        // FR-MSEL-06 rev3 / ADRL-0116: Cmd+A は 2 段階（1 回目 = node の text 全選択 / 2 回目 = 全 node 選択）
+        await page.keyboard.press('Meta+a');
         await page.keyboard.press('Meta+a');
         await page.waitForTimeout(100);
 
@@ -94,6 +96,8 @@ test.describe('Outliner コピー HTML リスト形式', () => {
         // 全ノードを選択 (Cmd+A)
         const textEl = page.locator('.outliner-text').first();
         await textEl.click();
+        // FR-MSEL-06 rev3 / ADRL-0116: Cmd+A は 2 段階（1 回目 = node の text 全選択 / 2 回目 = 全 node 選択）
+        await page.keyboard.press('Meta+a');
         await page.keyboard.press('Meta+a');
         await page.waitForTimeout(100);
 

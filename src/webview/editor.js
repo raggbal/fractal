@@ -6852,7 +6852,10 @@ class EditorInstance {
             e.stopPropagation();
             var linkHref = clickedLink.getAttribute('href');
             logger.log('[Any MD] Link clicked:', linkHref, 'metaKey:', e.metaKey, 'ctrlKey:', e.ctrlKey);
-            if (e.metaKey || e.ctrlKey) {
+            // FR-CT-05 rev2（ADRL-0112）: **cmd/ctrl+shift+click = 新規タブ**。
+            // cmd/ctrl 単独は通常 open に戻す（裁定 R13）。適用範囲は従来どおり**全 <a href>**
+            // （C は修飾キーの差し替えであってアンカー種別の絞り込みではない = 裁定 R12）。
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
                 host.openLinkInTab(linkHref);
             } else {
                 host.openLink(linkHref);

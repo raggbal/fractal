@@ -67,7 +67,7 @@ test.describe('FR-MSC-02 複数選択はキーの押し離しで壊れない', (
         expect(await selIds(page)).toEqual(['b', 'c']);
     });
 
-    test('TC-MSC-10: Option / CapsLock の keydown では消えない（文字キーでは消える）', async ({ page }) => {
+    test('TC-MSC-10 rev2: Option / CapsLock の keydown では消えない（文字キーでも消えない = FR-MSC-02 rev2）', async ({ page }) => {
         await bootWithTwoSelected(page);
         await page.keyboard.press('Alt');
         await page.waitForTimeout(60);
@@ -76,13 +76,18 @@ test.describe('FR-MSC-02 複数選択はキーの押し離しで壊れない', (
         await page.waitForTimeout(60);
         expect(await selIds(page)).toEqual(['b', 'c']);
 
-        // 反実仮想: 文字キーは従来どおり選択をクリアする（編集開始 = 選択の意味が消える）
+        // 🔄 FR-MSC-02 rev2（sprint 20260906-095357 / ADRL-0114）: **文字キーでも消えない**。
+        //    選択モードでは printable キーは no-op（本文も選択も変えない）。
+        //    旧契約「文字キーは選択をクリアする（編集開始 = 選択の意味が消える）」を supersede した。
+        //    根拠: outliner は既定が編集モードで ↑↓ 1 つで戻れるため、選択モード中に文字を打つ意図が
+        //    ほぼ存在せず、no-op が非破壊で正しい（md 表は既定が選択モードなので逆になる = 正当な非対称）。
+        //    ⚠️ 上半分（修飾キー / lock キーでは消えない = 裁定 R31 の本体）は**変更していない**。
         await page.keyboard.press('x');
         await page.waitForTimeout(60);
-        expect(await selIds(page)).toEqual([]);
+        expect(await selIds(page), '文字キーで選択が消えた（FR-MSC-02 rev2 = printable は no-op）').toEqual(['b', 'c']);
     });
 
-    test('TC-MSC-11: 修飾フラグ無しで届いた Meta の keydown でも消えない（文字キー相当なら消える）', async ({ page }) => {
+    test('TC-MSC-11 rev2: 修飾フラグ無しで届いた Meta の keydown でも消えない（文字キーでも消えない）', async ({ page }) => {
         await bootWithTwoSelected(page);
         // webview/Electron が focus 変化を挟んだときに観測される形（key='Meta' なのに metaKey=false）
         await dispatchKeydown(page, { key: 'Meta', code: 'MetaLeft', metaKey: false });
@@ -90,9 +95,11 @@ test.describe('FR-MSC-02 複数選択はキーの押し離しで壊れない', (
         await dispatchKeydown(page, { key: 'Control', code: 'ControlLeft', ctrlKey: false });
         expect(await selIds(page)).toEqual(['b', 'c']);
 
-        // 反実仮想: 同じ経路で文字キーが来たときはクリアされる（ガードが key 種別だけを見ている証拠）
+        // 🔄 FR-MSC-02 rev2: 同じ経路で文字キーが来ても**クリアされない**（printable は no-op）。
+        //    「ガードが key 種別だけを見ている」ことの証拠としては、
+        //    **修飾キー系が素通しされ printable が preventDefault される**（TC-OSM-05/06 が番人）ことで担保する。
         await dispatchKeydown(page, { key: 'a', code: 'KeyA' });
-        expect(await selIds(page)).toEqual([]);
+        expect(await selIds(page), '文字キーで選択が消えた（FR-MSC-02 rev2）').toEqual(['b', 'c']);
     });
 
     test('TC-MSC-12: IME モードキー / composing 中の keydown では消えない', async ({ page }) => {
@@ -105,7 +112,7 @@ test.describe('FR-MSC-02 複数選択はキーの押し離しで壊れない', (
         expect(await selIds(page)).toEqual(['b', 'c']);
     });
 
-    test('TC-MSC-13: 選択トレースが「誰が消したか」を理由付きで残す', async ({ page }) => {
+    test('TC-MSC-13 rev2: 選択トレースが「誰が消したか」を理由付きで残す（文字キーでは記録されない）', async ({ page }) => {
         await bootWithTwoSelected(page);
         // 選択の増加が記録されている
         const before = await page.evaluate(() => (window as any).__fractalSelTrace.get());
@@ -115,12 +122,21 @@ test.describe('FR-MSC-02 複数選択はキーの押し離しで壊れない', (
         const lastKeyup = before.filter((r: any) => r.kind === 'keyup').pop();
         expect(lastKeyup.n).toBe(2);
 
+        // 🔄 FR-MSC-02 rev2: 文字キーは no-op なので **clear が記録されない**。
+        //    トレース機構自体（誰が消したかを理由付きで残す）は Escape で健在であることを見る。
         await page.keyboard.press('x');
+        await page.waitForTimeout(60);
+        const afterChar = await page.evaluate(() => (window as any).__fractalSelTrace.get());
+        expect(afterChar.filter((r: any) => r.kind === 'clear').length,
+            '文字キーで clear が記録された（printable は no-op なので何も起きないはず）').toBe(0);
+
+        // Escape は明示分岐で解除し、理由付きでトレースに残る（FR-OSM-03 の出口 X1）
+        await page.keyboard.press('Escape');
         await page.waitForTimeout(60);
         const after = await page.evaluate(() => (window as any).__fractalSelTrace.get());
         const clears = after.filter((r: any) => r.kind === 'clear');
-        expect(clears.length).toBe(1);
-        expect(clears[0].detail).toContain('keydown:x');
+        expect(clears.length, 'Escape で clear が 1 回記録されない').toBe(1);
+        expect(clears[0].detail, 'clear の理由が記録されていない').toContain('Escape');
     });
 
     test('TC-MSC-14: Cmd+Shift+Alt+S でトレース overlay をトグルでき、選択は壊れない', async ({ page }) => {

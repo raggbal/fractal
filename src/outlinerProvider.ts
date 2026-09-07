@@ -27,7 +27,7 @@ import { parseDataUrl } from './shared/data-url-image-extractor';
 import { buildLlmsTxt, LlmsTxtTreeNode } from './shared/llms-txt-builder';
 import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
 import { DropStreamHost } from './shared/drop-stream-host';
-import { viewerViewType } from './shared/viewer-target';
+import { isViewerTarget, VIEWER_SIZE_LIMIT, viewerViewType } from './shared/viewer-target';
 import { buildInAppFileLinkForFolder } from './shared/viewer-inapp-link';
 import { runExportMdToPdf, PdfExportDeps, ExecResult, PdfPanelLike } from './shared/pdf-export-host';
 import { execFile as cpExecFile } from 'child_process';
@@ -571,6 +571,36 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
+                    // FR-ONT-02 / FR-FTB-04 (sprint 20260906-024639): node の 📎 file を「新規タブ」で開く。
+                    // standalone はタブ strip を持たない（ADRL-0008）ので **VS Code タブ**（既存
+                    // case 'viewerOpenInNewTab' と同じ到達点 = viewerViewType(kind) の customEditor）。
+                    // viewer 非対象 / 50MB 超は OS 既定アプリへ縮退（FR-FTB-03 — Notes 面と同一裁定）。
+                    case 'openNodeFileInTab': {
+                        const data = JSON.parse(document.getText());
+                        const node = data.nodes?.[message.nodeId];
+                        if (!node?.filePath) { break; }
+                        const outDir = path.dirname(document.uri.fsPath);
+                        const safeFilePath = safeResolveUnderDir(outDir, node.filePath);
+                        if (!safeFilePath) {
+                            vscode.window.showErrorMessage(t('fileNotFoundOrUnsafe'));
+                            break;
+                        }
+                        if (!fs.existsSync(safeFilePath)) {
+                            vscode.window.showErrorMessage(t('fileNotFound'));
+                            break;
+                        }
+                        const vk = isViewerTarget(path.basename(safeFilePath));
+                        let tooLarge = false;
+                        try { tooLarge = fs.statSync(safeFilePath).size > VIEWER_SIZE_LIMIT; } catch { tooLarge = false; }
+                        if (vk && !tooLarge) {
+                            await vscode.commands.executeCommand(
+                                'vscode.openWith', vscode.Uri.file(safeFilePath), viewerViewType(vk));
+                            break;
+                        }
+                        await vscode.env.openExternal(vscode.Uri.file(safeFilePath));
+                        break;
+                    }
+
                     case 'openAttachedFile': {
                         const data = JSON.parse(document.getText());
                         const node = data.nodes?.[message.nodeId];
@@ -790,7 +820,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             sourcePagesDirPath: clipPagesDir,
                             sourceImagesDirPath: clipImagesDir,
                             sourceFileDirPath: clipFileDir,
-                            sourceOutDir: path.dirname(document.uri.fsPath)
+                            sourceOutDir: path.dirname(document.uri.fsPath),
+                            sourceOutFilePath: document.uri.fsPath,   // ADRL-0121 rev1: containment をファイル単位にする
                         });
                         break;
                     }

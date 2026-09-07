@@ -152,8 +152,17 @@ export interface NotesPlatformActions {
     flushActiveForTab?(): void;
     /** sprint 20260723-233506: タブ復帰でサイドパネルを復元（sidePanel.openFile(fp,false,true)）。FR-TAB-06 */
     restoreSidePanelForTab?(filePath: string): void;
-    /** sprint 20260723-233506: サイドパネル「Open in tab」等から .md を webview 内タブで開く（FR-TAB-02）。 */
-    openFileInWebviewTab?(filePath: string): void;
+    /**
+     * sprint 20260723-233506: サイドパネル「Open in tab」等から .md を webview 内タブで開く（FR-TAB-02）。
+     * sprint 20260906-024639 (FR-FTB-02): `kindHint='file'` で **kind='file' のタブ**（viewer 素材つき）を要求できる。
+     * 省略時は従来どおり拡張子で md/.out に落ちる（既存 3 呼び出し元の挙動は不変）。
+     * 戻り値 = タブを開いたか（false = viewer 非対象 / 50MB 超で縮退すべき → 呼び出し側が OS 既定アプリへ）。
+     */
+    openFileInWebviewTab?(filePath: string, kindHint?: 'file'): boolean | void;
+    /** FR-CT-04 / FR-TF-10 rev: tree の file item を kind='file' タブで開く（id のみ受ける・解決は host）。 */
+    openTreeFileInTab?(id: string, sender: NotesSender): void | Promise<void>;
+    /** FR-ONT-02: outliner node の 📎 file 添付を kind='file' タブで開く（nodeId のみ受ける）。 */
+    openNodeFileInTab?(nodeId: string, outFilePath: string, sender: NotesSender): void | Promise<void>;
     /** outliner node subtree の Export bundle（FR-EB）。dialog + 出力は export-bundle-host */
     exportOutlinerNodesBundle?(args: { nodeId: string; nodes: unknown[]; srcOutDir: string; srcPagesDir: string; srcFileDir: string }): void;
     /** サイドパネルの sendToChat を処理（テキストエディタで開いて行選択） */
@@ -423,8 +432,10 @@ export interface NotesPlatformActions {
     /** FR-FLV-15 (#11): delete（常に trash） */
     folderViewDelete?(id: string, relPath: string, sender: NotesSender): Promise<void> | void;
     folderViewDuplicate?(id: string, relPath: string, sender: NotesSender): Promise<void> | void;
-    /** FR-FLV-16 (#12): ビュー内移動（fs.rename） */
-    folderViewMove?(id: string, srcRelPath: string, dstDirRelPath: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-16 (#12): ビュー内移動（fs.rename）。`mode:'copy'` は複製（ADRL-0120。既定 'move'） */
+    folderViewMove?(id: string, srcRelPath: string, dstDirRelPath: string, sender: NotesSender, mode?: 'move' | 'copy'): Promise<void> | void;
+    /** FR-FMV-01/03 / FR-CBD-07: ビュー内の**一括**移動 / 一括複製（配列 1 回。件数ゲートは runBatchTransfer 経由） */
+    folderViewMoveBatch?(id: string, srcRelPaths: string[], dstDirRelPath: string, mode: 'move' | 'copy', sender: NotesSender): Promise<void> | void;
     /** FR-FLV-15 (#17): エントリの Reveal in Finder */
     folderViewRevealEntry?(id: string, relPath: string, sender: NotesSender): Promise<void> | void;
     /** FR-FLV-15 (#18): エントリの Copy Path */
@@ -824,7 +835,8 @@ export async function handleNotesMessage(
                 sourcePagesDirPath: clipPagesDir,
                 sourceImagesDirPath: path.join(clipPagesDir, 'images'),
                 sourceFileDirPath: clipFileDir,
-                sourceOutDir: currentFilePath ? path.dirname(currentFilePath) : clipPagesDir
+                sourceOutDir: currentFilePath ? path.dirname(currentFilePath) : clipPagesDir,
+                sourceOutFilePath: currentFilePath || undefined,   // ADRL-0121 rev1: containment をファイル単位にする
             });
             break;
         }
@@ -1009,6 +1021,26 @@ export async function handleNotesMessage(
                 platform.openFileInWebviewTab(message.filePath);
             }
             break;
+
+        // FR-CT-04 / FR-TF-10 rev (sprint 20260906-024639): tree の file item を kind='file' タブで開く。
+        // webview は **id のみ**送る（絶対パスの解決・viewer 判定・縮退は platform 側）。
+        case 'notesOpenTreeFileInTab':
+            if (typeof platform.openTreeFileInTab === 'function' && typeof message.id === 'string' && message.id) {
+                await platform.openTreeFileInTab(message.id, sender);
+            }
+            break;
+
+        // FR-ONT-02 (sprint 20260906-024639): outliner node の 📎 file 添付を kind='file' タブで開く。
+        // 現在開いている .out のパスは host が持つ（既存 openAttachedFile と同型の DI）。
+        case 'openNodeFileInTab': {
+            if (typeof platform.openNodeFileInTab === 'function' && typeof message.nodeId === 'string' && message.nodeId) {
+                const currentFilePath = fileManager.getCurrentFilePath();
+                if (currentFilePath) {
+                    await platform.openNodeFileInTab(message.nodeId, currentFilePath, sender);
+                }
+            }
+            break;
+        }
 
         // ★reopen 2026-07-23: openPageFromHistory は廃止（Recent の page md も note-md・絶対パスで記録し
         //   bridge.openFile → notesOpenFile でメインペインに開くため、sidepanel 専用の page 開き経路は不要）。
@@ -2024,7 +2056,10 @@ export async function handleNotesMessage(
             break;
         }
         case 'folderViewMove': {
-            await platform.folderViewMove?.(String(message.id ?? ''), String(message.srcRelPath ?? ''), String(message.dstDirRelPath ?? ''), sender);
+            // ADRL-0120: mode は未指定なら 'move'（既存の webview 呼び出しと byte 互換）
+            await platform.folderViewMove?.(
+                String(message.id ?? ''), String(message.srcRelPath ?? ''), String(message.dstDirRelPath ?? ''),
+                sender, message.mode === 'copy' ? 'copy' : 'move');
             break;
         }
         case 'folderViewRevealEntry': {
@@ -2050,6 +2085,16 @@ export async function handleNotesMessage(
                 String(message.id ?? ''),
                 Array.isArray(message.items) ? message.items : [],
                 message.parentId ?? null, Number(message.index ?? 0), sender);
+            break;
+        }
+        // FR-FMV-01/03 / FR-CBD-07: linkedfd 内の一括移動 / 一括複製
+        case 'folderViewMoveBatch': {
+            await platform.folderViewMoveBatch?.(
+                String(message.id ?? ''),
+                Array.isArray(message.srcRelPaths) ? message.srcRelPaths.map((x: unknown) => String(x ?? '')) : [],
+                String(message.dstDirRelPath ?? ''),
+                message.mode === 'copy' ? 'copy' : 'move',
+                sender);
             break;
         }
         // FR-MSEL-04 / NFR-MSEL-02 (§4-3b)
@@ -3876,27 +3921,30 @@ async function cleanupFvMoveSource(
     rootAbs: string,
     srcMdAbs: string,
     report: MdPasteAssetReport
-): Promise<void> {
+): Promise<{ partialFail: boolean }> {
     if (report.copyFailed.length > 0) {
         console.error('[Notes] fv move: partial attachment copy failure — source untouched:', report.copyFailed);
         deps.showErrorMessage(
             (deps.t('folderViewMovePartialFail') || 'Moved copy created, but some attachments failed to copy — original files were kept: ')
             + path.basename(srcMdAbs)
         );
-        return;
+        // TASK-18 (QUAL-6): batch 経路が「成功」に数えないよう部分失敗を戻り値でも伝える
+        // （通知の抑止だけでは集計に穴が残り、利用者が失敗を検知できない）
+        return { partialFail: true };
     }
     const closureMds = report.copied.filter((p) => /\.md$/i.test(p)).map((p) => path.resolve(p));
     const { refs, aborted } = collectFvSurvivingAssetRefs(rootAbs, new Set([path.resolve(srcMdAbs), ...closureMds]));
     await trashSourceBestEffort(deps, srcMdAbs); // md 本体は従来どおり削除
     if (aborted) {
         console.warn('[Notes] fv move: residual-ref scan aborted (size limit) — accompanied assets kept (safe side)');
-        return;
+        return { partialFail: false };
     }
     for (const abs of report.copied) {
         if (refs.has(path.resolve(abs))) { continue; } // 残留参照 → 温存
         if (!fs.existsSync(abs)) { continue; }
         await trashSourceBestEffort(deps, abs);
     }
+    return { partialFail: false };
 }
 
 // ── FR-MSEL: 複数選択 D&D の batch 基盤（§4-1 / §4-3b / §4-4） ──
@@ -3949,6 +3997,88 @@ export interface BatchOutcome {
  * 本実装は copy と delete を **同じ 1 件のイテレーション内**で完結させるので、
  * ある item の失敗が別の item の source を消すことは構造的に起こらない。
  */
+/**
+ * FR-CBD-04 rev1 / NFR-CBD-04 / ADRL-0121（reviewer iteration 1 SEC-1）:
+ * **clipboard 由来の `.out` パスを host のファイル読取に直接渡さないための containment。**
+ *
+ * G（outliner clip → linkedfd cmd+v）は `data-outliner-clipboard` を **OS clipboard の `text/html`**
+ * から正規表現で拾う。`text/html` はブラウザ / Office / メール等ほぼ全アプリがリッチテキストコピー時に
+ * populate する**汎用 MIME** なので、外部由来の HTML に偽の `sourceOutFileKey` を仕込める。
+ * 旧実装（`outFileKey.endsWith('.out') && fs.existsSync(...)`）は**実在する任意の絶対 `.out`** を
+ * 受理していたため、paste 1 回で任意の `.out` を読んで linkedfd に書き出せた。
+ *
+ * コピー元の真実は **`OutlinerClipboardStore` の `sourceOutDir`**（outliner の copy/cut ごとに
+ * extension 自身が `saveOutlinerClipboard` 経由で記録している）。既存の cross 経路 4 本
+ * （`handlePageAssetsCross` / `copyImagesCross` / `handleFileAssetCross` / `copyPageFileCross`）が
+ * すべて `clipData.sourceOutDir` を使い、store が空なら `break`（silent no-op）しているのと**同じ型**に揃える。
+ * G だけが 5 本目として `path.dirname(outPath)` で再導出していた不整合の解消も兼ねる。
+ *
+ * @param outFileKey webview から来た値。`.out` で終わる絶対パス or fileManager の id
+ * @param fm `getFilePathById` を持つもの（id 指定の従来分岐用）。不要なら null
+ * @returns 信頼できる絶対パス / 受理できなければ `null`（**呼び出し元は silent no-op**）
+ */
+/**
+ * realpath を解決して同一実体かを比較する（QUAL3-1: `resolveTrustedOutPath` と
+ * `trustedSrcOutDir` が同じ比較を 2 回実装していたのを 1 本に寄せた）。
+ * 解決不能（不在 / broken symlink）は **false** = 遮断側に倒す。
+ */
+function sameRealPath(a: string, b: string): boolean {
+    try { return fs.realpathSync(a) === fs.realpathSync(b); } catch { return false; }
+}
+
+export function resolveTrustedOutPath(
+    outFileKey: string,
+    fm: { getFilePathById(id: string): string; getCurrentFilePath?(): string | null } | null,
+): string | null {
+    if (!outFileKey) { return null; }
+
+    // ── id 指定（`.out` で終わらない）= 従来の正規経路。fileManager の解決に委ねる ──
+    if (!/\.out$/i.test(outFileKey)) {
+        const byId = fm ? fm.getFilePathById(outFileKey) : '';
+        return byId || null;
+    }
+
+    // ── 絶対パス指定 = clipboard 由来の可能性がある経路 ──
+    // 信頼できる `.out` の集合を作り、**厳密一致（realpath 比較）**で照合する。
+    // ディレクトリ単位の clamp では同一フォルダ内の無関係な別 `.out` を読めてしまう（SEC-6）。
+    let target: string;
+    try { target = fs.realpathSync(outFileKey); } catch { return null; }   // 不在 / broken symlink → 遮断
+
+    // 信頼源は **2 つだけ**（rev2 / reviewer iteration 3 SEC-7）:
+    //   ① store が記録した「copy / cut の対象だった `.out` そのもの」
+    //   ② **この面が現在開いている `.out`**（`fileManager.getCurrentFilePath()`）
+    //
+    // 🔴 rev1 は第 3 の信頼源として「workspace 中で開いている全 `.out`」（`openOutPaths`）を受けていたが、
+    //    これは **偽造 clipboard trigger にとっても有効な受理条件**になり SEC-1 の脅威モデルを再拡大していた
+    //    （victim が別タブで `secret.out` を開いているだけで偽造 paste が通る）。
+    //    D&D（DESIGN-4）を閉じるのに必要なのは ② だけ — D&D の payload は `outFileKey: currentOutFileKey` で、
+    //    それは定義上「この面が開いている `.out`」なので ② に一致する。よって第 3 の信頼源は撤去した。
+    const trusted: string[] = [];
+    const clip = OutlinerClipboardStore.peek();
+    if (clip && clip.sourceOutFilePath) { trusted.push(clip.sourceOutFilePath); }
+    if (fm && typeof fm.getCurrentFilePath === 'function') {
+        const cur = fm.getCurrentFilePath();
+        if (cur) { trusted.push(cur); }        // 拡張子判定は上の `/\.out$/i` 分岐で既に済んでいる（QUAL3-2）
+    }
+    for (const cand of trusted) {
+        if (sameRealPath(cand, target)) { return target; }
+    }
+    return null;
+}
+
+/**
+ * ADRL-0121: G / D&D が使う `srcOutDir` は **store の `sourceOutDir`** を優先する
+ * （clipboard 由来のパスから `path.dirname` で再導出しない）。store が無い trigger（D&D 単体）では
+ * 呼び出し元が既に `resolveTrustedOutPath` で信頼済みの `outPath` を持っているので、その親で足りる。
+ */
+export function trustedSrcOutDir(outPath: string): string {
+    const clip = OutlinerClipboardStore.peek();
+    if (clip && clip.sourceOutFilePath && sameRealPath(clip.sourceOutFilePath, outPath)) {
+        return clip.sourceOutDir || path.dirname(outPath);
+    }
+    return path.dirname(outPath);
+}
+
 export async function runBatchTransfer<T>(
     items: T[],
     transferOne: (item: T) => Promise<{ ok: boolean; reason?: string }>,
@@ -5031,6 +5161,66 @@ export async function folderViewDuplicate(
     return true;
 }
 
+/**
+ * linkedfd 内一括移動 / 一括複製（FR-FMV-01/03 / FR-CBD-07 / DOM-FvMoveBatchRoute）。
+ *
+ * 既存 batch 2 本（`folderViewMoveToTreeBatch` / `folderViewMoveInBatch`）と**同じ構造**で書く:
+ * `runBatchTransfer` を通すことで **件数ゲート（checkBatchLimit）・確認 modal・集計通知 1 回**が
+ * 自動で乗る（NFR-FMV-01 / NFR-FMV-02）。webview から N 回呼ぶのは SEC-1 として禁止済み。
+ *
+ * 🔴 **per-item 通知を抑止する**（NFR-FMV-02）: 委譲先 `folderViewMove` は内部に
+ *    `showErrorMessage` 系を 5 経路持ち（特に `folderViewNameConflict`）、そのまま N 件回すと
+ *    トースト洪水になる。`showErrorMessage` を no-op に差し替えた deps を渡し、
+ *    理由は戻り値側で集計して `runBatchTransfer` の集計通知 1 回に委ねる。
+ * 🔴 **`sendFolderViewList` を uniq して 1 回ずつ**送る: `folderViewMove` は src 親と dst の両方へ
+ *    送るので N 件回すと最大 2N 回の再描画メッセージが飛ぶ。per-item の送信を捨て、
+ *    ループ後に「src 親の集合 ∪ dst」を uniq して送る。
+ * 🔴 `mode` は呼び出し元から**そのまま forward**（`'copy'` は H = clipboard 複製経路のみ）。
+ */
+export async function folderViewMoveBatch(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    srcRelPaths: string[],
+    dstDirRelPath: string,
+    mode: 'move' | 'copy',
+    deps: FolderViewDeps,
+    sender: NotesSender,
+    moveDeps: FolderMoveDeps
+): Promise<{ verdict: BatchLimitVerdict; outcome: BatchOutcome }> {
+    const list = (Array.isArray(srcRelPaths) ? srcRelPaths : []).filter((r) => typeof r === 'string' && r.length > 0);
+    // per-item の通知と再描画メッセージを飲み込む deps / sender
+    const quietDeps: FolderViewDeps = Object.assign({}, deps, { showErrorMessage: () => { /* 集計通知 1 回に委ねる */ } });
+    // 🔴 TASK-18 (QUAL-6 / NFR-FMV-02): **`moveDeps` も wrap する**。
+    // `FolderMoveDeps` は `FolderViewDeps` とは別インターフェースで独自に `showErrorMessage` を持ち、
+    // md 分岐の随伴資産の部分失敗は `cleanupFvMoveSource(moveDeps, ...)` 経由で通知される。
+    // `quietDeps` だけを wrap していた iteration 1 は、この経路で per-item トーストが漏れていた。
+    // `confirmLarge` / `notifyLimitExceeded` / `notifyOutcome` は**元の `moveDeps` のまま**
+    //（件数ゲートと集計通知 1 回は出さなければならない）= 下の `batchDepsOf(moveDeps)` が担う。
+    const quietMoveDeps: FolderMoveDeps = Object.assign({}, moveDeps, { showErrorMessage: () => { /* 同上 */ } });
+    const parents = new Set<string>();
+    const quietSender: NotesSender = {
+        postMessage: (message: unknown) => {
+            const t = (message as { type?: string } | null)?.type;
+            if (t === 'folderViewListResult') { return; }   // ループ後に uniq して送る
+            sender.postMessage(message);
+        },
+    };
+    const r = await runBatchTransfer(list, async (rel) => {
+        parents.add(parentRelOf(rel));
+        const flags: { partialFail?: boolean } = {};
+        const ok = await folderViewMove(fileManager, folderLinkId, rel, dstDirRelPath, quietDeps, quietSender, quietMoveDeps, mode, flags);
+        // 部分失敗（md の随伴資産が一部コピーできず source を温存した）は **成功に数えない**。
+        // iteration 1 は `folderViewMove` が true を返すため succeeded に入り、失敗が集計に現れなかった。
+        if (ok && flags.partialFail) { return { ok: false, reason: 'partial_attachment' }; }
+        return { ok, reason: ok ? undefined : 'transfer_failed' };
+    }, batchDepsOf(moveDeps));
+    if (r.verdict === 'ok') {
+        parents.add(dstDirRelPath);
+        parents.forEach((rel) => { sendFolderViewList(fileManager, folderLinkId, rel, sender); });
+    }
+    return r;
+}
+
 /** FR-FLV-15 (#17): エントリの Reveal in Finder（clamp 経由・folderRoot 外は不発）。 */
 export function folderViewRevealEntry(
     fileManager: NotesFileManager,
@@ -5076,7 +5266,25 @@ export async function folderViewMove(
     dstDirRelPath: string,
     deps: FolderViewDeps,
     sender: NotesSender,
-    moveDeps: FolderMoveDeps   // md 分岐（ADRL-0102）の随伴転送で必須。呼び出し元は常に渡す
+    moveDeps: FolderMoveDeps,  // md 分岐（ADRL-0102）の随伴転送で必須。呼び出し元は常に渡す
+    /**
+     * `'copy'` = 複製（source を残す。FR-CBD-07 = linkedfd 内 clipboard 複製 / ADRL-0120）。
+     *
+     * 🔴 **既定は `'move'`** なので既存の呼び出し元は引数を足さなくてよい（byte 不変）。
+     *    `'copy'` を渡すのは **clipboard 経路（H）だけ** — **D&D の fv 内移動は `'move'` のまま**
+     *    （ADRL-0106 の「fv 内移動には触れない」条項を維持。ADRL-0117 が明記した
+     *    「同一面でも D&D = 移動 / clipboard = 複製」の非対称がここで実装として現れる）。
+     * 🔴 新関数 `folderViewCopy` を作らないのは、root 解決 / `safeResolveUnderFolderRoot` /
+     *    自己子孫ガード / md 判定 / `sendFolderViewList` の src・dst 両側送信 を丸ごと複製することになり、
+     *    **path safety のガードが 2 実装に分かれる**ため（ADRL-0120 の Considered Options 2 を却下）。
+     */
+    mode: 'move' | 'copy' = 'move',
+    /**
+     * TASK-18 (QUAL-6): md 分岐の随伴資産が部分失敗したことを呼び出し元へ surface する out-param。
+     * 単一経路（既存 2 呼び出し元）は渡さない = 戻り値の意味論は byte 不変。
+     * batch 経路だけがこれを見て `runBatchTransfer` の集計に載せる。
+     */
+    outFlags?: { partialFail?: boolean }
 ): Promise<boolean> {
     const root = fileManager.resolveFolderRoot(folderLinkId);
     if (!root) {
@@ -5106,7 +5314,12 @@ export async function folderViewMove(
             notifyOperationFailed(deps, e);
             return false; // 複製失敗 → 元不変（INV-5）
         }
-        await cleanupFvMoveSource(moveDeps, root, absSrc, report); // 全成功時のみ削除・残留参照温存
+        // ADRL-0120: `transferMdWithAssets` は元から copy。**削除フェーズを呼ばなければ複製**になる
+        //（ADRL-0106 が面間複製で採った「source 側処理だけ止める」形と同型）。
+        if (mode === 'move') {
+            const cleanup = await cleanupFvMoveSource(moveDeps, root, absSrc, report); // 全成功時のみ削除・残留参照温存
+            if (cleanup.partialFail && outFlags) { outFlags.partialFail = true; } // TASK-18: batch の集計へ
+        }
         const srcParentRelMd = parentRelOf(srcRelPath);
         sendFolderViewList(fileManager, folderLinkId, srcParentRelMd, sender);
         if (dstDirRelPath !== srcParentRelMd) {
@@ -5115,6 +5328,35 @@ export async function folderViewMove(
         return true;
     }
 
+    // ADRL-0120（非 md 分岐の copy）: rename の代わりに **既存の uniquify コピー**を使う。
+    // `folderViewDuplicate` が既に使っている関数なので新規のコピー経路を書かない。
+    // 同名衝突は拒否せず uniquify する（`move` の folderViewNameConflict 拒否は不変）。
+    if (mode === 'copy') {
+        if (fs.statSync(absSrc).isDirectory()) {
+            // フォルダの再帰複製経路は既存に無い（`folderViewDuplicate` も dir を拒否している）。
+            // H ではフォルダを skip して集計に載せる（ADRL-0120 の受容事項）。
+            //
+            // 🔴 TASK-20 (QUAL-1): **通知してから返す**。同関数の他の失敗分岐（folderLinkBroken /
+            // folderViewMoveIntoSelf / notifyOperationFailed / folderViewOperationFailed /
+            // folderViewNameConflict）はすべて通知するのに、この分岐だけ黙っていた。
+            // `dispatchFvMove` は ids.length === 1 のとき batch を経由せず単数 bridge を直接呼ぶため
+            //（notes-folder-view.js:996）、**フォルダ 1 件だけの H では集計通知も出ず cmd+v が完全に無反応**になる。
+            // 文言は既存キーを再利用する（`folderViewMoveToTree` が同じ理由で使っている実例が :4226）。
+            deps.showErrorMessage(deps.t('folderViewNoFolderDrop') || 'Folders cannot be dropped here.');
+            return false;
+        }
+        const copied = copyEntityWithUniquify(absSrc, absDstDir, path.basename(absSrc));
+        if (!copied) {
+            deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Copy failed.');
+            return false;
+        }
+        const srcParentRelCopy = parentRelOf(srcRelPath);
+        sendFolderViewList(fileManager, folderLinkId, srcParentRelCopy, sender);
+        if (dstDirRelPath !== srcParentRelCopy) {
+            sendFolderViewList(fileManager, folderLinkId, dstDirRelPath, sender);
+        }
+        return true;
+    }
     if (fs.existsSync(absDst)) {
         deps.showErrorMessage(deps.t('folderViewNameConflict') || 'An entry with the same name already exists.');
         return false;

@@ -185,6 +185,8 @@ test.describe('Outliner cut/copy + paste with children', () => {
         // Cmd+A で全選択
         const firstText = page.locator('.outliner-text').first();
         await firstText.click();
+        // FR-MSEL-06 rev3 / ADRL-0116: Cmd+A は 2 段階（1 回目 = node の text 全選択 / 2 回目 = 全 node 選択）
+        await page.keyboard.press('Meta+a');
         await page.keyboard.press('Meta+a');
         await page.waitForTimeout(100);
         await page.keyboard.press('Meta+x');

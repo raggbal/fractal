@@ -17,11 +17,15 @@
  * `integration-outliner-cmd-cv-matrix` 全件 / `outliner-copy-html` / `outliner-copy-page-path` 等）
  * gate で NEW FAILS 27 件を出したため撤回した。
  *
- * ⚠️ **未達の受け入れ条件（申告）**: requirement の「node text 編集中の Cmd+A は
- * **その node text のテキスト全選択**」は既存仕様と両立しない（既存は編集中でも全 node 選択）。
- * Outliner では node にフォーカスがあるとき `activeElement` は常に `.outliner-text`
- * （contenteditable）なので「編集中」と「ナビ中」を機構的に判別できない。
- * 変更するなら既存 TC 20 本以上の期待値反転を伴う**仕様変更**として起票が必要。
+ * ✅ **その未達は sprint 20260906-095357 で解消した**（FR-MSEL-06 rev3 / ADRL-0116）:
+ *   - 「編集中と選択中を機構的に判別できない」という撤回理由は、モードを
+ *     `selectedNodeIds.size > 0` の**派生**として明示化（ADRL-0119）したことで構造的に解消した。
+ *   - Cmd+A は **2 段階 escalation** になった: 1 回目 = その node の text 全選択（編集モード維持）/
+ *     2 回目 = 全 node 選択（選択モードへ）/ 3 回目以降 = no-op。
+ *   - **mindmap 面は 2 段階から免除**（`VIEW_MODE === 'mindmap'` で 1 段階のまま = FR-OSM-06 rev1）。
+ *     下の「Mindmap view でも全ノード選択が働く」が**無改修で green のまま**であることがその番人。
+ *   - 本 spec の期待値はこの rev3 に合わせて反転済み（rev: TU-03）。2 段階の詳細な番人は
+ *     `test/specs/outliner-select-mode.spec.ts`（TC-OSM-20..28）にある。
  */
 import { test, expect, Page } from '@playwright/test';
 
@@ -76,10 +80,12 @@ function selectedIds(page: Page): Promise<string[]> {
 }
 
 test.describe('TC-MSEL-21 Outliner の Cmd+A（FR-MSEL-06 / GitHub issue #2）', () => {
-    test('1 回の Cmd+A で可視 node が全選択され、ネイティブ全選択が走らない', async ({ page }) => {
+    test('Cmd+A 2 回で可視 node が全選択され、ネイティブ全選択が走らない（rev3 = 2 段階）', async ({ page }) => {
         await setup(page);
         await page.locator('.outliner-node[data-id="b"] .outliner-text').click();
 
+        // FR-MSEL-06 rev3 / ADRL-0116: 1 回目 = node の text 全選択 / 2 回目 = 全 node 選択
+        await page.keyboard.press('Meta+a');
         await page.keyboard.press('Meta+a');
         await page.waitForTimeout(150);
 
@@ -117,9 +123,11 @@ test.describe('TC-MSEL-21 Outliner の Cmd+A（FR-MSEL-06 / GitHub issue #2）',
             + 'ツールバー / パネルごと選択される（GitHub issue #2 の症状）').toBe(true);
     });
 
-    test('Ctrl+A でも同じ（Windows / Linux / Theia 経路）', async ({ page }) => {
+    test('Ctrl+A でも同じ（Windows / Linux / Theia 経路。2 段階）', async ({ page }) => {
         await setup(page);
         await page.locator('.outliner-node[data-id="b"] .outliner-text').click();
+        // FR-MSEL-06 rev3 / ADRL-0116: 1 回目 = node の text 全選択 / 2 回目 = 全 node 選択
+        await page.keyboard.press('Control+a');
         await page.keyboard.press('Control+a');
         await page.waitForTimeout(150);
         const sel = await selectedIds(page);
@@ -129,6 +137,8 @@ test.describe('TC-MSEL-21 Outliner の Cmd+A（FR-MSEL-06 / GitHub issue #2）',
     test('collapsed 配下の非表示 node は選択されない（可視のみ = getFlattenedIds(true)）', async ({ page }) => {
         await setup(page, TREE_COLLAPSED);
         await page.locator('.outliner-node[data-id="b"] .outliner-text').click();
+        // FR-MSEL-06 rev3 / ADRL-0116: 1 回目 = node の text 全選択 / 2 回目 = 全 node 選択
+        await page.keyboard.press('Meta+a');
         await page.keyboard.press('Meta+a');
         await page.waitForTimeout(150);
 
@@ -141,9 +151,11 @@ test.describe('TC-MSEL-21 Outliner の Cmd+A（FR-MSEL-06 / GitHub issue #2）',
             '折りたたみ配下が描画されている（前提が変わった）').toBe(0);
     });
 
-    test('全選択後に Cmd+C すると全 node が clipboard payload に入る（テキスト範囲に奪われない）', async ({ page }) => {
+    test('2 段目の全選択後に Cmd+C すると全 node が clipboard payload に入る（テキスト範囲に奪われない）', async ({ page }) => {
         await setup(page);
         await page.locator('.outliner-node[data-id="b"] .outliner-text').click();
+        // FR-MSEL-06 rev3 / ADRL-0116: 1 回目 = node の text 全選択 / 2 回目 = 全 node 選択
+        await page.keyboard.press('Meta+a');
         await page.keyboard.press('Meta+a');
         await page.waitForTimeout(150);
         await page.evaluate(() => { (window as any).__testApi.messages.length = 0; });
@@ -184,16 +196,63 @@ test.describe('TC-MSEL-23 Mindmap view の Cmd+A は従来どおり（回帰な�
 });
 
 test.describe('TC-MSEL-21c HUD の記載が実挙動と一致する', () => {
-    test('shortcut-list に Cmd+A: Select all nodes の記載がある', async ({ page }) => {
+    test('shortcut-list の Cmd+A の記載が 2 段階の実挙動と一致する（rev3）', async ({ page }) => {
         await setup(page);
+        // 🔴 TASK-25 (QUAL-3): 旧実装は `w.ShortcutList.forSurface` を呼んでいたが
+        // **`forSurface` は repo 全体で定義 0 件**（実 API は getList / categoryLabel / modeTitle / formatKeys）。
+        // 常に undefined → groups が null → `test.skip(true, ...)` が必ず走り、直後の expect に
+        // **一度も到達していなかった**（= HUD 文言の一致を「担保した」根拠が実在しなかった）。
         const listed = await page.evaluate(() => {
             const w = window as any;
-            const groups = (w.ShortcutList && w.ShortcutList.forSurface)
-                ? w.ShortcutList.forSurface('outliner') : null;
+            const groups = w.ShortcutList && typeof w.ShortcutList.getList === 'function'
+                ? w.ShortcutList.getList('outliner') : null;
             if (!groups) { return null; }
-            return JSON.stringify(groups).includes('Select all nodes');
+            // FR-MSEL-06 rev3: HUD は「1 回目 = node の text / 2 回目 = 全 node」を説明する。
+            // 旧文言 'Select all nodes' 単独は 1 段階前提なので実挙動と食い違う。
+            const j = JSON.stringify(groups);
+            return j.includes('Select node text') && j.includes('all nodes');
         });
-        if (listed === null) { test.skip(true, 'ShortcutList API がこのハーネスに無い'); }
-        expect(listed, 'HUD の記載が消えた（記載と実装の一致が本 TC の趣旨）').toBe(true);
+        expect(listed, 'ShortcutList.getList がハーネスに無い（skip で逃げず配線の欠落として落とす）').not.toBe(null);
+        expect(listed, 'HUD の記載が 2 段階の実挙動と一致していない（記載と実装の一致が本 TC の趣旨）').toBe(true);
+    });
+});
+
+/**
+ * TC-OSM-29（reviewer iteration 1 QUAL-2 / DESIGN-2 / TASK-22 / FR-OSM-06）:
+ * mindmap 面の HUD は **1 段階の説明のまま**であること。
+ *
+ * FR-OSM-06 は「mindmap は Cmd+A の 2 段階 escalation から**免除**する」「mindmap 面のモード二態化 UI は
+ * 本 sprint のスコープ外」と明記し、実装（`outliner.js` の `if (VIEW_MODE === 'mindmap') { selectAllNodes(); break; }`）も
+ * 1 回押しで即全 node 選択のまま。ところが iteration 1 は `shortcut-list.js` の `Cmd+A` を grep して
+ * `SHORTCUTS_OUTLINER` と `SHORTCUTS_MINDMAP` の**両方**を同じ 2 段階文言に書き換えてしまい、
+ * mindmap ユーザーに "press again" という成立しない操作説明を表示していた。
+ *
+ * counterfactual（iteration 1）: mindmap 側が 'Select node text (again: all nodes) / undo'
+ */
+test.describe('TC-OSM-29 面別 HUD 文言（mindmap は 2 段階から免除）', () => {
+    const cmdAdesc = async (page: Page, mode: string) => page.evaluate((m) => {
+        const w = window as any;
+        const groups = w.ShortcutList.getList(m);
+        for (const g of groups) {
+            for (const it of g.items) {
+                if (/(^|\s)Cmd\+A(\s|$|\s*\/)/.test(it.keys)) { return it.desc as string; }
+            }
+        }
+        return null;
+    }, mode);
+
+    test('mindmap の Cmd+A は 1 段階の説明 / outliner は 2 段階の説明', async ({ page }) => {
+        await setup(page);
+        const mm = await cmdAdesc(page, 'mindmap');
+        const ol = await cmdAdesc(page, 'outliner');
+        expect(mm, 'mindmap の Cmd+A エントリが見つからない').toBeTruthy();
+        expect(ol, 'outliner の Cmd+A エントリが見つからない').toBeTruthy();
+
+        expect(/again|press again/i.test(mm!),
+            `mindmap の HUD が 2 段階の説明になっている（FR-OSM-06 は mindmap を免除している）: ${mm}`)
+            .toBe(false);
+        expect(/again/i.test(ol!),
+            `outliner の HUD が 2 段階の説明になっていない: ${ol}`)
+            .toBe(true);
     });
 });

@@ -23,6 +23,14 @@ interface ClipboardData {
     sourceImagesDirPath: string;
     sourceFileDirPath: string;
     sourceOutDir: string;  // .out ファイルのあるディレクトリ (絶対パス) — 画像パス解決の基準
+    /**
+     * copy / cut の対象だった **`.out` ファイルそのもの**の絶対パス（ADRL-0121 rev1 / TASK-29）。
+     *
+     * `sourceOutDir` だけだと containment が**ディレクトリ単位**になり、同一フォルダ内の
+     * 無関係な別 `.out` 文書まで読み出せてしまう（reviewer iteration 2 SEC-6）。
+     * optional にしているのは既存呼び出し元（asset 解決系 4 本）が渡さなくても壊れないため。
+     */
+    sourceOutFilePath?: string;
 }
 
 export class OutlinerClipboardStore {
@@ -32,6 +40,25 @@ export class OutlinerClipboardStore {
         this.data = data;
     }
 
+    /**
+     * 引数を取らず「最新のコピー内容」をそのまま返す（ADRL-0121 / TASK-29）。
+     *
+     * 🔴 `get(plainText)` は末尾で**無条件に `this.data` を返す**ため引数に何を渡しても動くが、
+     *    その性質は型シグネチャからは保証されない実装の偶然。`resolveTrustedOutPath` /
+     *    `trustedSrcOutDir`（`notes-message-handler.ts`）は「plainText ではなくファイルパス」を
+     *    渡していたため、将来 `get()` の一致判定が厳格化されると**常に null** を返して
+     *    G-paste と D&D 送出の両方が無条件で無反応化する潜在トラップだった（reviewer iteration 2 DESIGN-5）。
+     *    provenance 検査の用途はこの `peek()` を使う。
+     */
+    static peek(): ClipboardData | null {
+        return this.data;
+    }
+
+    /**
+     * ⚠️ 末尾の**無条件 `return this.data;`**（下記）を削除・厳格化する場合は、
+     *    `src/shared/notes-message-handler.ts` の `resolveTrustedOutPath` / `trustedSrcOutDir` が
+     *    `peek()` を使っていることを確認すること（かつては `get()` にファイルパスを渡していた）。
+     */
     static get(plainText: string): ClipboardData | null {
         if (!this.data) return null;
         // plainText の完全一致は OS クリップボード経由の改行正規化等で

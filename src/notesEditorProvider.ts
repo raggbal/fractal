@@ -15,7 +15,8 @@ import {
     FolderLinkDeps, folderLinkAdd, folderLinkRelink, folderLinkRemove, folderLinkRename,
     folderLinkReveal, folderLinkCopyPath,
     FolderViewDeps, folderViewList, folderViewSearch, folderViewOpen, folderViewToggleHidden, folderViewCreate,
-    folderViewRename, folderViewDelete, folderViewDuplicate, folderViewMove, folderViewRevealEntry, folderViewCopyEntryPath, folderViewStateSave,
+    folderViewRename, folderViewDelete, folderViewDuplicate, folderViewMove, folderViewMoveBatch, folderViewRevealEntry, folderViewCopyEntryPath, folderViewStateSave,
+    resolveTrustedOutPath, trustedSrcOutDir,   // ADRL-0121: clipboard 由来 .out パスの containment
     FolderMoveDeps, folderViewMoveIn, folderViewMoveToTree, folderViewMoveIntoMd, folderViewMoveFromMd,
     folderViewMoveToTreeBatch, folderViewMoveInBatch, runPlatformBatch, BatchOutcome, TreeBatchItem,
 } from './shared/notes-message-handler';
@@ -73,6 +74,36 @@ import { saveDroppedMdAsSubpage, dataUrlToUtf8, resolveSubpageTitle } from './sh
  * viewer 不能（50MB 超・実体なし・throw）は openExternal 縮退（従来のフォールバック順序を維持）。
  * 依存注入で unit から behavioral 検証（TC-VSP-01a）。
  */
+/**
+ * FR-FTB-02 / NFR-FTB-01: 「webview 内タブで開く」ときの kind 決定（**唯一の判定点**）。
+ *
+ * - `kindHint` 省略 = 既存 3 呼び出し元（sidepanel「Open in tab」/ tree の md・.out メニュー / openPageInTab）:
+ *   従来どおり拡張子で `.out` / md の 2 値に落ちる（**既存挙動を 1 バイトも変えない**）。
+ * - `kindHint === 'file'` = sprint 20260906-024639 の新経路（tree の file item / outliner の 📎 node）:
+ *   `isViewerTarget` と `VIEWER_SIZE_LIMIT`（`shared/viewer-target.ts` の唯一の判定点）だけを使い、
+ *   viewer 非対象 / 上限超は **タブを作らず縮退**（FR-FTB-03 — 呼び出し側が OS 既定アプリへ）。
+ *
+ * vscode API に触らない純関数として export する（host 実コードを unit spec からそのまま検証するため）。
+ */
+export type FileTabResolution =
+    | { kind: 'md' | 'out' }
+    | { kind: 'file'; viewerKind: string }
+    | { degrade: 'not-viewer' | 'too-large' };
+
+export function resolveWebviewTabKind(
+    filePath: string,
+    kindHint?: 'file',
+    statSize?: number | null,
+): FileTabResolution {
+    if (kindHint !== 'file') {
+        return { kind: /\.out$/i.test(filePath) ? 'out' : 'md' };
+    }
+    const vk = isViewerTarget(path.basename(filePath));
+    if (!vk) { return { degrade: 'not-viewer' }; }
+    if (typeof statSize === 'number' && statSize > VIEWER_SIZE_LIMIT) { return { degrade: 'too-large' }; }
+    return { kind: 'file', viewerKind: vk };
+}
+
 export async function openNotesMdAttachmentViaSidePanel(
     deps: { tryOpenSidePanelViewer(absPath: string): Promise<boolean>; openExternal(absPath: string): void },
     absPath: string
@@ -759,6 +790,39 @@ export class NotesEditorProvider {
             ...folderMoveDeps,
             confirmLarge: confirmLargeWith('batchTransferConfirm', 'batchTransferConfirmProceed'),
             notifyLimitExceeded: () => { vscode.window.showWarningMessage(t('batchTransferTooMany')); },
+        };
+
+        /**
+         * サイドパネル「Open in tab」/ 左ツリー右クリック「Open in new tab」→ webview 内タブ（FR-TAB-02・NFR-TAB-04）。
+         * sprint 20260725: md/.out 両対応。sprint 20260906-024639（FR-FTB-02）: `kindHint='file'` で
+         * **kind='file' タブ**（viewer 素材 `{viewerKind, viewerFileUri}` を extra に載せる）に拡張。
+         *
+         * - kind / サイズ判定は `resolveWebviewTabKind`（`isViewerTarget` / `VIEWER_SIZE_LIMIT` の唯一の判定点を使う）
+         * - `localResourceRoots` の union は `ensureResourceRootForFile` に一本化（webview 側で URI を組まない）
+         * - 戻り値 **false = タブを開いていない**（縮退すべき）。呼び出し側が OS 既定アプリへ落とす（FR-FTB-03）
+         */
+        const openFileInWebviewTabImpl = (filePath: string, kindHint?: 'file'): boolean => {
+            if (!filePath || !fs.existsSync(filePath)) {
+                vscode.window.showWarningMessage(`File not found: ${filePath}`);
+                return false;
+            }
+            let statSize: number | null = null;
+            if (kindHint === 'file') {
+                try { statSize = fs.statSync(filePath).size; } catch { statSize = null; }
+            }
+            const res = resolveWebviewTabKind(filePath, kindHint, statSize);
+            if ('degrade' in res) { return false; }   // viewer 非対象 / 50MB 超 → 呼び出し側が縮退
+            this.ensureResourceRootForFile(panel, filePath);
+            const msg: Record<string, unknown> = { type: 'openInWebviewTab', filePath, kind: res.kind };
+            if (res.kind === 'file') {
+                msg.title = path.basename(filePath);
+                msg.extra = {
+                    viewerKind: res.viewerKind,
+                    viewerFileUri: panel.webview.asWebviewUri(vscode.Uri.file(filePath)).toString(),
+                };
+            }
+            panel.webview.postMessage(msg);
+            return true;
         };
 
         // Platform Actions (全てローカル変数 panel / fileManager / folderPath をキャプチャ)
@@ -2127,17 +2191,7 @@ export class NotesEditorProvider {
                 // freshOpen=false（nav history 非汚染）+ restoreForTab=true（webview で scroll 復元 + auto-focus skip）
                 void sidePanel.openFile(filePath, false, true);
             },
-            openFileInWebviewTab: (filePath: string) => {
-                // サイドパネル「Open in tab」/ 左ツリー右クリック「Open in new tab」→ webview 内タブ（FR-TAB-02・NFR-TAB-04）。
-                // sprint 20260725: md/.out 両対応。拡張子で kind を決める（.out=outliner / それ以外=md）。
-                if (!filePath || !fs.existsSync(filePath)) {
-                    vscode.window.showWarningMessage(`File not found: ${filePath}`);
-                    return;
-                }
-                this.ensureResourceRootForFile(panel, filePath);
-                const kind = /\.out$/i.test(filePath) ? 'out' : 'md';
-                panel.webview.postMessage({ type: 'openInWebviewTab', filePath, kind });
-            },
+            openFileInWebviewTab: openFileInWebviewTabImpl,
             sendToChatFromSidePanel: async (sidePanelFilePath: string, startLine: number, endLine: number, selectedMarkdown: string) => {
                 try {
                     await sidePanel.handleSendToChat(sidePanelFilePath, startLine, endLine, selectedMarkdown);
@@ -2507,6 +2561,40 @@ export class NotesEditorProvider {
                 if (this.tryShowNoteViewer(panel, senderRef, p)) { return; }
                 await openLocalFileSmart(p);
             },
+            // FR-CT-04 / FR-TF-10 rev (sprint 20260906-024639): tree の file item を kind='file' タブで開く。
+            // webview からは **id のみ**受ける（絶対パスは getTreeFilePath = host が唯一の解決者）。
+            // viewer 非対象 / 50MB 超は openFileInWebviewTabImpl が false を返すので OS 既定アプリへ縮退（FR-FTB-03）。
+            openTreeFileInTab: async (id: string, _senderRef: NotesSender) => {
+                const p = fileManager.getTreeFilePath(id);
+                if (!p || !fs.existsSync(p)) {
+                    vscode.window.showErrorMessage(t('fileNotFound'));
+                    return;
+                }
+                fileManager.recordViewerFileHistory(p); // 既存 openTreeFileExternal と同じ Recent 記録
+                if (openFileInWebviewTabImpl(p, 'file')) { return; }
+                await openLocalFileSmart(p);
+            },
+            // FR-ONT-02: outliner node の 📎 file 添付を kind='file' タブで開く。
+            // パス解決は既存 openAttachedFile と同型（.out を読んで safeResolveUnderDir で clamp）。
+            openNodeFileInTab: async (nodeId: string, outFilePath: string, _senderRef: NotesSender) => {
+                let node: { filePath?: string } | undefined;
+                try {
+                    const data = JSON.parse(fs.readFileSync(outFilePath, 'utf8'));
+                    node = data.nodes?.[nodeId];
+                } catch { node = undefined; }
+                if (!node?.filePath) { return; }
+                const safeFilePath = safeResolveUnderDir(path.dirname(outFilePath), node.filePath);
+                if (!safeFilePath) {
+                    vscode.window.showErrorMessage(t('fileNotFoundOrUnsafe'));
+                    return;
+                }
+                if (!fs.existsSync(safeFilePath)) {
+                    vscode.window.showErrorMessage(t('fileNotFound'));
+                    return;
+                }
+                if (openFileInWebviewTabImpl(safeFilePath, 'file')) { return; }
+                await openLocalFileSmart(safeFilePath);
+            },
             // FR-RCT-02/03: Recent click（kind='file'）— clamp は nmh 側（note/link root 配下のみ）
             historyOpenFile: async (absPath: string, senderRef: NotesSender) => {
                 if (this.tryShowNoteViewer(panel, senderRef, absPath)) { return; }
@@ -2720,7 +2808,18 @@ export class NotesEditorProvider {
             // 2026-09-05 R25/R26: outliner node（複数可）→ linkedfd（tree の行 = root / 面 = drop 先 dir）。「linkedfd に送る」と同一経路
             sendOutNodesToFolderLinkFromDrop: async (payload: { outFileKey: string; nodeId: string; nodeIds?: string[] }, folderLinkId: string, dstDirRelPath: string, senderRef: NotesSender) => {
                 if (!payload || !payload.outFileKey || !payload.nodeId) return;
-                const outPath = payload.outFileKey.endsWith('.out') && fs.existsSync(payload.outFileKey) ? payload.outFileKey : fileManager.getFilePathById(payload.outFileKey);
+                // 🔴 TASK-27 (SEC-1 / NFR-CBD-04 / ADRL-0121): **clipboard 由来のパスを信じない**。
+                // 旧実装は `endsWith('.out') && fs.existsSync(...)` だけで実在する任意の絶対 `.out` を
+                // 受理していた。G の trigger は `text/html`（あらゆるアプリが populate する汎用 MIME）なので、
+                // 外部由来の HTML に偽の `sourceOutFileKey` を仕込めば任意の `.out` を読ませられた。
+                // コピー元の真実は `OutlinerClipboardStore` の `sourceOutDir`（copy ごとに extension が記録）。
+                // 検査は**この sink 1 箇所だけ**に置く（呼び出し元は G 分岐と既存 D&D の 2 つ = 両方守られる）。
+                // 受理できないときは **silent no-op**（既存 cross 経路 4 本の `if (!clipData) break;` と同型）。
+                // ADRL-0121 rev2: 信頼源は「store に記録した正確な .out」∪「この面が現在開いている .out」の 2 つだけ。
+                // rev1 は workspace 中の全 .out（openOutPaths）も信頼源にしていたが、偽造 clipboard にとっても
+                // 有効な受理条件になり SEC-1 の脅威モデルを再拡大していた（reviewer iter3 SEC-7）。
+                // D&D は payload が currentOutFileKey なので fileManager.getCurrentFilePath() で足りる。
+                const outPath = resolveTrustedOutPath(payload.outFileKey, fileManager);
                 if (!outPath || !fs.existsSync(outPath)) return;
                 const root = fileManager.resolveFolderRoot(folderLinkId);
                 if (!root) {
@@ -2735,7 +2834,9 @@ export class NotesEditorProvider {
                 if (tree.length === 0) return;
                 const outcome = await runSendNodesToFolderLink({
                     tree,
-                    srcOutDir: path.dirname(outPath),
+                    // ADRL-0121: 兄弟 4 本（copyImagesCross / handleFileAssetCross 等）と同じく
+                    // store の sourceOutDir を単一真実にする（clipboard 由来のパスから再導出しない）
+                    srcOutDir: trustedSrcOutDir(outPath),
                     srcPagesDir: fileManager.getPagesDirPath(),
                     srcFileDir: fileManager.getOutlinerFileDirPath(),
                     srcImageDir: fileManager.getOutlinerImageDirPath(),
@@ -2877,8 +2978,18 @@ export class NotesEditorProvider {
             folderViewDuplicate: async (id: string, relPath: string, senderRef: NotesSender) => {
                 await folderViewDuplicate(fileManager, id, relPath, folderViewDeps, senderRef);
             },
-            folderViewMove: async (id: string, srcRelPath: string, dstDirRelPath: string, senderRef: NotesSender) => {
-                await folderViewMove(fileManager, id, srcRelPath, dstDirRelPath, folderViewDeps, senderRef, folderMoveDeps); // ADRL-0102: md 分岐は随伴転送（FR-FLV-34 の deleteFile フォールバック込み）
+            folderViewMove: async (id: string, srcRelPath: string, dstDirRelPath: string, senderRef: NotesSender, mode?: 'move' | 'copy') => {
+                await folderViewMove(fileManager, id, srcRelPath, dstDirRelPath, folderViewDeps, senderRef, folderMoveDeps, mode || 'move'); // ADRL-0102: md 分岐は随伴転送（FR-FLV-34 の deleteFile フォールバック込み）/ ADRL-0120: mode
+            },
+            // FR-FMV-01/03 / FR-CBD-07: linkedfd 内の一括移動 / 一括複製（件数ゲート + 集計通知 1 回は runBatchTransfer 経由）
+            // 🔴 TASK-19 (SEC-3): batch deps は **`platformBatchDeps`**（`batchTransfer*` 文言）を渡す。
+            // この経路は「同一 linkedfd 内で完結する move / copy」でフォルダ走査も階層深度も無いため、
+            // `folderMoveDeps` の Import 文言（"Import {count} items from this folder?" / "20 levels deep"）は
+            // 事実に反する（`platformBatchDeps` の定義コメントが同じ理由を既に書いている）。
+            // linkedfd 側の fs 移動・複製は undo を持たないので、この modal が唯一の informed consent ゲート。
+            // 閾値定数は `checkBatchLimit` 経由で共有のまま（第 3 の上限実装を書かない）。
+            folderViewMoveBatch: async (id: string, srcRelPaths: string[], dstDirRelPath: string, mode: 'move' | 'copy', senderRef: NotesSender) => {
+                await folderViewMoveBatch(fileManager, id, srcRelPaths, dstDirRelPath, mode, folderViewDeps, senderRef, platformBatchDeps);
             },
             folderViewRevealEntry: (id: string, relPath: string) => {
                 folderViewRevealEntry(fileManager, id, relPath, folderViewDeps);

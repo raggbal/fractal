@@ -133,14 +133,22 @@ export interface FolderExportDeps {
     srcPagesDir: string;
     srcFileDir: string;
     srcImageDir: string;
+    /**
+     * 上限超過（>FOLDER_EXPORT_MAX_FILES）の通知。**0 件処理で中断**したことを伝える。
+     * import 側 `checkBatchLimit` の `notifyLimitExceeded('too_many')` と同型（FR-CBD-06 / DOM-ExportLimitParity）。
+     * optional なので既存呼び出し元は無改修（渡さなければ通知だけ落ちる）。
+     */
+    notifyLimitExceeded?(error: 'too_many'): void;
     /** 既定は既存正典。unit が spy を差すために注入可（新規コピー経路は書かない — ADRL-0105） */
     exportMd?: typeof handlePageAssets;
     exportFile?: typeof handleFileAsset;
-    limits?: { confirmThreshold?: number };
+    limits?: { confirmThreshold?: number; maxFiles?: number };
 }
 
 export interface FolderExportOutcome {
-    status: 'cancelled' | 'declined' | 'exported';
+    /** `aborted` = 上限超過で 0 件処理（FR-CBD-06。import 側 FolderImportOutcome と同型） */
+    status: 'cancelled' | 'declined' | 'aborted' | 'exported';
+    error?: 'too_many';
     destRoot?: string;
     folders: number;
     files: number;
@@ -149,6 +157,17 @@ export interface FolderExportOutcome {
 
 /** 200 超で確認 modal（Import 側 FOLDER_IMPORT_CONFIRM_THRESHOLD と同じ閾値系譜） */
 export const FOLDER_EXPORT_CONFIRM_THRESHOLD = 200;
+
+/**
+ * 2000 超は **0 件処理で中断**（FR-CBD-06 / DOM-ExportLimitParity）。
+ *
+ * 導入理由: import 側は `FOLDER_IMPORT_MAX_FILES = 2000` を持つのに export 側は確認閾値だけで
+ * 上限中断が無く、**非対称が残っていた**（sprint 20260906-095357 の実測）。
+ * 本 sprint の ADRL-0116（Cmd+A の 2 段階 escalation）で「全 node 選択」の到達性が上がり、
+ * 「Cmd+A → cmd+c → linkedfd で cmd+v」で 2000 件超が無警告で流れる経路が現実化するため揃える。
+ * **値は import 側と同一**（第 3 の閾値を発明しない）。
+ */
+export const FOLDER_EXPORT_MAX_FILES = 2000;
 
 const hasChildren = (n: ExportNode): boolean => Array.isArray(n.children) && n.children.length > 0;
 
@@ -175,6 +194,13 @@ export async function runFolderExport(tree: ExportNode[], deps: FolderExportDeps
     if (!destRoot) { return { status: 'cancelled', folders: 0, files: 0, skipped: 0 }; }
 
     const total = countEntries(tree);
+    // FR-CBD-06: 上限超過は **確認 modal より前**に 0 件処理で中断する
+    //（import 側 checkBatchLimit と同じ順序 — 2001 件で「確認しますか?」を出しても意味が無い）
+    const maxFiles = deps.limits?.maxFiles ?? FOLDER_EXPORT_MAX_FILES;
+    if (total > maxFiles) {
+        deps.notifyLimitExceeded?.('too_many');
+        return { status: 'aborted', error: 'too_many', folders: 0, files: 0, skipped: 0 };
+    }
     const threshold = deps.limits?.confirmThreshold ?? FOLDER_EXPORT_CONFIRM_THRESHOLD;
     if (total > threshold && !(await deps.confirmLarge(total))) {
         return { status: 'declined', folders: 0, files: 0, skipped: 0 };

@@ -204,6 +204,12 @@ const testNotesHostBridge = `
         openPageInSidePanel: function(nodeId, pageId) {
             window.__testApi.messages.push({ type: 'openPageInSidePanel', nodeId: nodeId, pageId: pageId });
         },
+        // sprint 20260906-024639 (TASK-06 で発見したハーネス欠落): 本番 outliner-host-bridge.js:162 の
+        // openAttachedFile が mock に無く、📎 アイコンの**通常 open** 経路が harness で検証できなかった
+        // （cmd 単独 click が「何も起きない」になっていないことの番人 = TC-CT-13 が要求する）。
+        openAttachedFile: function(nodeId) {
+            window.__testApi.messages.push({ type: 'openAttachedFile', nodeId: nodeId });
+        },
         openInTextEditor: function() {
             window.__testApi.messages.push({ type: 'openInTextEditor' });
         },
@@ -276,6 +282,13 @@ const testNotesHostBridge = `
         // sprint 20260725: 左ツリー右クリック「Open in new tab」用モック
         openFileInTab: function(filePath) {
             window.__testApi.notesMessages.push({ type: 'openFileInTab', filePath: filePath });
+        },
+        // FR-FTB-01 (sprint 20260906-024639): tree の file item を新規タブで開く。
+        // 本番は notes-host-bridge.js 側に定義（ADRL-0021 Decision 5 の factory は sidepanel/outliner
+        // bridge family が対象で note tree bridge は別系統 — 既存 openFileInTab と同じ 2 点登録）。
+        // **payload は id のみ**（絶対パスは送らない = NFR-TF-02 / NFR-FTB-01）。
+        openTreeFileInTab: function(id) {
+            window.__testApi.notesMessages.push({ type: 'openTreeFileInTab', id: id });
         },
         createFile: function(title, parentId) {
             window.__testApi.notesMessages.push({ type: 'createFile', title: title, parentId: parentId });
@@ -369,6 +382,15 @@ const testNotesHostBridge = `
         },
         folderViewMoveInBatch: function(id, dstDirRelPath, items) {
             window.__testApi.notesMessages.push({ type: 'folderViewMoveInBatch', id: id, dstDirRelPath: dstDirRelPath, items: items });
+        },
+        // FR-FMV-01/03 / FR-CBD-07 (sprint 20260906-095357): linkedfd 内の一括移動 / 一括複製。
+        // 🔴 **このモックはソースから自動生成されない**（build-standalone-notes.js 内の手書きリテラル）。
+        //    本番 bridge（notes-host-bridge.js）に新 API を足したらここも足す必要がある。
+        folderViewMoveBatch: function(id, srcRelPaths, dstDirRelPath, mode) {
+            window.__testApi.notesMessages.push({
+                type: 'folderViewMoveBatch', id: id,
+                srcRelPaths: srcRelPaths, dstDirRelPath: dstDirRelPath, mode: mode || 'move',
+            });
         },
         // FR-MSEL-04 rev3（2026-09-04）: ツリー内 .out / md item 宛ての結合 batch（本番 notes-host-bridge.js のミラー）
         notesImportTreeItemsIntoOutItemBatch: function(items, targetOutId) {
@@ -700,6 +722,29 @@ const html = `<!DOCTYPE html>
             panelWidth || null,
             folderName
         );
+    };
+    // FR-TKN-08 / TC-TKN-13 (sprint 20260906-024639): host からの「open 完了応答」をテストから発火する。
+    // 本番では webview が host の postMessage を window 'message' で受け、
+    // notes-file-panel.js の window listener（:27）と bridge.onMessage 登録 handler の**両系統**が受信する。
+    // どちらの受け口でも駆動できるように 2 系統へ配送する（片方だけだと配線の片側を検証できない）。
+    // 固定 setTimeout に依存しない実装（NFR-TKN-02）を検証するため、**同期**の MessageEvent を使う。
+    window.__testApi.emitHostMessage = function(msg) {
+        var delivered = 0;
+        try {
+            window.dispatchEvent(new MessageEvent('message', { data: msg }));
+            delivered++;
+        } catch (e) { /* 環境差 — 下の handler 経路で代替 */ }
+        if (typeof window.__hostMessageHandler === 'function') {
+            window.__hostMessageHandler(msg);
+            delivered++;
+        }
+        return delivered;
+    };
+    /** open 応答の定型（メインペインのファイル切替 = fileChangeId 付き updateData）。 */
+    window.__testApi.emitUpdateData = function(fileChangeId, extra) {
+        var msg = { type: 'updateData', fileChangeId: (fileChangeId === undefined ? 1 : fileChangeId) };
+        if (extra) { Object.keys(extra).forEach(function(k) { msg[k] = extra[k]; }); }
+        return window.__testApi.emitHostMessage(msg);
     };
     window.__testApi.getSerializedData = function() {
         if (window.__testApi.lastSyncData) {
