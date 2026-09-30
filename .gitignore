@@ -46,7 +46,7 @@ test/html/pdfjs-viewer/
 test/html/viewer-fixtures/
 # build-standalone-viewer.js が out/webview から複製する viewer kind モジュール（生成物）
 test/html/viewer-modules/
-# electron のバンドル出力（main.js / preload.js + map。ソースは electron/src/）
+# electron の esbuild バンドル出力（main.js / preload.js + .map）。ソースは electron/src/ が tracked
 electron/dist-src/
-# electron e2e が生成する使い捨て note fixture（絶対パスが焼き込まれるため commit しない）
+# e2e-electron の生成 fixture（.fixture-note/ = scale-NNN のノート群。112 ファイル / 約 500K）
 test/e2e-electron/

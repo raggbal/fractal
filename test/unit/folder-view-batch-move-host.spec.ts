@@ -332,7 +332,19 @@ test('TC-FMV-15 folderViewMoveBatch の host wiring は Transfer 文言（platfo
  *
  * counterfactual（iteration 1）: errors.length = 0（= 無反応）
  */
-test('TC-CBD-46 単一フォルダの H（mode copy）で無反応にならない', async () => {
+/**
+ * 🔄 **期待反転**（sprint 20260910-053026 / TASK-14 / ADRL-0124 = test_update）
+ *
+ * 旧期待: 「フォルダの copy は受理しない契約（ADRL-0120 の受容事項）なので false のはず」+
+ * 「フォルダ skip が無通知」。
+ *
+ * ADRL-0120 の受容事項は「フォルダの再帰複製経路が既存に無い」ことを根拠にしていたが、
+ * **ADRL-0124 がその受容事項を解除**した（`folder-copy-engine.ts` の新設でフォルダ複製が可能になった）。
+ * さらに旧実装の拒否通知は webview 側が先に dir を捨てるため **到達不能な dead branch** で、
+ * 実挙動は「完全に無反応」だった（CHANGELOG の記載と矛盾）。
+ * 現在は **フォルダも複製する**（FR-FDP-06）。
+ */
+test('TC-CBD-46 単一フォルダの H（mode copy）でフォルダが複製される（ADRL-0124 で反転）', async () => {
     const { mod, m, id, root } = setupLinked();
     const { deps, calls } = makeFvDeps();
     const { moveDeps } = makeMoveDepsWithToast();
@@ -344,13 +356,13 @@ test('TC-CBD-46 単一フォルダの H（mode copy）で無反応にならな�
     const ok = await mod.folderViewMove(m, id, 'srcdir', 'dst',
         deps as any, sender as any, moveDeps as any, 'copy');
 
-    expect(ok, 'フォルダの copy は受理しない契約（ADRL-0120 の受容事項）なので false のはず').toBe(false);
-    expect(calls.errors.length,
-        'フォルダ skip が無通知（単一アイテム経路では集計通知も出ないので cmd+v が完全に無反応になる）')
-        .toBe(1);
-    // source は不変（skip なので何もしない）
-    expect(fs.existsSync(path.join(root, 'srcdir', 'inner.txt')), 'source が触られた').toBe(true);
-    expect(fs.existsSync(path.join(root, 'dst', 'srcdir')), 'フォルダが複製されてしまった').toBe(false);
+    expect(ok, `フォルダの copy が受理されない（ADRL-0124 で解除済み）: ${calls.errors.join(' | ')}`).toBe(true);
+    expect(calls.errors, '拒否通知が出た（dead branch が生きている）').toEqual([]);
+    // source は残る（複製なので不変 = FR-CBD-05 / ADRL-0117）
+    expect(fs.existsSync(path.join(root, 'srcdir', 'inner.txt')), 'source が消えた（複製のはず）').toBe(true);
+    // 宛先に中身ごと複製されている
+    expect(fs.readFileSync(path.join(root, 'dst', 'srcdir', 'inner.txt'), 'utf8'),
+        'フォルダが複製されていない').toBe('x');
 });
 
 /**

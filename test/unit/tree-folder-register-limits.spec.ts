@@ -70,21 +70,39 @@ test('TC-FRL-02 registerFolderIntoTree: 深さ 20 超は too_deep で 0 件中�
     } finally { fs.rmSync(note, { recursive: true, force: true }); fs.rmSync(src, { recursive: true, force: true }); }
 });
 
-test('TC-FRL-03 番人: 祖先を指す symlink（循環）でも有限停止する — 無限再帰でクラッシュしない', () => {
+/**
+ * 🔄 **期待更新**（2026-09-16 / sprint 20260910-053026 = test_update）
+ *
+ * 番人の意図は「**祖先を指す symlink で無限再帰してクラッシュしない**」こと。
+ * 旧実装は `statSync`（symlink 追従）で降りていたため、循環に入ったうえで**深さ上限**が
+ * 有限停止させる形だった（→ `too_deep` を assert していた）。
+ *
+ * 現在は **symlink を辿らない**（`withFileTypes` + `isSymbolicLink()` skip = 既存 3 engine と同一の
+ * dirent 意味論）ため、**循環そのものが発生しない**。番人の意図はより強く満たされるので、
+ * 「too_deep で止まる」ではなく「**symlink に入らず正常に登録され、重複ツリーを取り込まない**」を assert する。
+ */
+test('TC-FRL-03 番人: 祖先を指す symlink（循環）を辿らない — 無限再帰が発生しない', () => {
     const mh = req('../../src/shared/notes-message-handler');
     const { NotesFileManager } = req('../../src/shared/notes-file-manager');
     const note = tmp('frl-note3-'); const src = tmp('frl-src3-');
     const root = path.join(src, 'cyc'); fs.mkdirSync(path.join(root, 'sub'), { recursive: true });
     fs.writeFileSync(path.join(root, 'a.md'), '# A\n');
-    // sub/loop → cyc（祖先）。statSync は symlink を追うので、深さ上限が無いと無限再帰になる
+    // sub/loop → cyc（祖先）。symlink を辿る実装だと循環する
     fs.symlinkSync(root, path.join(root, 'sub', 'loop'), 'dir');
     try {
-        expect(mh.checkFolderRegisterLimits(root), '循環は深さが単調増加するので too_deep で停止').toBe('too_deep');
+        // 循環に入らないので上限にも当たらない（クラッシュもしない = 番人の本来の意図）
+        expect(mh.checkFolderRegisterLimits(root), 'symlink を辿って上限に当たった（非追従のはず）').toBe('ok');
         const fm = new NotesFileManager(note); fm.loadStructure();
         const out: any = {};
-        expect(mh.registerFolderIntoTree(fm, root, null, 0, out)).toBe(0);
-        expect(out.limit).toBe('too_deep');
-        expect(fm.getStructure().rootIds).toEqual([]);
+        const made = mh.registerFolderIntoTree(fm, root, null, 0, out);
+        expect(made, '登録が 0 件（symlink 非追従でも中身は登録されるべき）').toBeGreaterThan(0);
+        expect(out.limit, '上限で中断した（循環に入っていない）').toBeUndefined();
+        // symlink 経由の重複ツリーを取り込んでいない（`loop` 配下の a.md が二重登録されない）
+        const st = fm.getStructure();
+        const titles = Object.keys(st.items).map((id: string) => (st.items[id] as any).title);
+        expect(titles.filter((x: string) => x === 'A' || x === 'a.md').length,
+            `symlink 経由で重複登録された: ${titles.join(',')}`).toBe(1);
+        expect(titles.includes('loop'), 'symlink 自身が登録された').toBe(false);
     } finally { fs.rmSync(note, { recursive: true, force: true }); fs.rmSync(src, { recursive: true, force: true }); }
 });
 

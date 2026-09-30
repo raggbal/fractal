@@ -420,9 +420,12 @@ test.describe('面間 D&D host 端（TASK-05）', () => {
         // traversal → reject（counterfactual: clamp 外しで folderRoot 外読み = RED）・trash 不発
         const trashCount = calls.trash.length;
         expect(await mod.folderViewMoveToTree(m, id, '../etc', null, 0, deps as any, sender as any)).toBe(false);
-        // isDir → reject 通知
-        expect(await mod.folderViewMoveToTree(m, id, 'adir', null, 0, deps as any, sender as any)).toBe(false);
-        expect(calls.trash.length).toBe(trashCount);
+        // 🔄 **期待反転**（sprint 20260910-053026 / TASK-14 / FR-FDP-05 / ADRL-0128 = test_update）:
+        // 旧期待は「isDir → reject 通知」だったが、**フォルダも note ツリーへ複製する**ようになった
+        // （走査 = エンジン / 台帳登録 = 既存 API の 2 層分離）。複製なので linkedfd 側は残り trash も走らない。
+        expect(await mod.folderViewMoveToTree(m, id, 'adir', null, 0, deps as any, sender as any)).toBe(true);
+        expect(calls.trash.length, 'フォルダ複製で trash が走った（複製意味論に反する）').toBe(trashCount);
+        expect(fs.existsSync(path.join(root, 'adir')), 'linkedfd 側のフォルダが消えた（複製のはず）').toBe(true);
 
         // 登録失敗 → 元不変（INV-5: note 側書き込み不能を強制）
         fs.writeFileSync(path.join(root, 'doc2.md'), '# T2');

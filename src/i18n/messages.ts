@@ -57,6 +57,17 @@ export interface Messages {
   batchTransferConfirmProceed: string; // modal の実行ボタン（TASK-41 = DSN-15。
                                        // 本文だけ差し替えて Import ボタンを残すと操作と不一致になる）
   batchTransferTooMany: string;       // 上限超過 — 0 件処理で中断
+  // FR-CFL-01 / FR-FDP-09 / NFR-FDP-06（sprint 20260910-053026・TASK-05）:
+  // 同名衝突の 3 択 + 集計通知の内訳。
+  // 🔴 消費側は **host の t()**（`vscode.window.showWarningMessage` の modal / 通知）なので Messages 側。
+  //    webview の label() は読まない（帰属は消費関数で決める = generator_failures 2026-08-22）。
+  conflictPromptBody: string;         // {name} プレース（modal 本文）
+  conflictOverwrite: string;          // 上書き（1 件だけ）
+  conflictOverwriteAll: string;       // 上書き（すべてに適用）
+  conflictRename: string;             // 別名（1 件だけ）
+  conflictRenameAll: string;          // 別名（すべてに適用）
+  folderTransferSummary: string;      // {folders} {files} プレース（何が動いたか = undo が無いため唯一の手がかり）
+  folderTransferExcluded: string;     // {count} プレース（受け手が扱えない種別の除外件数）
   // FR-EXF (sprint 20260827-172802 第 2 ラウンド): Export folder の host 側 modal / 通知。
   // 消費側は host の t() なので Messages 側（webview の label() が読む exportFolderMenu は WebviewMessages）。
   exportFolderConfirm: string;        // {count} プレース（modal 本文）

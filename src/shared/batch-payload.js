@@ -57,11 +57,12 @@
      * （選択順 index）で結合し、**結合 bridge を 1 回**呼ぶ材料にする。`seq` を持たない旧形式は
      * 配列順で末尾に補う（後方互換）。
      *
-     * @param {object[]} mdItems   tree-md payload の items（`{ id, filePath?, seq? }`）
-     * @param {object[]} fileItems tree-file payload の items（`{ id, seq? }`）
-     * @returns {{kind:'md'|'file', id:string, filePath:string|null}[]} seq 昇順（同値は md → file → 配列順）
+     * @param {object[]} mdItems     tree-md payload の items（`{ id, filePath?, seq? }`）
+     * @param {object[]} fileItems   tree-file payload の items（`{ id, seq? }`）
+     * @param {object[]} [folderItems] tree-folder payload の items（`{ id, seq? }`。FR-FDP-01 / TASK-03 で追加）
+     * @returns {{kind:'md'|'file'|'folder', id:string, filePath:string|null}[]} seq 昇順（同値は md → file → folder → 配列順）
      */
-    function mergeTreeItemsBySeq(mdItems, fileItems) {
+    function mergeTreeItemsBySeq(mdItems, fileItems, folderItems) {
         var buf = [];
         var push = function (list, kind) {
             for (var i = 0; i < (list || []).length; i++) {
@@ -76,6 +77,7 @@
         };
         push(mdItems, 'md');
         push(fileItems, 'file');
+        push(folderItems, 'folder');   // FR-FDP-01（TASK-03）: 3 種目。未指定なら push が空扱いで従来と同一
         buf.sort(function (a, b) { return a.seq !== b.seq ? a.seq - b.seq : a.ord - b.ord; });
         var out = [];
         for (var j = 0; j < buf.length; j++) { out.push({ kind: buf[j].kind, id: buf[j].id, filePath: buf[j].filePath }); }

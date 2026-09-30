@@ -18,7 +18,7 @@ import {
     folderViewRename, folderViewDelete, folderViewDuplicate, folderViewMove, folderViewMoveBatch, folderViewRevealEntry, folderViewCopyEntryPath, folderViewStateSave,
     resolveTrustedOutPath, trustedSrcOutDir,   // ADRL-0121: clipboard 由来 .out パスの containment
     FolderMoveDeps, folderViewMoveIn, folderViewMoveToTree, folderViewMoveIntoMd, folderViewMoveFromMd,
-    folderViewMoveToTreeBatch, folderViewMoveInBatch, runPlatformBatch, BatchOutcome, TreeBatchItem,
+    folderViewMoveToTreeBatch, folderViewMoveInBatch, runPlatformBatch, BatchOutcome, TreeBatchItem, TreeBatchKind, assertNeverKind,
 } from './shared/notes-message-handler';
 import { getNotesWebviewContent } from './notesWebviewContent';
 import { getNotesMigrationGateContent } from './notesMigrationGate';
@@ -739,21 +739,47 @@ export class NotesEditorProvider {
         // ⚠️ この直下の 2 行に i18n key の字面を書かないこと: TC-MSEL-27 / 27b は
         // provider 全体の**出現回数**で重複を数えるため、コメント中の字面も 1 件として拾う
         // （iteration 5 で実際にこれで RED になった）。
+        /**
+         * modal を出す**唯一の実装**（TASK-14 / QUAL3-3 の番人が「複製されていない」ことを検査する）。
+         * 件数確認（2 択）と同名衝突の 3 択は**選択肢の数と文言だけが違う**ので、
+         * ここを共有して実装を 1 箇所に保つ。
+         */
+        const showModalChoice = async (body: string, ...items: string[]): Promise<string | undefined> =>
+            await vscode.window.showWarningMessage(body, { modal: true }, ...items);
+
         const confirmLargeWith = (
             bodyKey: 'importFolderConfirm' | 'batchTransferConfirm',
             proceedKey: 'importFolderConfirmProceed' | 'batchTransferConfirmProceed'
         ) =>
             async (totalCount: number): Promise<boolean> => {
                 const proceed = t(proceedKey);
-                const answer = await vscode.window.showWarningMessage(
-                    t(bodyKey).replace('{count}', String(totalCount)),
-                    { modal: true }, proceed);
+                const answer = await showModalChoice(
+                    t(bodyKey).replace('{count}', String(totalCount)), proceed);
                 return answer === proceed;
             };
 
         // FR-FLV: 面間 D&D（複製成功 → 元 trash = INV-5）の VS Code 依存注入
         const folderMoveDeps: FolderMoveDeps = {
             showErrorMessage: (message) => { vscode.window.showErrorMessage(message); },
+            // FR-FDP-09 / NFR-FDP-06（TASK-08）: フォルダを含む転送の内訳通知
+            showInformationMessage: (message) => { vscode.window.showInformationMessage(message); },
+            // FR-CFL-01 / ADRL-0129（TASK-12）: 同名衝突の 3 択を **1 回だけ**提示する。
+            // 既存の確認 modal 機構（showWarningMessage + modal:true）を流用し、
+            // 「すべてに適用」はチェックボックスではなく**ボタンを 2 系統**にする
+            //（VS Code の modal はチェックボックスを持てない）。**Cancel = 中止 = drop 全体の中止**。
+            promptConflict: async (name: string, count: number) => {
+                const ow = t('conflictOverwrite');
+                const owAll = t('conflictOverwriteAll');
+                const rn = t('conflictRename');
+                const rnAll = t('conflictRenameAll');
+                const body = t('conflictPromptBody').replace('{name}', name);
+                const items = count > 1 ? [ow, owAll, rn, rnAll] : [ow, rn];
+                // 🔴 modal 実装は `showModalChoice` に集約する（2 つ目の実装を書かない = QUAL3-3 の番人）
+                const answer = await showModalChoice(body, ...items);
+                if (answer === ow || answer === owAll) { return 'overwrite'; }
+                if (answer === rn || answer === rnAll) { return 'rename'; }
+                return 'abort';   // Cancel / 閉じる = 中止
+            },
             t: (key) => t(key as any),
             trashDelete: async (absPath, recursive) => {
                 await vscode.workspace.fs.delete(vscode.Uri.file(absPath), { useTrash: true, recursive });
@@ -2625,18 +2651,28 @@ export class NotesEditorProvider {
             // md → notesImportMdIntoOut（.out JSON 直接更新・suppressToast）/ file → treeFileImportIntoOut。
             // runPlatformBatch を **1 回**（件数ゲートが合計で効く）。返り値を捨てない（TASK-38）。
             notesImportTreeItemsIntoOutItemBatch: async (items: TreeBatchItem[], targetOutId: string, senderRef: NotesSender) => {
-                await runPlatformBatch(items, async (it) => it.kind === 'md'
-                    ? await platform.notesImportMdIntoOut?.(it.id, targetOutId, senderRef, null, null, true)
-                    : treeFileImportIntoOut(fileManager, senderRef, it.id, targetOutId),
-                platformBatchDeps);
+                // FR-FDP-03 / FR-FDP-07（TASK-04）: kind を網羅する。folder は**この受け手が扱えない種別**
+                // なので理由付き除外として集計通知に載せる（黙って file 扱いにしない = INV-2）。
+                await runPlatformBatch(items, async (it) => {
+                    switch (it.kind) {
+                        case 'md': return await platform.notesImportMdIntoOut?.(it.id, targetOutId, senderRef, null, null, true);
+                        case 'file': return treeFileImportIntoOut(fileManager, senderRef, it.id, targetOutId);
+                        case 'folder': return { ok: false, reason: 'kind_unsupported' };
+                        default: return assertNeverKind(it);
+                    }
+                }, platformBatchDeps);
             },
             // FR-MSEL-04 rev3: ツリー複数選択 → ツリー内 md item（中央帯）。md → subpage リンク / file → 📎 リンクを
             // 対象 md 末尾へ disk 直書き（FR-TF-04 と同じ契約 = 対象 md が未オープンでも届く）。
             attachTreeItemsIntoMdItemBatch: async (items: TreeBatchItem[], targetMdId: string, senderRef: NotesSender) => {
-                await runPlatformBatch(items, (it) => it.kind === 'md'
-                    ? treeMdLinkIntoMd(fileManager, senderRef, it.id, targetMdId)
-                    : treeFileAttachIntoMd(fileManager, senderRef, it.id, targetMdId),
-                platformBatchDeps);
+                await runPlatformBatch(items, (it) => {
+                    switch (it.kind) {
+                        case 'md': return treeMdLinkIntoMd(fileManager, senderRef, it.id, targetMdId);
+                        case 'file': return treeFileAttachIntoMd(fileManager, senderRef, it.id, targetMdId);
+                        case 'folder': return { ok: false, reason: 'kind_unsupported' };
+                        default: return assertNeverKind(it);
+                    }
+                }, platformBatchDeps);
             },
             // FR-TF-06a (§4f): tree file → 開いている md editor（main=currentFile / sidepanel=sidePanelFilePath）
             // 🔴 TASK-38: 委譲先の返り値を `return` する（捨てると集計通知が発火しない）。
@@ -2652,13 +2688,17 @@ export class NotesEditorProvider {
             // webview が seq 順に結合した 1 本の配列を受け、runPlatformBatch を **1 回**通す（件数ゲートが合計で効く）。
             // transferOne は kind で既存の単一関数へ分岐し、返り値（boolean）をそのまま返す（TASK-38 契約）。
             attachTreeItemsToMdBatch: async (items: TreeBatchItem[], sidePanelFilePath: string | null, senderRef: NotesSender) => {
-                await runPlatformBatch(items, (it) => it.kind === 'md'
-                    ? linkMdAsSubpageForSidePanelCore(
-                        fileManager,
-                        { postMessage: (m: unknown) => panel.webview.postMessage(m) },
-                        it.filePath || '', it.id, sidePanelFilePath ?? fileManager.getCurrentFilePath() ?? '')
-                    : treeFileAttachToMdEditor(fileManager, senderRef, it.id, sidePanelFilePath),
-                platformBatchDeps);
+                await runPlatformBatch(items, (it) => {
+                    switch (it.kind) {
+                        case 'md': return linkMdAsSubpageForSidePanelCore(
+                            fileManager,
+                            { postMessage: (m: unknown) => panel.webview.postMessage(m) },
+                            it.filePath || '', it.id, sidePanelFilePath ?? fileManager.getCurrentFilePath() ?? '');
+                        case 'file': return treeFileAttachToMdEditor(fileManager, senderRef, it.id, sidePanelFilePath);
+                        case 'folder': return { ok: false, reason: 'kind_unsupported' };
+                        default: return assertNeverKind(it);
+                    }
+                }, platformBatchDeps);
             },
             // FR-TF-19 (§4m): md editor drop 受け 4 経路（seam は notes-message-handler の pure-fs 関数）
             attachOutNodeFileToMd: (payload: { outFileKey: string; nodeId: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
@@ -2686,10 +2726,14 @@ export class NotesEditorProvider {
             // runPlatformBatch を **1 回**通し（件数ゲートが合計で効く）、transferOne は kind で既存の単一 platform へ分岐。
             // 返り値を捨てない（TASK-38）。md は suppressToast=true（集計通知 1 回に一本化）。
             notesImportTreeItemsBatch: async (items: TreeBatchItem[], outFileId: string, targetNodeId: string | null, position: string | null, senderRef: NotesSender) => {
-                await runPlatformBatch(items, async (it) => it.kind === 'md'
-                    ? await platform.notesImportMdIntoOut?.(it.id, outFileId, senderRef, targetNodeId ?? null, position ?? null, true)
-                    : await platform.notesImportTreeFileAtPosition?.(it.id, outFileId, targetNodeId, position, senderRef),
-                platformBatchDeps);
+                await runPlatformBatch(items, async (it) => {
+                    switch (it.kind) {
+                        case 'md': return await platform.notesImportMdIntoOut?.(it.id, outFileId, senderRef, targetNodeId ?? null, position ?? null, true);
+                        case 'file': return await platform.notesImportTreeFileAtPosition?.(it.id, outFileId, targetNodeId, position, senderRef);
+                        case 'folder': return { ok: false, reason: 'kind_unsupported' };
+                        default: return assertNeverKind(it);
+                    }
+                }, platformBatchDeps);
             },
             // FR-TF-05b (§4e): outliner の file 添付 node → tree（所有移し替え）
             notesRegisterFileFromOutNode: (payload: { outFileKey: string; nodeId: string }, parentId: string | null, index: number, senderRef: NotesSender) => {
@@ -2998,7 +3042,7 @@ export class NotesEditorProvider {
                 folderViewCopyEntryPath(fileManager, id, relPath, folderViewDeps);
             },
             // ── FR-FLV: 面間 D&D（bridge 台帳 #13-16） ──
-            folderViewMoveIn: async (id: string, dstDirRelPath: string, srcKind: string, srcItemId: string, senderRef: NotesSender) => {
+            folderViewMoveIn: async (id: string, dstDirRelPath: string, srcKind: TreeBatchKind, srcItemId: string, senderRef: NotesSender) => {
                 await folderViewMoveIn(fileManager, id, dstDirRelPath, srcKind, srcItemId, folderMoveDeps, senderRef);
             },
             // FR-MSEL-02 / NFR-MSEL-02 (§4-3b / TASK-29): 複数選択は batch 経路（件数ゲート + 集計通知 1 回）
@@ -3006,7 +3050,7 @@ export class NotesEditorProvider {
                 await folderViewMoveToTreeBatch(fileManager, id, items, parentId, index, folderMoveDeps, senderRef);
             },
             // FR-MSEL-04 / NFR-MSEL-02 (§4-3b / TASK-29)
-            folderViewMoveInBatch: async (id: string, dstDirRelPath: string, items: { srcKind: string; srcItemId: string }[], senderRef: NotesSender) => {
+            folderViewMoveInBatch: async (id: string, dstDirRelPath: string, items: { srcKind: TreeBatchKind; srcItemId: string }[], senderRef: NotesSender) => {
                 await folderViewMoveInBatch(fileManager, id, dstDirRelPath, items, folderMoveDeps, senderRef);
             },
             folderViewMoveToTree: async (id: string, relPath: string, parentId: string | null, index: number, senderRef: NotesSender) => {

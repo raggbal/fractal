@@ -826,11 +826,18 @@ export function moveFileAsset(opts: {
  * （archive..tar.gz 等）を破壊するため使わない — path.basename() がディレクトリ成分を
  * 除去済みで、残る危険は厳密名 `.`/`..` のみ。
  */
-export function generateUniqueFileNamePreserving(targetDir: string, originalName: string): string {
+export function generateUniqueFileNamePreserving(
+    targetDir: string,
+    originalName: string,
+    opts?: { treatAsDir?: boolean }
+): string {
     originalName = path.basename(String(originalName || 'file'));
     if (!originalName || originalName === '.' || originalName === '..') originalName = 'file';
-    const ext = path.extname(originalName);
-    const baseName = path.basename(originalName, ext);
+    // FR-CFL-01（TASK-12・ユーザー裁定 2026-09-12）: **フォルダは拡張子と見ない**。
+    // 既定では `assets.bak` の `.bak` が拡張子として切られ `assets-1.bak` になってしまう。
+    // フォルダ名としては `assets.bak-1` が自然（採番ループ本体は共有し ext 判定だけ切り替える）。
+    const ext = opts?.treatAsDir === true ? '' : path.extname(originalName);
+    const baseName = ext ? path.basename(originalName, ext) : originalName;
 
     let candidate = originalName;
     let suffix = 0;

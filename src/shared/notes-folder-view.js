@@ -263,6 +263,7 @@
         var msg = event.data;
         if (!msg || !container || !currentLinkId || msg.folderLinkId !== currentLinkId) { return; }
         if (msg.type === 'folderViewListResult') {
+            fvEndTransfer();   // INV-11: 転送完了（host の一覧再送）でフラグを解除する
             if (msg.error) {
                 var errRel = msg.relPath || '';
                 if (errRel === '') {
@@ -402,13 +403,16 @@
             var inSelection = selection.indexOf(entry.relPath) >= 0;
             var multi = inSelection && selection.length > 1;
             var files = multi ? selectedFilesForDnd() : [];
+            // dirCount は「選択に含まれるフォルダ数」。**除外件数ではない**（フォルダは payload に載る）。
+            // 集計通知の内訳（フォルダ N 個）に使えるよう算出だけ残す。
             var dirCount = multi ? selectedDirCount() : 0;
+            void dirCount;
 
-            // FR-MSEL-05: 複数選択がフォルダだけ → 運ぶものが無いので
-            // **無反応にしない**（preventDefault + 通知 1 回）
+            // FR-FDP-01（TASK-03）: フォルダも payload に載るので「フォルダだけ = 運ぶものが無い」は成立しない。
+            // 旧実装はここで `preventDefault()` + 通知して **drag 自体を始めさせなかった**（US-001 の症状）。
+            // 選択が空（= 何も選ばれていない）ときだけ従来どおり不発にする。
             if (multi && files.length === 0) {
                 e.preventDefault();
-                notifyFolderOnlyDrag(dirCount);
                 return;
             }
             try {
@@ -417,10 +421,15 @@
                         v: 1,
                         folderLinkId: currentLinkId,
                         items: files.map(function (rel) {
-                            return { folderLinkId: currentLinkId, relPath: rel, isDir: false };
+                            // FR-FDP-01: `isDir` は**実値**（旧実装は false のリテラル固定で、
+                            // 面を越える A-2 / A-3 では payload が唯一の情報源なので致命的だった）
+                            var ent = findEntry(rel);
+                            return { folderLinkId: currentLinkId, relPath: rel, isDir: !!(ent && ent.isDir) };
                         }),
-                        // FR-MSEL-05: 除外したフォルダ件数を受け手の集計通知に載せる
-                        excludedDirs: dirCount,
+                        // 受け手が扱えない種別の除外件数。**フォルダはもう除外しないので 0**
+                        // （key は後方互換のため残す。ここに dir 件数を入れると受け手が
+                        //  偽の「N 件除外」通知を出す = TASK-14 で実測して修正）
+                        excludedDirs: 0,
                     }
                     // 単一 = 従来形式（既存の受け手 TC を 1 本も壊さない = §4-1 後方互換）
                     : { folderLinkId: currentLinkId, relPath: entry.relPath, isDir: !!entry.isDir };
@@ -859,10 +868,15 @@
 
     /** D&D payload に載せる選択（FR-MSEL-05: フォルダは集合に入るが payload からは除く）。 */
     function selectedFilesForDnd() {
+        // FR-FDP-01 / ADRL-0122（TASK-03）: **フォルダを除外しない**。
+        // 旧実装は dir を落としていた。理由として「HTML DataTransfer にディレクトリを載せられない」が
+        // 記録されていたが、それは **OS からファイルを投入する channel 限定の制約**で、
+        // `setData(customMime, JSON)` に識別子を載せる本経路には掛からない（本番の単一フォルダ drag が反例）。
+        // 運ぶのは実体ではなく識別子で、実体の複製・移動は host の Node fs が担う。
         var out = [];
         for (var i = 0; i < selection.length; i++) {
             var e = findEntry(selection[i]);
-            if (e && !e.isDir) { out.push(selection[i]); }
+            if (e) { out.push(selection[i]); }
         }
         return out;
     }
@@ -956,10 +970,40 @@
      *    最後まで `'copy'` のまま host に届くこと（リテラルを書くと copy が move に化けて source が消える）。
      * 🔴 `fvMovePreflight` は**ここでは呼ばない**（NFR-REL-1）。呼び出し元 = W1 の drop ハンドラだけ。
      */
+    /**
+     * INV-11 / DOM-InProgressGate（TASK-12）: **面単位の進行中フラグ**。
+     * 非同期化（チャンク譲渡）により複製中に別の drop / 貼り付けが始まりうる。
+     * 同一宛先への同時複製は連番採番が存在チェックのみを見るため衝突しうるので、
+     * 進行中はその面の drop / 貼り付けを受け付けない（粒度は**面単位** = DOM-InProgressScope。
+     * 宛先単位にしないのは、同一面で並行操作が走っているとユーザーが把握できないため）。
+     */
+    var fvTransferInProgress = false;
+    function fvBeginTransfer() {
+        if (fvTransferInProgress) { return false; }
+        fvTransferInProgress = true;
+        return true;
+    }
+    function fvEndTransfer() { fvTransferInProgress = false; }
+
     function dispatchFvMove(ids, dstDirRel, mode) {
         var b = bridge();
         var m = mode || 'move';
         if (!ids || ids.length === 0) { return; }
+        // INV-11: 進行中は受け付けない（完了は host からの一覧再送で解除する）
+        if (!fvBeginTransfer()) { return; }
+        // FR-FDP-09 / NFR-FDP-06（TASK-08）: **フォルダを含むなら 1 件でも batch 経路**に通す。
+        // 単数 bridge を直呼びすると件数ゲート（2 段化した実件数判定）と集計通知の両方を迂回し、
+        // フォルダ 1 個を落としたときに「何がどこへ動いたか」の手がかりが残らない（undo が無い面）。
+        // ファイルのみ 1 件は従来どおり単数 bridge（既存 UX・既存 spec の引数完全一致 assert を守る）。
+        var hasDirInIds = false;
+        for (var di = 0; di < ids.length; di++) {
+            var de = findEntry(ids[di]);
+            if (de && de.isDir) { hasDirInIds = true; break; }
+        }
+        if (ids.length === 1 && hasDirInIds && typeof b.folderViewMoveBatch === 'function') {
+            b.folderViewMoveBatch(currentLinkId, ids, dstDirRel, m);
+            return;
+        }
         if (ids.length === 1) {
             if (typeof b.folderViewMove !== 'function') { return; }
             // 🔴 `mode === 'move'`（= D&D）のときは **第 4 引数を渡さない**。
@@ -1342,14 +1386,18 @@
             var fmeta = null;
             try { fmeta = JSON.parse(decodeURIComponent(fm[1])); } catch (err) { fmeta = null; }
             if (fmeta && fmeta.folderLinkId === currentLinkId && Array.isArray(fmeta.relPaths)) {
-                // ADRL-0120 の受容事項: **フォルダは skip**（fs の再帰複製経路が既存に無い。
-                // folderViewDuplicate も dir を拒否しているのでその方針に揃える）。
+                // FR-FDP-06 / ADRL-0124（TASK-11）: **フォルダも複製する**。
+                // ADRL-0120 の受容事項「フォルダの再帰複製経路が既存に無い」は
+                // 新エンジン（`folder-copy-engine.ts`）ができたので解除された。
+                // 旧実装は dir を filter して `files.length === 0` で無通知 return しており、
+                // host 側に足された拒否通知は**到達不能な dead branch** だった
+                // （= フォルダ 1 件の Cmd+V が完全に無反応 = ユーザー観測の派生 1 件）。
                 var files = [];
                 for (var i = 0; i < fmeta.relPaths.length; i++) {
                     var en = findEntry(fmeta.relPaths[i]);
-                    if (en && !en.isDir) { files.push(fmeta.relPaths[i]); }
+                    if (en) { files.push(fmeta.relPaths[i]); }
                 }
-                if (files.length === 0) { return; }   // 複製できるものが無い = 何もしない
+                if (files.length === 0) { return; }   // 貼る対象が 1 つも無い（= clipboard が空）
                 e.preventDefault();
                 // 🔴 fvMovePreflight は**通さない**（NFR-REL-1）。H は「同じ階層への複製」が正常系で、
                 //    D&D 用の全体拒否ガード（既に同じ親 → reject）を掛けると原理的に動かなくなる。

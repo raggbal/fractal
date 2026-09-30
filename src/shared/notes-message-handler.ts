@@ -6,6 +6,7 @@ import { resolveSubpageTitle, saveDroppedMdAsSubpage } from './md-subpage-utils'
 import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import * as crypto from 'crypto';
+import { walkFolderCount, walkFolderEntries, copyFolderRecursive } from './folder-copy-engine';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, resolveCrossPasteCut, runMdIntoOutlinerPaste, generateUniqueFileNamePreserving, copyEntityWithUniquify, transferMdWithAssets, noteCoords, adjacentCoords, mdCoords, makeTransferCoords, TransferCoords, MdPasteAssetReport, duplicateMdEntity } from './paste-asset-handler';
 import { collectFvSurvivingAssetRefs } from './fv-residual-refs';
 import { checkBatchLimit, BatchLimitVerdict, FOLDER_IMPORT_MAX_FILES, FOLDER_IMPORT_MAX_DEPTH } from './folder-import';
@@ -33,12 +34,32 @@ export interface NotesSender {
 /**
  * プラットフォーム固有アクションのインターフェース
  */
-/** §4-2 rev2（TASK-45）: 種別混在の結合 batch の 1 item（webview が `seq` 順に結合済み）。 */
-export interface TreeBatchItem {
-    kind: 'md' | 'file';
-    id: string;
-    /** md のみ（subpage リンク挿入に必要）。file は null */
-    filePath?: string | null;
+/**
+ * §4-2 rev2（TASK-45）: 種別混在の結合 batch の 1 item（webview が `seq` 順に結合済み）。
+ *
+ * FR-FDP-03 / ADRL-0125（TASK-04）: **判別可能 union** にした。旧実装は単一 interface +
+ * allowlist で、未知 kind を `continue` で黙って捨てる構造だった（B-6 の host 側実体）。
+ * union にすると新しい kind を足したときの分岐漏れが**コンパイル時に落ちる**。
+ * md / file 枝の既存フィールドは 1 つも縮めない（NFR-FDP-07 / TC-KIND-3）。
+ */
+export type TreeBatchKind = 'md' | 'file' | 'folder';
+export type TreeBatchItem =
+    | { kind: 'md'; id: string; /** md のみ（subpage リンク挿入に必要） */ filePath?: string | null }
+    | { kind: 'file'; id: string; filePath?: string | null }
+    | { kind: 'folder'; id: string; filePath?: string | null };
+
+/** 網羅検査（union に kind を足して分岐を書き忘れるとここで型エラーになる）。 */
+export function assertNeverKind(x: never): never {
+    throw new Error(`unhandled TreeBatchItem kind: ${JSON.stringify(x)}`);
+}
+
+/**
+ * webview 境界の未検証入力を union に落とす（FR-FDP-03 / TASK-04）。
+ * **境界で 1 回だけ検証する**のが正しい置き場所で、以降は型が保証する。
+ * 不正なら `null` を返し、呼び出し側が不受理として扱う（黙って既定値に倒さない）。
+ */
+export function asTreeBatchKind(raw: unknown): TreeBatchKind | null {
+    return (raw === 'md' || raw === 'file' || raw === 'folder') ? raw : null;
 }
 
 export interface NotesPlatformActions {
@@ -368,7 +389,7 @@ export interface NotesPlatformActions {
     attachTreeItemsIntoMdItemBatch?(items: TreeBatchItem[], targetMdId: string, sender: NotesSender): Promise<void> | void;
     // FR-MSEL-02/04 / NFR-MSEL-02 (§4-3b): 複数選択 D&D の batch（件数ゲートは host 側にしか置けない）
     folderViewMoveToTreeBatch?(folderLinkId: string, items: { folderLinkId?: string; relPath: string }[], parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
-    folderViewMoveInBatch?(folderLinkId: string, dstDirRelPath: string, items: { srcKind: string; srcItemId: string }[], sender: NotesSender): Promise<void> | void;
+    folderViewMoveInBatch?(folderLinkId: string, dstDirRelPath: string, items: { srcKind: TreeBatchKind; srcItemId: string }[], sender: NotesSender): Promise<void> | void;
     notesRegisterFileFromOutNode?(payload: { outFileKey: string; nodeId: string }, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
     // FR-SND-03 (§6-2): outliner の選択 node → linkedfd へ送る（Export folder と同一経路）
     sendNodesToFolderLink?(tree: ExportNode[], folderLinkId: string, sender: NotesSender): Promise<void> | void;
@@ -443,7 +464,7 @@ export interface NotesPlatformActions {
 
     // ── FR-FLV: 面間 D&D（bridge 台帳 #13-16。実装本体は folderViewMove* export 関数） ──
     /** FR-FLV-21 (#13): Note ツリー item → フォルダビュー移動 */
-    folderViewMoveIn?(id: string, dstDirRelPath: string, srcKind: string, srcItemId: string, sender: NotesSender): Promise<void> | void;
+    folderViewMoveIn?(id: string, dstDirRelPath: string, srcKind: TreeBatchKind, srcItemId: string, sender: NotesSender): Promise<void> | void;
     /** FR-FLV-20 (#14): フォルダビュー → Note ツリー移動 */
     folderViewMoveToTree?(id: string, relPath: string, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
     /** FR-FLV-22 (#15): フォルダビュー → sidepanel md 移動 + リンク挿入 */
@@ -2072,7 +2093,10 @@ export async function handleNotesMessage(
         }
         // ── FR-FLV: 面間 D&D（bridge 台帳 #13-16） ──
         case 'folderViewMoveIn': {
-            await platform.folderViewMoveIn?.(String(message.id ?? ''), String(message.dstDirRelPath ?? ''), String(message.srcKind ?? ''), String(message.srcItemId ?? ''), sender);
+            // FR-FDP-03（TASK-04）: 境界で kind を union に検証する。不正なら**黙って既定値に倒さず**不受理
+            const mvKind = asTreeBatchKind(message.srcKind);
+            if (!mvKind) { break; }
+            await platform.folderViewMoveIn?.(String(message.id ?? ''), String(message.dstDirRelPath ?? ''), mvKind, String(message.srcItemId ?? ''), sender);
             break;
         }
         case 'folderViewMoveToTree': {
@@ -3857,6 +3881,17 @@ export interface FolderMoveDeps {
     //（未注入なら `runBatchTransfer` の既定に落ちず ゲートを迂回するので、batch 関数の冒頭で検査する）
     /** 201〜2000 件の確認 modal（false = 取り込まない） */
     confirmLarge?(totalCount: number): Promise<boolean> | boolean;
+    /**
+     * FR-CFL-01 / ADRL-0129（TASK-12）: 同名衝突の 3 択を **1 回だけ**提示して方針を返す。
+     * 未注入なら安全側（`'abort'`）に倒す（黙って上書きしない）。
+     * @param name 衝突した代表名 / @param count 衝突件数
+     */
+    promptConflict?(name: string, count: number): Promise<ConflictPolicy> | ConflictPolicy;
+    /**
+     * FR-FDP-09 / NFR-FDP-06（TASK-08）: 「何が動いたか」の集計内訳通知。
+     * undo が無い面なので、これがユーザーの唯一の手がかりになる（optional = 既存の単一経路を壊さない）。
+     */
+    showInformationMessage?(message: string): void;
     /** 2000 件超の上限通知（1 回だけ） */
     notifyLimitExceeded?(error: 'too_many' | 'too_deep'): void;
     /** 集計通知（**1 回だけ**。全成功なら呼ばれない） */
@@ -4088,12 +4123,22 @@ export async function runBatchTransfer<T>(
         /** 集計通知（**1 回だけ**呼ばれる。succeeded === items.length なら呼ばない実装でもよい） */
         notifyOutcome(outcome: BatchOutcome): void;
         limits?: { maxFiles?: number; confirmThreshold?: number };
+        /**
+         * FR-FDP-08（TASK-08）: ゲートに渡す**実件数**。フォルダ item は「1 件」ではなく
+         * 中身の実ファイル数で数える必要がある（フォルダ 1 個に 5000 ファイルあると
+         * `items.length` は 1 で 2000 件の中断ゲートを素通りしてしまう）。
+         * 走査は呼び出し側が `walkFolderCount`（純関数）で行い、その合算をここへ渡す。
+         * **`checkBatchLimit` の呼び出し箇所は増やさない**（既存の配線 2 箇所を守る = TC-CON-2）。
+         */
+        totalCountOverride?: number;
     }
 ): Promise<{ verdict: BatchLimitVerdict; outcome: BatchOutcome }> {
     const outcome: BatchOutcome = { succeeded: 0, failed: 0, skipped: 0, reasons: {} };
     if (items.length === 0) { return { verdict: 'ok', outcome }; }
 
-    const verdict = await checkBatchLimit(items.length, deps);
+    const gateCount = typeof deps.totalCountOverride === 'number' && deps.totalCountOverride > 0
+        ? deps.totalCountOverride : items.length;
+    const verdict = await checkBatchLimit(gateCount, deps);
     // 'abort' / 'cancel' = **1 件も処理しない**（部分実行しない = FR-MSEL-04 の受け入れ条件）
     if (verdict !== 'ok') { return { verdict, outcome }; }
 
@@ -4137,7 +4182,7 @@ async function finalizeSourceSide(
         /** fv 側 source（fv→tree / fv 内 / fv→md）。md なら随伴資産も対象 */
         fvSource?: { root: string; srcAbs: string; mdReport: MdPasteAssetReport | null };
         /** note 側 source（tree→fv）。台帳除去 + 実体 trash */
-        noteSource?: { fileManager: NotesFileManager; srcItemId: string; srcKind: string; srcAbs: string };
+        noteSource?: { fileManager: NotesFileManager; srcItemId: string; srcKind: TreeBatchKind; srcAbs: string };
     }
 ): Promise<{ removed: number }> {
     if (mode === 'duplicate') { return { removed: 0 }; }   // ← 唯一の分岐点
@@ -4190,13 +4235,30 @@ export async function folderViewMoveToTreeBatch(
 ): Promise<{ verdict: BatchLimitVerdict; outcome: BatchOutcome }> {
     const list = Array.isArray(items) ? items.filter((x) => x && x.relPath !== undefined) : [];
     let cursor = index;
-    return runBatchTransfer(list, async (item) => {
+    // NFR-MSEL-03 / B-5 / INV-9（TASK-10）: **通知抑止 3 点セット**を適用する（正典 = `folderViewMoveBatch`）。
+    // これで batch 3 本すべてが同じ形（per-item トーストを出さない + 一覧再送はループ後 1 回）になる。
+    const quietDeps: FolderMoveDeps = Object.assign({}, deps, { showErrorMessage: () => { /* 集計通知 1 回に委ねる */ } });
+    let listResent = false;
+    const parents = new Set<string>();
+    const quietSender: NotesSender = {
+        postMessage: (message: unknown) => {
+            const t = (message as { type?: string } | null)?.type;
+            if (t === 'folderViewListResult') { listResent = true; return; }
+            sender.postMessage(message);
+        },
+    };
+    const r = await runBatchTransfer(list, async (item) => {
         const lid = item.folderLinkId || folderLinkId;
+        parents.add(parentRelOf(item.relPath));
         // ★ 1 件の処理は既存の単一経路をそのまま呼ぶ（意味論を二重実装しない）
-        const ok = await folderViewMoveToTree(fileManager, lid, item.relPath, parentId, cursor, deps, sender);
+        const ok = await folderViewMoveToTree(fileManager, lid, item.relPath, parentId, cursor, quietDeps, quietSender);
         if (ok) { cursor += 1; }
         return { ok, reason: ok ? undefined : 'transfer_failed' };
     }, batchDepsOf(deps));
+    if (listResent) {
+        parents.forEach((rel) => { sendFolderViewList(fileManager, folderLinkId, rel, sender); });
+    }
+    return r;
 }
 
 /**
@@ -4207,15 +4269,33 @@ export async function folderViewMoveInBatch(
     fileManager: NotesFileManager,
     folderLinkId: string,
     dstDirRelPath: string,
-    items: { srcKind: string; srcItemId: string }[],
+    // FR-FDP-03 / ADRL-0125（TASK-04）: 無検証の文字列種別を union の kind に寄せ、
+    // 型 2 系統の併存を解消した（旧実装だけが `TreeBatchItem` を使っていなかった）。
+    items: { srcKind: TreeBatchKind; srcItemId: string }[],
     deps: FolderMoveDeps,
     sender: NotesSender
 ): Promise<{ verdict: BatchLimitVerdict; outcome: BatchOutcome }> {
-    const list = Array.isArray(items) ? items.filter((x) => x && x.srcItemId) : [];
-    return runBatchTransfer(list, async (item) => {
-        const ok = await folderViewMoveIn(fileManager, folderLinkId, dstDirRelPath, item.srcKind, item.srcItemId, deps, sender);
+    const list = (Array.isArray(items) ? items : []).filter(
+        (x) => x && x.srcItemId && (x.srcKind === 'md' || x.srcKind === 'file' || x.srcKind === 'folder')
+    );
+    // NFR-MSEL-03 / B-5（TASK-04）: **通知抑止 3 点セット**を適用する。
+    // 正典は `folderViewMoveBatch`（同ファイル）で、この関数は deps / sender を素通ししていたため
+    // per-item トーストと一覧再送が件数ぶん出ていた。新方式は発明せず既存の形をそのまま流用する。
+    const quietDeps: FolderMoveDeps = Object.assign({}, deps, { showErrorMessage: () => { /* 集計通知 1 回に委ねる */ } });
+    let listResent = false;
+    const quietSender: NotesSender = {
+        postMessage: (message: unknown) => {
+            const t = (message as { type?: string } | null)?.type;
+            if (t === 'folderViewListResult') { listResent = true; return; }   // ループ後に 1 回だけ送る
+            sender.postMessage(message);
+        },
+    };
+    const r = await runBatchTransfer(list, async (item) => {
+        const ok = await folderViewMoveIn(fileManager, folderLinkId, dstDirRelPath, item.srcKind, item.srcItemId, quietDeps, quietSender);
         return { ok, reason: ok ? undefined : 'transfer_failed' };
     }, batchDepsOf(deps));
+    if (listResent) { sendFolderViewList(fileManager, folderLinkId, dstDirRelPath, sender); }
+    return r;
 }
 
 /**
@@ -4245,20 +4325,42 @@ export async function folderViewMoveInBatch(
  * ⚠️ outliner 宛ての `notesImportMdIntoOut` は 1 回ごとに `.out` 全体を read → parse → write するため
  * N 件で **O(N²) の I/O** になる。上限ゲートはここで特に重要。
  */
-/** §4-2 rev2（TASK-45）: webview 由来の結合 batch items を検証・正規化する（kind は md/file のみ・id 必須）。 */
-export function normalizeTreeBatchItems(raw: unknown): TreeBatchItem[] {
+/**
+ * §4-2 rev2（TASK-45）: webview 由来の結合 batch items を検証・正規化する。
+ *
+ * FR-FDP-03 / INV-2 / ADRL-0125（TASK-04）: kind は **md / file / folder** の 3 種。
+ * 旧実装は allowlist の `continue` で未知 kind を**黙って捨てて**いた（入力 N に対して
+ * 処理 + 通知の合計が N に届かない = B-6 の host 側実体）。
+ * 未知 kind は捨てるが `onRejected` で**必ず検出させる**（呼び出し側が集計通知に載せる）。
+ */
+export function normalizeTreeBatchItems(
+    raw: unknown,
+    onRejected?: (raw: unknown, reason: 'unknown_kind' | 'missing_id') => void
+): TreeBatchItem[] {
     if (!Array.isArray(raw)) { return []; }
     const out: TreeBatchItem[] = [];
     for (const x of raw as Array<Record<string, unknown>>) {
-        if (!x || (x.kind !== 'md' && x.kind !== 'file') || !x.id) { continue; }
-        out.push({ kind: x.kind, id: String(x.id), filePath: typeof x.filePath === 'string' ? x.filePath : null });
+        if (!x) { onRejected?.(x, 'unknown_kind'); continue; }
+        const kind = x.kind;
+        if (kind !== 'md' && kind !== 'file' && kind !== 'folder') { onRejected?.(x, 'unknown_kind'); continue; }
+        if (!x.id) { onRejected?.(x, 'missing_id'); continue; }
+        const filePath = typeof x.filePath === 'string' ? x.filePath : null;
+        const id = String(x.id);
+        switch (kind) {
+            case 'md': out.push({ kind: 'md', id, filePath }); break;
+            case 'file': out.push({ kind: 'file', id, filePath }); break;
+            case 'folder': out.push({ kind: 'folder', id, filePath }); break;
+            default: return assertNeverKind(kind);   // 網羅検査（kind を足したらここで落ちる）
+        }
     }
     return out;
 }
 
 export async function runPlatformBatch<T>(
     items: T[],
-    transferOne: (item: T) => Promise<void | boolean> | void | boolean,
+    // FR-FDP-07（TASK-04）: `{ ok:false, reason }` を返せるようにした（additive）。
+    // 「受け手が扱えない種別」を **失敗ではなく理由付き除外**として集計通知に載せるため。
+    transferOne: (item: T) => Promise<void | boolean | { ok: boolean; reason?: string }> | void | boolean | { ok: boolean; reason?: string },
     deps: {
         confirmLarge?(totalCount: number): Promise<boolean> | boolean;
         notifyLimitExceeded?(error: 'too_many' | 'too_deep'): void;
@@ -4268,6 +4370,10 @@ export async function runPlatformBatch<T>(
     return runBatchTransfer(items, async (item) => {
         const r = await transferOne(item);
         // 委譲先が明示的に false を返したら失敗として集計する（throw しない握り潰し型への対応）
+        if (r && typeof r === 'object' && typeof (r as { ok?: unknown }).ok === 'boolean') {
+            const o = r as { ok: boolean; reason?: string };
+            return o.ok ? { ok: true } : { ok: false, reason: o.reason || 'transfer_failed' };
+        }
         return r === false ? { ok: false, reason: 'transfer_failed' } : { ok: true };
     }, {
         // 未注入なら安全側（= 上限で中断）に倒す（batchDepsOf と同じ方針）
@@ -4289,6 +4395,145 @@ function batchDepsOf(deps: FolderMoveDeps): {
     };
 }
 
+/**
+ * FR-FDP-05 / ADRL-0128（TASK-10）: linkedfd のフォルダを **note ツリーへ複製**する正典。
+ *
+ * 責務を 2 層に分ける:
+ * - **層 1（走査）** = `walkFolderEntries`（エンジン）。symlink skip / `showHidden` 追従 /
+ *   フォルダ先行の昇順を複製・件数と**共有**する。walk が root を出ないので containment（NFR-FDP-02）が成立。
+ * - **層 2（台帳登録）** = 既存 API（`createFolder` / `registerExistingMdFile` / `registerTreeFile`）。
+ *   台帳の形は変えない（既存の登録テストが生きる）。
+ *
+ * 旧 `registerFolderIntoTreeAt` の 3 欠陥をここで同時に塞ぐ:
+ *   ① `statSync` 追従 + 入口 1 回だけの clamp → linkedfd root 外へ脱出しうる
+ *   ② `registerMarkdownFile(content)` で本文をそのまま登録 → **フォルダ内 md の資産随伴が無い**
+ *   ③ `.filter(n => !n.startsWith('.'))` が無条件 → `showHidden` ON で dotfile が黙って消える
+ */
+/**
+ * FR-CFL-01 / ADRL-0129（TASK-12）: 同名衝突の解決方針。
+ * `'abort'` は **その drop / 貼り付け全体の中止**（1 件だけの skip ではない = FR-CFL-04）。
+ */
+export type ConflictPolicy = 'abort' | 'overwrite' | 'rename';
+
+/**
+ * 宛先ディレクトリの一覧を **1 回**読んで、渡された src 群の名前衝突を全件判定する
+ * （`MOD-ConflictPreflight`。中身の走査は不要なので安い）。**種別非依存**でファイルにも効く。
+ *
+ * 第 3 の結果として「一覧が読めない」を持つ（NFR-P1 / INV-12）:
+ * **「衝突なし」に倒さない**（黙って上書きしうる）。呼び出し側は中止に倒す。
+ */
+export function detectNameConflicts(
+    dstDirAbs: string,
+    srcAbsList: string[]
+): { readable: boolean; conflicts: string[] } {
+    let names: Set<string>;
+    try {
+        names = new Set(fs.readdirSync(dstDirAbs));
+    } catch {
+        return { readable: false, conflicts: [] };
+    }
+    const conflicts: string[] = [];
+    for (const abs of srcAbsList) {
+        const base = path.basename(abs);
+        // 同じ親からの移動は衝突ではない（no-op 判定は preflight の same_parent が担う）
+        if (path.resolve(path.dirname(abs)) === path.resolve(dstDirAbs)) { continue; }
+        if (names.has(base)) { conflicts.push(base); }
+    }
+    return { readable: true, conflicts };
+}
+
+export async function registerFolderTreeFromFs(
+    fileManager: NotesFileManager,
+    root: string,
+    srcAbs: string,
+    parentId: string | null,
+    index: number,
+    deps: FolderMoveDeps,
+    opts?: { showHidden?: boolean; accompanyMd?: boolean }
+): Promise<{ ok: boolean; folders: number; files: number; skipped: number }> {
+    const showHidden = opts?.showHidden === true;
+    const accompanyMd = opts?.accompanyMd !== false;   // 既定で随伴（FR-FDP-05 の受け入れ条件）
+    const { plan, entries } = await walkFolderEntries(srcAbs, { showHidden });
+    if (!plan.ok) {
+        // 上限超過・深すぎ・読めない → **0 件処理**（台帳に何も作らない = 既存 canon の 1 段目）
+        if (plan.abort === 'too_many_files' || plan.abort === 'too_deep') {
+            deps.notifyLimitExceeded?.(plan.abort === 'too_deep' ? 'too_deep' : 'too_many');
+        }
+        return { ok: false, folders: 0, files: 0, skipped: plan.skipped.length };
+    }
+
+    /** rel（src root 相対）→ 作った仮想フォルダ item id。'' は drop 先の親。 */
+    const dirIds = new Map<string, string | null>();
+    dirIds.set('', parentId);
+    const cursors = new Map<string, number>();
+    cursors.set('', index);
+
+    const nextIndex = (dirRel: string): number => {
+        const c = cursors.get(dirRel) ?? 0;
+        cursors.set(dirRel, c + 1);
+        return c;
+    };
+    const createFolderUnder = (dirRel: string, name: string): string | null => {
+        const pid = dirIds.get(dirRel) ?? null;
+        const st = fileManager.getStructure();
+        const siblings = pid && st.items[pid] && (st.items[pid] as { type?: string }).type === 'folder'
+            ? ((st.items[pid] as unknown as { childIds: string[] }).childIds) : st.rootIds;
+        const at = nextIndex(dirRel);
+        const safeIndex = Math.max(0, Math.min(at, siblings.length));
+        const afterId = safeIndex > 0 ? siblings[safeIndex - 1] : null;
+        const before = new Set(Object.keys(st.items));
+        const after = fileManager.createFolder(name || 'folder', pid, afterId);
+        const made = Object.keys(after.items).find(
+            (id) => !before.has(id) && (after.items[id] as unknown as { type?: string }).type === 'folder');
+        return made ?? null;
+    };
+
+    // src root 自身のフォルダを作る（`docs` を落としたら note 側に `docs` ができる）
+    const rootId = createFolderUnder('', path.basename(srcAbs) || 'folder');
+    if (!rootId) { return { ok: false, folders: 0, files: 0, skipped: plan.skipped.length }; }
+    dirIds.set('.', rootId);
+    cursors.set('.', 0);
+
+    let folders = 1; let files = 0;
+    for (const e of entries) {
+        const parentRel = path.dirname(e.rel) === '.' ? '.' : path.dirname(e.rel);
+        const pid = dirIds.get(parentRel);
+        if (pid === undefined) { continue; }   // 親が作れていない（0 件処理の残骸を作らない）
+        const name = path.basename(e.rel);
+        if (e.kind === 'dir') {
+            const id = createFolderUnder(parentRel, name);
+            if (id) { dirIds.set(e.rel, id); cursors.set(e.rel, 0); folders++; }
+            continue;
+        }
+        try {
+            if (/\.md$/i.test(name)) {
+                if (accompanyMd) {
+                    // ② の解消: 画像 / 📎 / subpage 閉包を note 座標へ複製しリンクを書換える。
+                    // フォルダ外を指す参照は containment（`extraSourceRoots` = linkedfd root）で
+                    // 複製せず原文温存（FR-FDP-05 / NFR-ACC-02b rev2）。
+                    const content = fs.readFileSync(e.abs, 'utf8');
+                    const title = extractFirstH1(content) || name.replace(/\.md$/i, '');
+                    const r = transferMdWithAssets(
+                        e.abs,
+                        makeTransferCoords(mdCoords(e.abs), noteCoords(fileManager.getMainFolderPath())),
+                        undefined,
+                        { extraSourceRoots: [root] });
+                    fileManager.registerExistingMdFile(path.basename(r.newName, '.md'), title, pid, nextIndex(parentRel));
+                } else {
+                    const content = fs.readFileSync(e.abs, 'utf8');
+                    fileManager.registerMarkdownFile(content, resolveSubpageTitle(content, name), pid, nextIndex(parentRel));
+                }
+            } else {
+                fileManager.registerTreeFile(name, name, pid, nextIndex(parentRel), fs.readFileSync(e.abs));
+            }
+            files++;
+        } catch (e2) {
+            console.error('[Notes] registerFolderTreeFromFs skip:', e.abs, e2);
+        }
+    }
+    return { ok: true, folders, files, skipped: plan.skipped.length };
+}
+
 export async function folderViewMoveToTree(
     fileManager: NotesFileManager,
     folderLinkId: string,
@@ -4305,9 +4550,16 @@ export async function folderViewMoveToTree(
     }
     const srcAbs = safeResolveUnderFolderRoot(root, relPath);
     if (!srcAbs || !fs.existsSync(srcAbs)) { return false; }
-    if (fs.statSync(srcAbs).isDirectory()) {
-        deps.showErrorMessage(deps.t('folderViewNoFolderDrop') || 'Folders cannot be dropped here.');
-        return false;
+    // FR-FDP-05 / ADRL-0128（TASK-10）: **フォルダも受理する**（旧実装はここで拒否していた）。
+    // 走査 + 台帳登録は正典 `registerFolderTreeFromFs` に委譲し、意味論は複製（linkedfd 側は残す）。
+    if (fs.lstatSync(srcAbs).isDirectory()) {
+        const r = await registerFolderTreeFromFs(
+            fileManager, root, srcAbs, parentId, index, deps,
+            { showHidden: readFolderViewShowHidden(root), accompanyMd: true });
+        if (!r.ok) { return false; }
+        sendFileListWithStructure(fileManager, sender);
+        sendFolderViewList(fileManager, folderLinkId, parentRelOf(relPath), sender);
+        return true;
     }
     const base = path.basename(srcAbs);
     let mdMoveReport: MdPasteAssetReport | null = null; // FR-ACD-01: md 分岐の複製結果（file 分岐は従来経路）
@@ -4346,13 +4598,15 @@ export async function folderViewMoveIn(
     fileManager: NotesFileManager,
     folderLinkId: string,
     dstDirRelPath: string,
-    srcKind: string,
+    // FR-FDP-03 / ADRL-0125（TASK-04）: 単数経路も union の kind に寄せる（型 2 系統の完全解消）
+    srcKind: TreeBatchKind,
     srcItemId: string,
     deps: FolderMoveDeps,
     sender: NotesSender
 ): Promise<boolean> {
     if (srcKind !== 'md' && srcKind !== 'file') {
-        // .out / folder item は受理しない（requirement D&D 表の × セル）
+        // folder は TASK-11（Duplicate / clipboard）と TASK-10 の経路で扱う。
+        // ここ（tree → linkedfd の単数移動）は本 sprint のスコープ外なので明示的に不受理のまま。
         deps.showErrorMessage(deps.t('folderViewMoveInUnsupported') || 'Only markdown and file items can be moved here.');
         return false;
     }
@@ -5139,9 +5393,20 @@ export async function folderViewDuplicate(
     if (!abs || abs === path.resolve(root) || !fs.existsSync(abs)) { return false; }
     let isDir = false;
     try { isDir = fs.lstatSync(abs).isDirectory(); } catch { return false; }
+    // FR-FLV-15 rev2 / ADRL-0123 の例外（TASK-11）: **フォルダも Duplicate 対象**。
+    // Duplicate は「同じ階層に複製する」操作で衝突が起きることが前提なので **3 択は出さず連番固定**。
     if (isDir) {
-        deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Folders cannot be duplicated.');
-        return false;
+        const destName = generateUniqueFileNamePreserving(path.dirname(abs), path.basename(abs));
+        const outcome = await copyFolderRecursive(abs, path.dirname(abs), {
+            destName,
+            showHidden: readFolderViewShowHidden(root),
+        });
+        if (!outcome.ok || outcome.dstAbs === null) {
+            deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Duplicate failed.');
+            return false;
+        }
+        sendFolderViewList(fileManager, folderLinkId, parentRelOf(relPath), sender);
+        return true;
     }
     try {
         if (/\.md$/i.test(abs)) {
@@ -5205,16 +5470,85 @@ export async function folderViewMoveBatch(
             sender.postMessage(message);
         },
     };
+    // FR-CFL-01 / FR-CFL-04 / ADRL-0129（TASK-12）: **事前衝突判定 → 1 回だけ問う → 方針を全件に適用**。
+    // per-item で問わないので操作感が壊れず、「中止」が drop 全体の中止になるので
+    // 部分適用（2 件目で衝突して 1 件目が移動済み）が構造的に起きない。
+    let conflictPolicy: ConflictPolicy | undefined;
+    // 🔴 事前判定を掛けるのは **move の 3 択が配線されているときだけ**:
+    //   - `mode === 'copy'`（clipboard / Duplicate）は **連番固定で問わない**のが仕様
+    //     （FR-CFL-02 の例外。ADRL-0105 の連番裁定を維持）
+    //   - `promptConflict` 未注入（配線の穴 / 旧呼び出し元）は **従来の per-item 拒否**に落ちる。
+    //     ここで全体中止に倒すと既存の挙動（衝突しなかった件は動く）を壊す（実測で回帰を検出）
+    if (mode === 'move' && typeof moveDeps.promptConflict === 'function') {
+        const rootForConflict = fileManager.resolveFolderRoot(folderLinkId);
+        const dstDirForConflict = rootForConflict ? safeResolveUnderFolderRoot(rootForConflict, dstDirRelPath) : null;
+        if (rootForConflict && dstDirForConflict) {
+            const srcAbsList = list
+                .map((rel) => safeResolveUnderFolderRoot(rootForConflict, rel))
+                .filter((x): x is string => !!x);
+            const det = detectNameConflicts(dstDirForConflict, srcAbsList);
+            if (!det.readable) {
+                // INV-12 / NFR-P1: **「衝突なし」に倒さない**（黙って上書きしうる）。中止に倒す
+                deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Could not read the destination folder.');
+                return { verdict: 'abort', outcome: { succeeded: 0, failed: 0, skipped: 0, reasons: {} } };
+            }
+            if (det.conflicts.length > 0) {
+                conflictPolicy = typeof moveDeps.promptConflict === 'function'
+                    ? await moveDeps.promptConflict(det.conflicts[0], det.conflicts.length)
+                    : 'abort';   // 未注入なら安全側
+                if (conflictPolicy === 'abort') {
+                    // FR-CFL-04: **その drop 全体の中止**（1 件も動かさない）
+                    return { verdict: 'cancel', outcome: { succeeded: 0, failed: 0, skipped: 0, reasons: {} } };
+                }
+            }
+        }
+    }
+
+    // FR-FDP-08（TASK-08）: **walk → 実件数 → 既存ゲート**の 2 段。
+    // フォルダ item は `walkFolderCount`（純関数・書き込み 0）で中身の実ファイル数を数える。
+    // 数えられなかった（読めない等）ものは 1 件として扱い、ゲートを甘くしない。
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    let gateTotal = 0;
+    let folderCount = 0; let innerFileCount = 0;
+    for (const rel of list) {
+        const abs = root ? safeResolveUnderFolderRoot(root, rel) : null;
+        let isDir = false;
+        try { isDir = !!abs && fs.lstatSync(abs).isDirectory(); } catch { isDir = false; }
+        if (!isDir) { gateTotal += 1; continue; }
+        folderCount += 1;
+        // 🔴 走査は**上限を掛けずに数える**（判定はゲートの仕事）。
+        // エンジン既定の maxFiles で走査を打ち切ると `ok:false` になり、そこで 1 件に
+        // フォールバックすると**ゲートを甘くする**（2500 ファイルのフォルダが「1 件」で素通りする）。
+        const plan = await walkFolderCount(abs as string, {
+            showHidden: root ? readFolderViewShowHidden(root) : false,
+            maxFiles: Number.MAX_SAFE_INTEGER,
+        });
+        if (plan.ok) {
+            gateTotal += Math.max(1, plan.totalFiles);
+            innerFileCount += plan.totalFiles;
+        } else {
+            // 深さ超過・読めない等で実件数が確定しない → **安全側**に倒してゲートを必ず作動させる
+            gateTotal += Number.MAX_SAFE_INTEGER;
+        }
+    }
     const r = await runBatchTransfer(list, async (rel) => {
         parents.add(parentRelOf(rel));
         const flags: { partialFail?: boolean } = {};
-        const ok = await folderViewMove(fileManager, folderLinkId, rel, dstDirRelPath, quietDeps, quietSender, quietMoveDeps, mode, flags);
+        const ok = await folderViewMove(fileManager, folderLinkId, rel, dstDirRelPath, quietDeps, quietSender, quietMoveDeps, mode, flags, conflictPolicy);
         // 部分失敗（md の随伴資産が一部コピーできず source を温存した）は **成功に数えない**。
         // iteration 1 は `folderViewMove` が true を返すため succeeded に入り、失敗が集計に現れなかった。
         if (ok && flags.partialFail) { return { ok: false, reason: 'partial_attachment' }; }
         return { ok, reason: ok ? undefined : 'transfer_failed' };
-    }, batchDepsOf(moveDeps));
+    }, Object.assign({}, batchDepsOf(moveDeps), { totalCountOverride: gateTotal }));
     if (r.verdict === 'ok') {
+        // NFR-FDP-06 / FR-FDP-09（TASK-08）: **何が動いたか**を集計通知に載せる（undo が無いため唯一の手がかり）。
+        // フォルダを含む操作は 1 件でも通知する（ファイルのみ 1 件は従来どおり無通知 = 既存 UX 不変）。
+        if (folderCount > 0 && typeof moveDeps.showInformationMessage === 'function') {
+            moveDeps.showInformationMessage(
+                (moveDeps.t('folderTransferSummary') || '{folders} folder(s) ({files} file(s)).')
+                    .replace('{folders}', String(folderCount))
+                    .replace('{files}', String(innerFileCount)));
+        }
         parents.add(dstDirRelPath);
         parents.forEach((rel) => { sendFolderViewList(fileManager, folderLinkId, rel, sender); });
     }
@@ -5284,7 +5618,9 @@ export async function folderViewMove(
      * 単一経路（既存 2 呼び出し元）は渡さない = 戻り値の意味論は byte 不変。
      * batch 経路だけがこれを見て `runBatchTransfer` の集計に載せる。
      */
-    outFlags?: { partialFail?: boolean }
+    outFlags?: { partialFail?: boolean },
+    /** FR-CFL-01 / ADRL-0129（TASK-12）: 同名衝突の解決方針（未指定 = 従来どおり move は拒否 / copy は連番）。 */
+    policy?: ConflictPolicy
 ): Promise<boolean> {
     const root = fileManager.resolveFolderRoot(folderLinkId);
     if (!root) {
@@ -5302,7 +5638,7 @@ export async function folderViewMove(
         deps.showErrorMessage(deps.t('folderViewMoveIntoSelf') || 'Cannot move a folder into itself.');
         return false;
     }
-    const absDst = path.join(absDstDir, path.basename(absSrc));
+    let absDst = path.join(absDstDir, path.basename(absSrc));
     if (absDst === absSrc) { return false; } // 同一位置 no-op
 
     if (/\.md$/i.test(path.basename(absSrc)) && fs.statSync(absSrc).isFile()) {
@@ -5332,18 +5668,26 @@ export async function folderViewMove(
     // `folderViewDuplicate` が既に使っている関数なので新規のコピー経路を書かない。
     // 同名衝突は拒否せず uniquify する（`move` の folderViewNameConflict 拒否は不変）。
     if (mode === 'copy') {
-        if (fs.statSync(absSrc).isDirectory()) {
-            // フォルダの再帰複製経路は既存に無い（`folderViewDuplicate` も dir を拒否している）。
-            // H ではフォルダを skip して集計に載せる（ADRL-0120 の受容事項）。
-            //
-            // 🔴 TASK-20 (QUAL-1): **通知してから返す**。同関数の他の失敗分岐（folderLinkBroken /
-            // folderViewMoveIntoSelf / notifyOperationFailed / folderViewOperationFailed /
-            // folderViewNameConflict）はすべて通知するのに、この分岐だけ黙っていた。
-            // `dispatchFvMove` は ids.length === 1 のとき batch を経由せず単数 bridge を直接呼ぶため
-            //（notes-folder-view.js:996）、**フォルダ 1 件だけの H では集計通知も出ず cmd+v が完全に無反応**になる。
-            // 文言は既存キーを再利用する（`folderViewMoveToTree` が同じ理由で使っている実例が :4226）。
-            deps.showErrorMessage(deps.t('folderViewNoFolderDrop') || 'Folders cannot be dropped here.');
-            return false;
+        // FR-FDP-06 / ADRL-0124（TASK-11）: **フォルダも複製する**。
+        // 旧実装はここで拒否通知を出して return していたが、webview 側が先に dir を捨てていたため
+        // **到達不能な dead branch** だった（CHANGELOG の記載と実挙動が矛盾していた）。
+        // 新エンジンに委譲し、同名は uniquify（`move` の拒否は不変）。
+        if (fs.lstatSync(absSrc).isDirectory()) {
+            const destName = generateUniqueFileNamePreserving(absDstDir, path.basename(absSrc));
+            const outcome = await copyFolderRecursive(absSrc, absDstDir, {
+                destName,
+                showHidden: readFolderViewShowHidden(root),
+            });
+            if (!outcome.ok || outcome.dstAbs === null) {
+                deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Copy failed.');
+                return false;
+            }
+            const srcParentRelDir = parentRelOf(srcRelPath);
+            sendFolderViewList(fileManager, folderLinkId, srcParentRelDir, sender);
+            if (dstDirRelPath !== srcParentRelDir) {
+                sendFolderViewList(fileManager, folderLinkId, dstDirRelPath, sender);
+            }
+            return true;
         }
         const copied = copyEntityWithUniquify(absSrc, absDstDir, path.basename(absSrc));
         if (!copied) {
@@ -5358,8 +5702,27 @@ export async function folderViewMove(
         return true;
     }
     if (fs.existsSync(absDst)) {
-        deps.showErrorMessage(deps.t('folderViewNameConflict') || 'An entry with the same name already exists.');
-        return false;
+        // FR-FLV-16 rev3 / FR-CFL-01（TASK-12）: 同名衝突は**方針に従う**。
+        // 方針が無い（未配線 / 従来経路）ときは従来どおり拒否 = 安全側（黙って上書きしない）。
+        if (policy === 'rename') {
+            let isDirSrc = false;
+            try { isDirSrc = fs.lstatSync(absSrc).isDirectory(); } catch { isDirSrc = false; }
+            const alt = generateUniqueFileNamePreserving(absDstDir, path.basename(absSrc), { treatAsDir: isDirSrc });
+            absDst = path.join(absDstDir, alt);
+        } else if (policy === 'overwrite') {
+            // FR-CFL-03 / INV-8: **trash 経由**で退避してから置き換える（恒久削除を新規に作らない）
+            let dirOverwrite = false;
+            try { dirOverwrite = fs.lstatSync(absDst).isDirectory(); } catch { dirOverwrite = false; }
+            try {
+                await deps.trashDelete(absDst, dirOverwrite);
+            } catch (e) {
+                notifyOperationFailed(deps, e);
+                return false;
+            }
+        } else {
+            deps.showErrorMessage(deps.t('folderViewNameConflict') || 'An entry with the same name already exists.');
+            return false;
+        }
     }
     try {
         deps.renameFs(absSrc, absDst);
@@ -5436,16 +5799,22 @@ export function checkFolderRegisterLimits(
     let files = 0;
     const walk = (abs: string, depth: number): 'ok' | 'too_many' | 'too_deep' => {
         if (depth > maxDepth) { return 'too_deep'; }
-        let names: string[] = [];
-        try { names = fs.readdirSync(abs).filter((n) => !n.startsWith('.')).sort(); } catch { return 'ok'; }
-        for (const n of names) {
-            const child = path.join(abs, n);
-            let s: fs.Stats;
-            try { s = fs.statSync(child); } catch { continue; }
-            if (s.isDirectory()) {
+        // 🔴 2026-09-16 訂正: **symlink 非追従**（`withFileTypes` + `isSymbolicLink()` skip）。
+        // 旧実装は `statSync`（追従）で降りていたため、祖先を指す symlink で無限再帰になり得た
+        // （深さ上限で有限停止はするが、意図しないツリーを取り込む）。既存 3 engine
+        // （walkFolderForImport / fv-residual-refs / readFolderEntriesAt）と dirent 意味論を揃える。
+        // 登録側（registerFolderIntoTreeAt）と**同じ規則**で数えないとプリフライトと実登録がズレる。
+        let dirents: fs.Dirent[] = [];
+        try { dirents = fs.readdirSync(abs, { withFileTypes: true }); } catch { return 'ok'; }
+        const visible = dirents
+            .filter((d) => !d.name.startsWith('.') && !d.isSymbolicLink())
+            .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+        for (const d of visible) {
+            const child = path.join(abs, d.name);
+            if (d.isDirectory()) {
                 const r = walk(child, depth + 1);
                 if (r !== 'ok') { return r; }
-            } else if (s.isFile()) {
+            } else if (d.isFile()) {
                 files++;
                 if (files > maxFiles) { return 'too_many'; }
             }
@@ -5477,7 +5846,7 @@ export function registerFolderIntoTree(
         console.warn('[Notes] registerFolderIntoTree aborted (%s): %s', verdict, dirAbs);
         return 0;
     }
-    return registerFolderIntoTreeAt(fileManager, dirAbs, parentId, index, 1, out);
+    return registerFolderIntoTreeAt(fileManager, dirAbs, parentId, index, 1, out, dirAbs);
 }
 
 /** 裁定 R37: 上限超過の理由チャネル（i18n key は Import folder と共用 = `importFolderTooMany`） */
@@ -5489,15 +5858,21 @@ function registerFolderIntoTreeAt(
     parentId: string | null,
     index: number,
     depth: number,
-    out?: FolderRegisterOutcome
+    out?: FolderRegisterOutcome,
+    /** 資産随伴の探索根（= 落としたフォルダ自身）。それより外は複製せずリンク原文を温存する。 */
+    srcRoot: string = dirAbs
 ): number {
     if (depth > FOLDER_IMPORT_MAX_DEPTH) {
         if (out) { out.limit = 'too_deep'; }
         console.warn('[Notes] registerFolderIntoTree depth cap:', dirAbs);
         return 0;
     }
-    let names: string[] = [];
-    try { names = fs.readdirSync(dirAbs).filter((n) => !n.startsWith('.')).sort(); } catch { return 0; }
+    // 🔴 2026-09-16 訂正: **symlink 非追従**（プリフライトと同一規則）。
+    let dirents: fs.Dirent[] = [];
+    try { dirents = fs.readdirSync(dirAbs, { withFileTypes: true }); } catch { return 0; }
+    const visibleDirents = dirents
+        .filter((d) => !d.name.startsWith('.') && !d.isSymbolicLink())
+        .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const st = fileManager.getStructure();
     const siblings = parentId && st.items[parentId] && (st.items[parentId] as any).type === 'folder'
         ? ((st.items[parentId] as any).childIds as string[]) : st.rootIds;
@@ -5509,20 +5884,30 @@ function registerFolderIntoTreeAt(
     if (!folderId) { return 0; }
     let made = 1;
     let cursor = 0;
-    for (const n of names) {
-        const abs = path.join(dirAbs, n);
-        let s: fs.Stats;
-        try { s = fs.statSync(abs); } catch { continue; }
-        if (s.isDirectory()) {
-            const sub = registerFolderIntoTreeAt(fileManager, abs, folderId, cursor, depth + 1, out);
+    for (const d of visibleDirents) {
+        const abs = path.join(dirAbs, d.name);
+        const n = d.name;
+        if (d.isDirectory()) {
+            const sub = registerFolderIntoTreeAt(fileManager, abs, folderId, cursor, depth + 1, out, srcRoot);
             if (sub > 0) { made += sub; cursor++; }
             continue;
         }
-        if (!s.isFile()) { continue; }
+        if (!d.isFile()) { continue; }
         try {
             if (/\.md$/i.test(n)) {
+                // 🔴 2026-09-16 訂正（FR-ACC-01 / FR-FDP-05 と同じ扱い）: **資産随伴を通す**。
+                // 旧実装は `registerMarkdownFile(content)` で本文をそのまま登録していたため、
+                // フォルダ内 md が参照する画像 / 📎 / subpage が複製されず note 側で解決できなかった
+                // （linkedfd 経由の A-2 は `transferMdWithAssets` を通しているのに外部経路だけ非対称だった）。
+                // 探索根は**落としたフォルダ自身**（`srcRoot`）= それより外は複製せずリンク原文を温存する。
                 const content = fs.readFileSync(abs, 'utf8');
-                fileManager.registerMarkdownFile(content, resolveSubpageTitle(content, n), folderId, cursor);
+                const title = extractFirstH1(content) || n.replace(/\.md$/i, '');
+                const r = transferMdWithAssets(
+                    abs,
+                    makeTransferCoords(mdCoords(abs), noteCoords(fileManager.getMainFolderPath())),
+                    undefined,
+                    { extraSourceRoots: [srcRoot] });
+                fileManager.registerExistingMdFile(path.basename(r.newName, '.md'), title, folderId, cursor);
             } else {
                 fileManager.registerTreeFile(n, n, folderId, cursor, fs.readFileSync(abs));
             }

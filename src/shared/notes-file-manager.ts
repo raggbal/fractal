@@ -1101,8 +1101,12 @@ export class NotesFileManager {
         const structure = this.getStructure();
         if (!structure.items[itemId]) return structure;
 
-        // 循環参照チェック: フォルダを自身の子孫に移動しない
-        if (targetParentId && this.isDescendant(structure, itemId, targetParentId)) {
+        // 循環参照チェック: 自分自身の中 / 自身の子孫に移動しない
+        // （`targetParentId === itemId` = 自己ネスト。これを欠くと親/rootIds から外れて
+        //  自分の childIds に入り、**root からも親からも辿れない**状態が saveStructure() で
+        //  永続化される = 不可逆データ消失。`moveItems` は同じ形のガードを既に持つ
+        //  — B-3 / NFR-FDP-03 / INV-1・TASK-01）
+        if (targetParentId && (targetParentId === itemId || this.isDescendant(structure, itemId, targetParentId))) {
             return structure;
         }
 

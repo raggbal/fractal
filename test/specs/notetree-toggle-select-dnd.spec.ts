@@ -212,13 +212,28 @@ test.describe('TC-MSEL-37 no-op と帯外', () => {
         expect(msgs.map((m) => m.type).filter((t) => t !== 'notifyError'), '空振り（何も呼ばない）になっていない').toEqual([]);
     });
 
-    test('複数選択でも上端 10% は従来の兄弟挿入（drag した 1 件の moveItem）', async ({ page }) => {
+    /**
+     * 🔄 **期待更新**（sprint 20260910-053026 / TASK-14 / B-4 = test_update）
+     *
+     * 旧期待: 「複数選択でも上端 10% は従来の兄弟挿入（drag した 1 件の moveItem）」。
+     * これは `test/specs/notetree-multiselect-move.spec.ts` の TC-TMV-06（同じ帯 0.1 で
+     * **`moveItems`**（全件）を期待）と**正面から矛盾**していた（どちらも known-red baseline に不在 =
+     * 未記録の RED）。
+     *
+     * 裁定: master の **FR-TMV-01** が「note ツリー内の移動（フォルダヘッダ中央 / **上下帯** /
+     * フォルダ子領域の線・末尾 / root の線・末尾 = 6 経路）も複数選択に対応」と**上下帯を明示的に含む**ため
+     * `moveItems`（全件）が正。旧期待が stale。実装は変更していない。
+     */
+    test('複数選択の上端 10% は moveItems（全件移動 — FR-TMV-01 が上下帯を含む）', async ({ page }) => {
         await setup(page);
         await clickItem(page, 'm1');
         await clickItem(page, 'f1', { meta: true });
         await page.evaluate(() => { (window as any).__testApi.notesMessages.length = 0; });
         const msgs = await dragTo(page, 'm1', 'o2', 0.1);
         expect(msgs.filter((m) => m.type === 'notesImportTreeItemsIntoOutItemBatch').length).toBe(0);
-        expect(msgs.filter((m) => m.type === 'moveItem').length).toBe(1);
+        // 単数移動ではなく複数移動（TC-TMV-06 と一致する期待）
+        expect(msgs.filter((m) => m.type === 'moveItem').length,
+            '単数移動が呼ばれた（FR-TMV-01 は上下帯も複数選択対応と規定）').toBe(0);
+        expect(msgs.filter((m) => m.type === 'moveItems').length).toBe(1);
     });
 });

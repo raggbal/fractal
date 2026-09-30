@@ -91,18 +91,33 @@ async function dragstartPayload(page: Page, grab: string) {
  * **本番が DataTransfer に載せた payload** を観測する形に張り替えた。
  */
 test.describe('FR-FMV-01/03 移動対象の解決（dragstart payload = 単一真実）', () => {
-    test('TC-FMV-04 フォルダは D&D 対象から除かれ、除外件数が分かる（FR-MSEL-05 rev2）', async ({ page }) => {
+    /**
+     * 🔄 **期待反転**（sprint 20260910-053026 / TASK-14 / ADRL-0122 = test_update）
+     *
+     * 旧期待: 「フォルダは D&D 対象から除かれ、除外件数が分かる」。
+     * 却下理由として「HTML DataTransfer にディレクトリを載せられない既存制約」が書かれていたが、
+     * これは **OS からファイルを投入する channel 限定の制約**で、`setData(customMime, JSON)` に
+     * 識別子を載せる本経路には掛からない（本番の単一フォルダ drag が反例）。
+     * ADRL-0122 で裁定が覆り、フォルダは識別子として payload に載る（FR-FDP-01）。
+     */
+    test('TC-FMV-04 フォルダも D&D payload に載る（ADRL-0122 で反転）', async ({ page }) => {
         await mountFv(page);
-        // 2 file + 1 folder を選択（フォルダは**選択集合には入る** = FR-MSEL-05 rev2）
+        // 2 file + 1 folder を選択（フォルダは選択集合に入る）
         await clickRow(page, 'f1.txt');
         await clickRow(page, 'f2.txt', { meta: true });
         await clickRow(page, 'docs', { meta: true });
         const p = await dragstartPayload(page, 'f1.txt');
         expect(p, 'dragstart payload が載っていない').toBeTruthy();
-        expect((p.items || []).map((it: any) => it.relPath),
-            'フォルダが D&D 移動対象に混入した（DataTransfer に dir を載せられない既存制約）')
-            .toEqual(['f1.txt', 'f2.txt']);
-        expect(p.excludedDirs, '除外したフォルダ件数が payload に載らない（受け手の集計通知に出せない）').toBe(1);
+        expect((p.items || []).map((it: any) => it.relPath).sort(),
+            'フォルダが payload から除かれた（ADRL-0122 に反する）')
+            .toEqual(['docs', 'f1.txt', 'f2.txt']);
+        // isDir は実値（面を越える経路では payload が唯一の情報源）
+        const byRel: Record<string, boolean> = {};
+        for (const it of (p.items || [])) { byRel[it.relPath] = it.isDir; }
+        expect(byRel['docs'], 'フォルダの isDir が実値でない').toBe(true);
+        expect(byRel['f1.txt']).toBe(false);
+        // 除外件数は「受け手が扱えない種別」用に残る（フォルダは通るので 0）
+        expect(p.excludedDirs).toBe(0);
     });
 
     test('TC-FMV-04b 掴んだ行が選択に含まれるなら選択集合・含まれないなら 1 件（FR-OMV-01 と同一意味論）', async ({ page }) => {

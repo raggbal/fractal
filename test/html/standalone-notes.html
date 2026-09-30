@@ -9939,11 +9939,12 @@ if (typeof window !== 'undefined') {
      * （選択順 index）で結合し、**結合 bridge を 1 回**呼ぶ材料にする。`seq` を持たない旧形式は
      * 配列順で末尾に補う（後方互換）。
      *
-     * @param {object[]} mdItems   tree-md payload の items（`{ id, filePath?, seq? }`）
-     * @param {object[]} fileItems tree-file payload の items（`{ id, seq? }`）
-     * @returns {{kind:'md'|'file', id:string, filePath:string|null}[]} seq 昇順（同値は md → file → 配列順）
+     * @param {object[]} mdItems     tree-md payload の items（`{ id, filePath?, seq? }`）
+     * @param {object[]} fileItems   tree-file payload の items（`{ id, seq? }`）
+     * @param {object[]} [folderItems] tree-folder payload の items（`{ id, seq? }`。FR-FDP-01 / TASK-03 で追加）
+     * @returns {{kind:'md'|'file'|'folder', id:string, filePath:string|null}[]} seq 昇順（同値は md → file → folder → 配列順）
      */
-    function mergeTreeItemsBySeq(mdItems, fileItems) {
+    function mergeTreeItemsBySeq(mdItems, fileItems, folderItems) {
         var buf = [];
         var push = function (list, kind) {
             for (var i = 0; i < (list || []).length; i++) {
@@ -9958,6 +9959,7 @@ if (typeof window !== 'undefined') {
         };
         push(mdItems, 'md');
         push(fileItems, 'file');
+        push(folderItems, 'folder');   // FR-FDP-01（TASK-03）: 3 種目。未指定なら push が空扱いで従来と同一
         buf.sort(function (a, b) { return a.seq !== b.seq ? a.seq - b.seq : a.ord - b.ord; });
         var out = [];
         for (var j = 0; j < buf.length; j++) { out.push({ kind: buf[j].kind, id: buf[j].id, filePath: buf[j].filePath }); }
@@ -29787,7 +29789,12 @@ class EditorInstance {
             logger.log('insertFileLink received, sidePanelFilePath:', message.sidePanelFilePath, 'markdownPath:', message.markdownPath);
             // FR (cross-instance): insertImageHtml と同じ宛先判定。sidepanel 宛は自分に挿入せず、
             // 自分が該当 sidepanel を管理していれば中継（standalone editor の file 添付 sidepanel 中継はここが担う）。
-            if (message.sidePanelFilePath) {
+            // B-1 / DOM-MdLinkInsertParity（TASK-07）: **自分宛てかを自分で判定する**。
+            // precedent は同ファイルの removeSubpageLink（`rmOwnFp === message.sourceMdPath`）。
+            // 呼び出し側がパスを埋めても（旧 host の埋め合わせ / 他経路）自分のパスと一致するなら
+            // 「自分宛て」として挿入に進む。これが無いと relay-or-nothing で **リンク 0 本**になる。
+            var ifOwnFp = (host && host.filePath) || (self.options && self.options.filePath) || '';
+            if (message.sidePanelFilePath && message.sidePanelFilePath !== ifOwnFp) {
                 if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
                     sidePanelHostBridge._sendMessage({
                         type: 'insertFileLink',
@@ -29795,7 +29802,7 @@ class EditorInstance {
                         fileName: message.fileName
                     });
                 }
-                return; // sidepanel 宛は自分の editor に挿入しない
+                return; // 他 instance（sidepanel）宛は自分の editor に挿入しない
             }
             // Insert file link at cursor position
             const link = document.createElement('a');
@@ -29820,17 +29827,40 @@ class EditorInstance {
                 sel.getRangeAt(0).startContainer === editor
             ));
             if (sel && sel.rangeCount && fileLinkSelInEditor) {
+                // B-2 / FR-MSEL-04 / INV-3（TASK-09）: **段落に包んでから挿入する**。
+                // 旧実装は link を裸で insertNode し caret をリンク直後へ畳んでいたため、
+                // N 件を連続して挿入すると **改行なしで 1 行に連結**された（入力 N → 出力 1 行）。
+                // 姉妹 2 関数（insertImageHtml / insertSubpageLink）は fallback で `<p>` wrap しており、
+                // その形に揃える（挿入経路でも段落を作って caret を次の段落先頭へ置く）。
                 const range = sel.getRangeAt(0);
                 range.deleteContents();
-                range.insertNode(link);
+                const flP = document.createElement('p');
+                flP.appendChild(link);
+                // 🔴 段落の**兄弟**として置く（`range.insertNode` だけだと既存の空段落の
+                //    **中に入れ子**になり `<p><p>…</p></p>` という不正な DOM ができる — 実測）。
+                //    caret のブロック祖先を探し、空ならそれを置換 / 中身があればその直後に挿入する。
+                var flBlock = range.startContainer;
+                while (flBlock && flBlock !== editor && !(flBlock.nodeType === 1 && /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|PRE)$/.test(flBlock.nodeName))) {
+                    flBlock = flBlock.parentNode;
+                }
+                if (flBlock && flBlock !== editor && flBlock.parentNode) {
+                    var flEmpty = !flBlock.textContent.trim() && !flBlock.querySelector('img, a');
+                    if (flEmpty) { flBlock.parentNode.replaceChild(flP, flBlock); }
+                    else { flBlock.parentNode.insertBefore(flP, flBlock.nextSibling); }
+                } else {
+                    editor.appendChild(flP);
+                }
 
-                // Move cursor after link
-                range.setStartAfter(link);
+                // caret は挿入した段落の**後ろ**へ（次の挿入が同じ行に入らない）
+                range.setStartAfter(flP);
                 range.collapse(true);
                 sel.removeAllRanges();
                 sel.addRange(range);
             } else {
-                editor.appendChild(link);
+                // B-2（TASK-09）: 裸 append をやめ姉妹 2 関数と同じ段落 wrap にする
+                const flTailP = document.createElement('p');
+                flTailP.appendChild(link);
+                editor.appendChild(flTailP);
             }
             syncMarkdown();
             logger.log('File link element inserted');
@@ -29885,7 +29915,9 @@ class EditorInstance {
             // {markdownPath, title} を返す。insertFileLink と同じ挿入防御 + subpage dataset
             //（serialize が [[title]](path) に書き戻す = pageCreatedAtPath と同じ属性セット）。
             // 宛先判定も insertFileLink と同一（sidepanel 宛は中継のみ・自分に挿入しない）。
-            if (message.sidePanelFilePath) {
+            // B-1（TASK-07）: insertFileLink と同じ自己判定（4 セルの全数 = 2 メッセージ × main/sidepanel）
+            var spOwnFp = (host && host.filePath) || (self.options && self.options.filePath) || '';
+            if (message.sidePanelFilePath && message.sidePanelFilePath !== spOwnFp) {
                 if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
                     sidePanelHostBridge._sendMessage({
                         type: 'insertSubpageLink',
@@ -49564,18 +49596,15 @@ var notesFilePanel = (function() {
             if (!it) { continue; }
             var lid = it.folderLinkId || linkId;
             if (!lid || it.relPath === undefined) { continue; }
-            if (it.isDir) { dirCount++; continue; }
+            // FR-FDP-05 / ADRL-0122（TASK-10）: **フォルダも通す**（旧実装は isDir を dirCount に
+            // 振り替えて捨てていた = ユーザー観測 2 件目「linkedfd → note ツリーに複数フォルダを落とせない」の
+            // webview 側の実体）。host は `registerFolderTreeFromFs` で走査 + 台帳登録を行う。
             files.push({ folderLinkId: lid, relPath: it.relPath });
         }
-        // FR-MSEL-05: フォルダは転送対象外。除外件数は 1 回だけ通知する（アイテム毎に出さない）
+        // 受け手が扱えない種別が payload に載っていた場合の除外通知（フォルダは通るので通常 0 件）
         if (dirCount > 0 && typeof bridge.notifyError === 'function') {
-            // 複数件は専用キー（{count} プレース）— 1 件は既存キーのまま（文言の後方互換）
-            if (dirCount > 1) {
-                var tpl = i18n.batchDndFoldersSkipped || '{count} folders skipped (use "Send to Outliner")';
-                bridge.notifyError(String(tpl).replace('{count}', String(dirCount)));
-            } else {
-                bridge.notifyError(i18n.folderViewNoFolderDrop || 'Folders cannot be dropped here.');
-            }
+            var tpl = i18n.folderTransferExcluded || '{count} item(s) were excluded.';
+            bridge.notifyError(String(tpl).replace('{count}', String(dirCount)));
         }
         if (files.length === 0) { return; }
         // 🔴 NFR-MSEL-02 (§4-3b / TASK-29): **複数は配列 bridge を 1 回**呼ぶ。
@@ -49822,7 +49851,7 @@ var notesFilePanel = (function() {
             if (ext === 'md') { res.md.push({ id: id, filePath: el2.dataset.filePath || null, seq: i }); }
             else if (ext === 'file') { res.file.push({ id: id, seq: i }); }
             else if (ext === 'out') { res.out.push({ id: id, seq: i }); }   // ★ payload には載せない（R3）
-            else if (ext === 'folder') { res.folder.push({ id: id }); }
+            else if (ext === 'folder') { res.folder.push({ id: id, seq: i }); }   // FR-FDP-01 / DOM-SelectionSeqParity（TASK-03）: 他 3 種と対称に seq を持つ
         }
         return res;
     }
@@ -49835,7 +49864,8 @@ var notesFilePanel = (function() {
      */
     function treeSelectionTransferItems() {
         var byExt = treeSelectionByExt();
-        return window.__batchPayload.mergeTreeItemsBySeq(byExt.md, byExt.file);
+        // FR-FDP-01（TASK-03）: folder を第 3 の種別として結合する（選択順は seq で復元）
+        return window.__batchPayload.mergeTreeItemsBySeq(byExt.md, byExt.file, byExt.folder);
     }
 
     /** 複数選択 drag 中か（drag した行が選択集合に含まれ、集合が 2 件以上）。 */
@@ -61066,6 +61096,7 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         var msg = event.data;
         if (!msg || !container || !currentLinkId || msg.folderLinkId !== currentLinkId) { return; }
         if (msg.type === 'folderViewListResult') {
+            fvEndTransfer();   // INV-11: 転送完了（host の一覧再送）でフラグを解除する
             if (msg.error) {
                 var errRel = msg.relPath || '';
                 if (errRel === '') {
@@ -61205,13 +61236,16 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             var inSelection = selection.indexOf(entry.relPath) >= 0;
             var multi = inSelection && selection.length > 1;
             var files = multi ? selectedFilesForDnd() : [];
+            // dirCount は「選択に含まれるフォルダ数」。**除外件数ではない**（フォルダは payload に載る）。
+            // 集計通知の内訳（フォルダ N 個）に使えるよう算出だけ残す。
             var dirCount = multi ? selectedDirCount() : 0;
+            void dirCount;
 
-            // FR-MSEL-05: 複数選択がフォルダだけ → 運ぶものが無いので
-            // **無反応にしない**（preventDefault + 通知 1 回）
+            // FR-FDP-01（TASK-03）: フォルダも payload に載るので「フォルダだけ = 運ぶものが無い」は成立しない。
+            // 旧実装はここで `preventDefault()` + 通知して **drag 自体を始めさせなかった**（US-001 の症状）。
+            // 選択が空（= 何も選ばれていない）ときだけ従来どおり不発にする。
             if (multi && files.length === 0) {
                 e.preventDefault();
-                notifyFolderOnlyDrag(dirCount);
                 return;
             }
             try {
@@ -61220,10 +61254,15 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                         v: 1,
                         folderLinkId: currentLinkId,
                         items: files.map(function (rel) {
-                            return { folderLinkId: currentLinkId, relPath: rel, isDir: false };
+                            // FR-FDP-01: `isDir` は**実値**（旧実装は false のリテラル固定で、
+                            // 面を越える A-2 / A-3 では payload が唯一の情報源なので致命的だった）
+                            var ent = findEntry(rel);
+                            return { folderLinkId: currentLinkId, relPath: rel, isDir: !!(ent && ent.isDir) };
                         }),
-                        // FR-MSEL-05: 除外したフォルダ件数を受け手の集計通知に載せる
-                        excludedDirs: dirCount,
+                        // 受け手が扱えない種別の除外件数。**フォルダはもう除外しないので 0**
+                        // （key は後方互換のため残す。ここに dir 件数を入れると受け手が
+                        //  偽の「N 件除外」通知を出す = TASK-14 で実測して修正）
+                        excludedDirs: 0,
                     }
                     // 単一 = 従来形式（既存の受け手 TC を 1 本も壊さない = §4-1 後方互換）
                     : { folderLinkId: currentLinkId, relPath: entry.relPath, isDir: !!entry.isDir };
@@ -61662,10 +61701,15 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
 
     /** D&D payload に載せる選択（FR-MSEL-05: フォルダは集合に入るが payload からは除く）。 */
     function selectedFilesForDnd() {
+        // FR-FDP-01 / ADRL-0122（TASK-03）: **フォルダを除外しない**。
+        // 旧実装は dir を落としていた。理由として「HTML DataTransfer にディレクトリを載せられない」が
+        // 記録されていたが、それは **OS からファイルを投入する channel 限定の制約**で、
+        // `setData(customMime, JSON)` に識別子を載せる本経路には掛からない（本番の単一フォルダ drag が反例）。
+        // 運ぶのは実体ではなく識別子で、実体の複製・移動は host の Node fs が担う。
         var out = [];
         for (var i = 0; i < selection.length; i++) {
             var e = findEntry(selection[i]);
-            if (e && !e.isDir) { out.push(selection[i]); }
+            if (e) { out.push(selection[i]); }
         }
         return out;
     }
@@ -61759,10 +61803,40 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
      *    最後まで `'copy'` のまま host に届くこと（リテラルを書くと copy が move に化けて source が消える）。
      * 🔴 `fvMovePreflight` は**ここでは呼ばない**（NFR-REL-1）。呼び出し元 = W1 の drop ハンドラだけ。
      */
+    /**
+     * INV-11 / DOM-InProgressGate（TASK-12）: **面単位の進行中フラグ**。
+     * 非同期化（チャンク譲渡）により複製中に別の drop / 貼り付けが始まりうる。
+     * 同一宛先への同時複製は連番採番が存在チェックのみを見るため衝突しうるので、
+     * 進行中はその面の drop / 貼り付けを受け付けない（粒度は**面単位** = DOM-InProgressScope。
+     * 宛先単位にしないのは、同一面で並行操作が走っているとユーザーが把握できないため）。
+     */
+    var fvTransferInProgress = false;
+    function fvBeginTransfer() {
+        if (fvTransferInProgress) { return false; }
+        fvTransferInProgress = true;
+        return true;
+    }
+    function fvEndTransfer() { fvTransferInProgress = false; }
+
     function dispatchFvMove(ids, dstDirRel, mode) {
         var b = bridge();
         var m = mode || 'move';
         if (!ids || ids.length === 0) { return; }
+        // INV-11: 進行中は受け付けない（完了は host からの一覧再送で解除する）
+        if (!fvBeginTransfer()) { return; }
+        // FR-FDP-09 / NFR-FDP-06（TASK-08）: **フォルダを含むなら 1 件でも batch 経路**に通す。
+        // 単数 bridge を直呼びすると件数ゲート（2 段化した実件数判定）と集計通知の両方を迂回し、
+        // フォルダ 1 個を落としたときに「何がどこへ動いたか」の手がかりが残らない（undo が無い面）。
+        // ファイルのみ 1 件は従来どおり単数 bridge（既存 UX・既存 spec の引数完全一致 assert を守る）。
+        var hasDirInIds = false;
+        for (var di = 0; di < ids.length; di++) {
+            var de = findEntry(ids[di]);
+            if (de && de.isDir) { hasDirInIds = true; break; }
+        }
+        if (ids.length === 1 && hasDirInIds && typeof b.folderViewMoveBatch === 'function') {
+            b.folderViewMoveBatch(currentLinkId, ids, dstDirRel, m);
+            return;
+        }
         if (ids.length === 1) {
             if (typeof b.folderViewMove !== 'function') { return; }
             // 🔴 `mode === 'move'`（= D&D）のときは **第 4 引数を渡さない**。
@@ -62145,14 +62219,18 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             var fmeta = null;
             try { fmeta = JSON.parse(decodeURIComponent(fm[1])); } catch (err) { fmeta = null; }
             if (fmeta && fmeta.folderLinkId === currentLinkId && Array.isArray(fmeta.relPaths)) {
-                // ADRL-0120 の受容事項: **フォルダは skip**（fs の再帰複製経路が既存に無い。
-                // folderViewDuplicate も dir を拒否しているのでその方針に揃える）。
+                // FR-FDP-06 / ADRL-0124（TASK-11）: **フォルダも複製する**。
+                // ADRL-0120 の受容事項「フォルダの再帰複製経路が既存に無い」は
+                // 新エンジン（`folder-copy-engine.ts`）ができたので解除された。
+                // 旧実装は dir を filter して `files.length === 0` で無通知 return しており、
+                // host 側に足された拒否通知は**到達不能な dead branch** だった
+                // （= フォルダ 1 件の Cmd+V が完全に無反応 = ユーザー観測の派生 1 件）。
                 var files = [];
                 for (var i = 0; i < fmeta.relPaths.length; i++) {
                     var en = findEntry(fmeta.relPaths[i]);
-                    if (en && !en.isDir) { files.push(fmeta.relPaths[i]); }
+                    if (en) { files.push(fmeta.relPaths[i]); }
                 }
-                if (files.length === 0) { return; }   // 複製できるものが無い = 何もしない
+                if (files.length === 0) { return; }   // 貼る対象が 1 つも無い（= clipboard が空）
                 e.preventDefault();
                 // 🔴 fvMovePreflight は**通さない**（NFR-REL-1）。H は「同じ階層への複製」が正常系で、
                 //    D&D 用の全体拒否ガード（既に同じ親 → reject）を掛けると原理的に動かなくなる。

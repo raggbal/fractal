@@ -78,11 +78,17 @@ test('TC-ACC-30 folderViewDuplicate: md = 同 dir 随伴複製（subpage 再帰�
     expect(await mod.folderViewDuplicate(m, id, 'files/a.pdf', deps as any, sender as any)).toBe(true);
     expect(fs.existsSync(path.join(root, 'files', 'a-2.pdf')), 'file 単体複製（a-1 は md 随伴で消費済み → a-2）').toBe(true);
 
-    // dir → 非対応通知 / traversal → 拒否（副作用ゼロ）
-    fs.mkdirSync(path.join(root, 'adir'), { recursive: true });
+    // 🔄 **期待反転**（sprint 20260910-053026 / TASK-14 / FR-FLV-15 rev2 / ADRL-0124 = test_update）:
+    // 旧期待は「dir → 非対応通知」だったが、フォルダ複製エンジンの新設により
+    // **Duplicate は dir も対象**になった（3 択は出さず連番固定 = FR-CFL-02 の例外）。
+    fs.mkdirSync(path.join(root, 'adir', 'inner'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'adir', 'inner', 'x.txt'), 'X');
     const errCount = errors.length;
-    expect(await mod.folderViewDuplicate(m, id, 'adir', deps as any, sender as any)).toBe(false);
-    expect(errors.length).toBe(errCount + 1);
+    expect(await mod.folderViewDuplicate(m, id, 'adir', deps as any, sender as any)).toBe(true);
+    expect(errors.length, 'フォルダ Duplicate で通知が出た（連番固定なので通知不要）').toBe(errCount);
+    expect(fs.readFileSync(path.join(root, 'adir-1', 'inner', 'x.txt'), 'utf8'),
+        'フォルダが中身ごと連番で複製されていない').toBe('X');
+    // traversal → 拒否（副作用ゼロ）
     // traversal は clamp 拒否 + 副作用ゼロ（実在する root 外 md でも複製が湧かない — reviewer iter2 SEC-TEST-2）
     const outsideMd = path.join(path.dirname(root), 'outside.md');
     fs.writeFileSync(outsideMd, '# Out\n', 'utf8');

@@ -5,6 +5,27 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.16] - 2026-09-24
+
+### Added
+- **Folders can now be dragged and dropped** — you can select several folders in a linked folder and move them in one drag (previously the drag would not even start), and you can drag folders from a linked folder into the note tree, where the folder structure is recreated and the files are copied. Markdown files inside a dropped folder bring their images and attachments with them, so the links still resolve on the note side
+- **Folders can be copied with the clipboard** — `Cmd/Ctrl+C` then `Cmd/Ctrl+V` inside a linked folder now duplicates a folder with everything in it. Pasting onto a folder row puts the copy inside that folder. Previously this did nothing at all
+- **Duplicate works on folders** — the right-click **Duplicate** on a folder now copies it with its contents, numbered (`assets` → `assets-1`)
+- **A choice when a name already exists** — moving or copying onto something with the same name now offers **Cancel / Overwrite / Keep Both**, with **Overwrite All** and **Keep Both for All** when several items clash. Cancel stops the whole drop, so you no longer end up with half the items moved and no way back. Overwrite moves the old entry to the trash rather than deleting it outright
+- **A summary of what moved** — operations involving folders report how many folders and files were handled, in one notification rather than one per item
+
+### Fixed
+- **Dragging a folder onto itself no longer destroys it** — the folder and everything under it used to disappear from the tree, permanently, with no way to undo it
+- **Dragging two or more markdown files into a markdown document now inserts the links** — previously the items vanished from the note tree and not a single link appeared
+- **Several attachment links now land on separate lines** — they used to be concatenated into one line
+- **One notification instead of one per item** — moving several items into a linked folder or the note tree no longer produces a burst of toasts
+- **Folders are no longer silently dropped** when a selection mixes folders and files
+- **Dropping a folder from Finder or the Explorer** no longer follows symbolic links out of the folder you dropped, and markdown files inside it keep their images and attachments working
+
+### Changed
+- The item count limit for a move or copy is now measured by the **actual number of files inside the folders**, so a single folder holding thousands of files is no longer treated as one item
+- Large folder operations no longer freeze the window — the copy yields control back while it runs
+
 ## [1.3.15] - 2026-09-07
 
 ### Added

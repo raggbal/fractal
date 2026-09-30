@@ -19041,7 +19041,12 @@ class EditorInstance {
             logger.log('insertFileLink received, sidePanelFilePath:', message.sidePanelFilePath, 'markdownPath:', message.markdownPath);
             // FR (cross-instance): insertImageHtml と同じ宛先判定。sidepanel 宛は自分に挿入せず、
             // 自分が該当 sidepanel を管理していれば中継（standalone editor の file 添付 sidepanel 中継はここが担う）。
-            if (message.sidePanelFilePath) {
+            // B-1 / DOM-MdLinkInsertParity（TASK-07）: **自分宛てかを自分で判定する**。
+            // precedent は同ファイルの removeSubpageLink（`rmOwnFp === message.sourceMdPath`）。
+            // 呼び出し側がパスを埋めても（旧 host の埋め合わせ / 他経路）自分のパスと一致するなら
+            // 「自分宛て」として挿入に進む。これが無いと relay-or-nothing で **リンク 0 本**になる。
+            var ifOwnFp = (host && host.filePath) || (self.options && self.options.filePath) || '';
+            if (message.sidePanelFilePath && message.sidePanelFilePath !== ifOwnFp) {
                 if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
                     sidePanelHostBridge._sendMessage({
                         type: 'insertFileLink',
@@ -19049,7 +19054,7 @@ class EditorInstance {
                         fileName: message.fileName
                     });
                 }
-                return; // sidepanel 宛は自分の editor に挿入しない
+                return; // 他 instance（sidepanel）宛は自分の editor に挿入しない
             }
             // Insert file link at cursor position
             const link = document.createElement('a');
@@ -19074,17 +19079,40 @@ class EditorInstance {
                 sel.getRangeAt(0).startContainer === editor
             ));
             if (sel && sel.rangeCount && fileLinkSelInEditor) {
+                // B-2 / FR-MSEL-04 / INV-3（TASK-09）: **段落に包んでから挿入する**。
+                // 旧実装は link を裸で insertNode し caret をリンク直後へ畳んでいたため、
+                // N 件を連続して挿入すると **改行なしで 1 行に連結**された（入力 N → 出力 1 行）。
+                // 姉妹 2 関数（insertImageHtml / insertSubpageLink）は fallback で `<p>` wrap しており、
+                // その形に揃える（挿入経路でも段落を作って caret を次の段落先頭へ置く）。
                 const range = sel.getRangeAt(0);
                 range.deleteContents();
-                range.insertNode(link);
+                const flP = document.createElement('p');
+                flP.appendChild(link);
+                // 🔴 段落の**兄弟**として置く（`range.insertNode` だけだと既存の空段落の
+                //    **中に入れ子**になり `<p><p>…</p></p>` という不正な DOM ができる — 実測）。
+                //    caret のブロック祖先を探し、空ならそれを置換 / 中身があればその直後に挿入する。
+                var flBlock = range.startContainer;
+                while (flBlock && flBlock !== editor && !(flBlock.nodeType === 1 && /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|PRE)$/.test(flBlock.nodeName))) {
+                    flBlock = flBlock.parentNode;
+                }
+                if (flBlock && flBlock !== editor && flBlock.parentNode) {
+                    var flEmpty = !flBlock.textContent.trim() && !flBlock.querySelector('img, a');
+                    if (flEmpty) { flBlock.parentNode.replaceChild(flP, flBlock); }
+                    else { flBlock.parentNode.insertBefore(flP, flBlock.nextSibling); }
+                } else {
+                    editor.appendChild(flP);
+                }
 
-                // Move cursor after link
-                range.setStartAfter(link);
+                // caret は挿入した段落の**後ろ**へ（次の挿入が同じ行に入らない）
+                range.setStartAfter(flP);
                 range.collapse(true);
                 sel.removeAllRanges();
                 sel.addRange(range);
             } else {
-                editor.appendChild(link);
+                // B-2（TASK-09）: 裸 append をやめ姉妹 2 関数と同じ段落 wrap にする
+                const flTailP = document.createElement('p');
+                flTailP.appendChild(link);
+                editor.appendChild(flTailP);
             }
             syncMarkdown();
             logger.log('File link element inserted');
@@ -19139,7 +19167,9 @@ class EditorInstance {
             // {markdownPath, title} を返す。insertFileLink と同じ挿入防御 + subpage dataset
             //（serialize が [[title]](path) に書き戻す = pageCreatedAtPath と同じ属性セット）。
             // 宛先判定も insertFileLink と同一（sidepanel 宛は中継のみ・自分に挿入しない）。
-            if (message.sidePanelFilePath) {
+            // B-1（TASK-07）: insertFileLink と同じ自己判定（4 セルの全数 = 2 メッセージ × main/sidepanel）
+            var spOwnFp = (host && host.filePath) || (self.options && self.options.filePath) || '';
+            if (message.sidePanelFilePath && message.sidePanelFilePath !== spOwnFp) {
                 if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
                     sidePanelHostBridge._sendMessage({
                         type: 'insertSubpageLink',

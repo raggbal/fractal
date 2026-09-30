@@ -1409,18 +1409,15 @@ var notesFilePanel = (function() {
             if (!it) { continue; }
             var lid = it.folderLinkId || linkId;
             if (!lid || it.relPath === undefined) { continue; }
-            if (it.isDir) { dirCount++; continue; }
+            // FR-FDP-05 / ADRL-0122（TASK-10）: **フォルダも通す**（旧実装は isDir を dirCount に
+            // 振り替えて捨てていた = ユーザー観測 2 件目「linkedfd → note ツリーに複数フォルダを落とせない」の
+            // webview 側の実体）。host は `registerFolderTreeFromFs` で走査 + 台帳登録を行う。
             files.push({ folderLinkId: lid, relPath: it.relPath });
         }
-        // FR-MSEL-05: フォルダは転送対象外。除外件数は 1 回だけ通知する（アイテム毎に出さない）
+        // 受け手が扱えない種別が payload に載っていた場合の除外通知（フォルダは通るので通常 0 件）
         if (dirCount > 0 && typeof bridge.notifyError === 'function') {
-            // 複数件は専用キー（{count} プレース）— 1 件は既存キーのまま（文言の後方互換）
-            if (dirCount > 1) {
-                var tpl = i18n.batchDndFoldersSkipped || '{count} folders skipped (use "Send to Outliner")';
-                bridge.notifyError(String(tpl).replace('{count}', String(dirCount)));
-            } else {
-                bridge.notifyError(i18n.folderViewNoFolderDrop || 'Folders cannot be dropped here.');
-            }
+            var tpl = i18n.folderTransferExcluded || '{count} item(s) were excluded.';
+            bridge.notifyError(String(tpl).replace('{count}', String(dirCount)));
         }
         if (files.length === 0) { return; }
         // 🔴 NFR-MSEL-02 (§4-3b / TASK-29): **複数は配列 bridge を 1 回**呼ぶ。
@@ -1667,7 +1664,7 @@ var notesFilePanel = (function() {
             if (ext === 'md') { res.md.push({ id: id, filePath: el2.dataset.filePath || null, seq: i }); }
             else if (ext === 'file') { res.file.push({ id: id, seq: i }); }
             else if (ext === 'out') { res.out.push({ id: id, seq: i }); }   // ★ payload には載せない（R3）
-            else if (ext === 'folder') { res.folder.push({ id: id }); }
+            else if (ext === 'folder') { res.folder.push({ id: id, seq: i }); }   // FR-FDP-01 / DOM-SelectionSeqParity（TASK-03）: 他 3 種と対称に seq を持つ
         }
         return res;
     }
@@ -1680,7 +1677,8 @@ var notesFilePanel = (function() {
      */
     function treeSelectionTransferItems() {
         var byExt = treeSelectionByExt();
-        return window.__batchPayload.mergeTreeItemsBySeq(byExt.md, byExt.file);
+        // FR-FDP-01（TASK-03）: folder を第 3 の種別として結合する（選択順は seq で復元）
+        return window.__batchPayload.mergeTreeItemsBySeq(byExt.md, byExt.file, byExt.folder);
     }
 
     /** 複数選択 drag 中か（drag した行が選択集合に含まれ、集合が 2 件以上）。 */

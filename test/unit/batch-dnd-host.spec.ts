@@ -645,7 +645,11 @@ test.describe('TC-MSEL-32 種別混在の結合 batch は合計で 1 回ゲー�
             expect(at, `${h.name} が provider に無い`).toBeGreaterThan(-1);
             const win = src.slice(at, at + 1200);
             expect((win.match(/runPlatformBatch\(/g) || []).length, `${h.name} が runPlatformBatch を 1 回でない（分割呼び = ゲートが割れる）`).toBe(1);
-            expect(win.includes("kind === 'md'"), `${h.name} が kind で分岐していない`).toBe(true);
+            // 🔄 期待更新（sprint 20260910-053026 / TASK-14 / ADRL-0125 = test_update・ユーザー裁定 2026-09-15）:
+            // 三項式 `it.kind === 'md' ? … : …` から **網羅 switch**（`case 'md':` + `default: assertNeverKind`）へ
+            // 変えた（新しい kind の分岐漏れをコンパイル時に落とすため）。
+            // 番人の意図は「kind で分岐していること」なので、両方の書き方を許容する。
+            expect(/kind === 'md'|case 'md':/.test(win), `${h.name} が kind で分岐していない`).toBe(true);
             for (const c of h.callees) { expect(win.includes(c), `${h.name} が ${c} を呼んでいない`).toBe(true); }
             // 委譲先の返り値を捨てていない（TASK-38 契約）: 三項式 / return / => の直後に呼ぶ
             expect(/(\?\s*(await\s+)?|:\s*(await\s+)?|=>\s*(await\s+)?|return\s+(await\s+)?)(platform\.notesImportMdIntoOut|platform\.notesImportTreeFileAtPosition|linkMdAsSubpageForSidePanelCore|treeFileAttachToMdEditor)(\?\.)?\(/.test(win),
