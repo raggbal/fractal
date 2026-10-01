@@ -498,13 +498,13 @@ test.describe('FR-CBD-07 H の受け手（linkedfd 内 c→v = 複製）', () =>
         expect(mv[0].args[3], "batch にも 'copy' が forward されていない（SYS-1）").toBe('copy');
     });
 
-    test('TC-CBD-43 H でフォルダは skip される（ADRL-0120 の受容事項）', async ({ page }) => {
+    test('TC-CBD-43 H はフォルダも複製対象に含める（ADRL-0124 — 旧「フォルダは skip」は v1.3.16 で撤回）', async ({ page }) => {
         await mountFv(page);
         await clickRow(page, 'a.md');
         await clickRow(page, 'docs', { meta: true });     // フォルダを混ぜる
         await page.keyboard.press(`${MOD}+c`);
         await page.waitForTimeout(250);
-        // clipboard には docs も載る（FR-CBD-01）が、H の複製対象からは除かれる
+        // clipboard にはフォルダも載り（FR-CBD-01）、H の複製対象にもそのまま含まれる（FR-CBD-07 rev2）
         expect((await fvClipMeta(page)).relPaths, '前提: clipboard にはフォルダも載る').toEqual(['docs', 'a.md']);
         await clickRow(page, 'c.txt');
         await page.evaluate(() => { (window as any).__calls.length = 0; });
@@ -512,7 +512,7 @@ test.describe('FR-CBD-07 H の受け手（linkedfd 内 c→v = 複製）', () =>
         const mv = await calledMove(page);
         expect(mv.length).toBe(1);
         const rels = mv[0].type === 'folderViewMoveBatch' ? mv[0].args[1] : [mv[0].args[1]];
-        expect(rels, 'フォルダが複製対象に混入した（fs の再帰複製経路は既存に無い）').toEqual(['a.md']);
+        expect([...rels].sort(), 'フォルダが複製対象から落ちた（v1.3.16 以降はフォルダも複製する）').toEqual(['a.md', 'docs']);
     });
 });
 
