@@ -5395,7 +5395,7 @@ export async function folderViewDuplicate(
  * 自動で乗る（NFR-FMV-01 / NFR-FMV-02）。webview から N 回呼ぶのは SEC-1 として禁止済み。
  *
  * 🔴 **per-item 通知を抑止する**（NFR-FMV-02）: 委譲先 `folderViewMove` は内部に
- *    `showErrorMessage` 系を 5 経路持ち（特に `folderViewNameConflict`）、そのまま N 件回すと
+ *    `showErrorMessage` 系を 5 経路持ち（root 解決失敗 / 自己子孫 / 複製失敗 ×2 / EXDEV）、そのまま N 件回すと
  *    トースト洪水になる。`showErrorMessage` を no-op に差し替えた deps を渡し、
  *    理由は戻り値側で集計して `runBatchTransfer` の集計通知 1 回に委ねる。
  * 🔴 **`sendFolderViewList` を uniq して 1 回ずつ**送る: `folderViewMove` は src 親と dst の両方へ

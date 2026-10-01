@@ -97,6 +97,8 @@ test.describe('同一位置 copy は連番複製（FR-CBD-07 rev3 / ADRL-0133）
             expect(ok, '同一位置 copy が no-op で終わった').toBe(true);
             expect(t.r('docs/img-1.png')).toBe('P');
             expect(t.r('docs/img.png')).toBe('P');
+            // 一覧が再送される（webview の表示更新 + 進行中フラグ解除の既存契機）
+            expect(t.calls.lists, `docs の一覧が再送されていない: ${JSON.stringify(t.calls.lists)}`).toContain('docs');
         } finally { t.cleanup(); }
     });
 
