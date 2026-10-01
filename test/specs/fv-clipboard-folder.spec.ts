@@ -207,17 +207,12 @@ test.describe('TASK-11 host 側の実 fs 検証', () => {
             expect(t.errors).toEqual([]);
         } finally { t.cleanup(); }
     });
-    test('TC-DUP-2: Duplicate は 3 択を出さず連番固定（FR-CFL-02 の例外）', async () => {
+    test('TC-DUP-2: Duplicate は連番固定（ADRL-0132）', async () => {
         const t = hostSetup();
         try {
-            const prompts: any[] = [];
-            const depsWithPrompt = Object.assign({}, t.deps, {
-                promptConflict: (name: string, count: number) => { prompts.push({ name, count }); return 'abort'; },
-            });
-            // 1 回目 → tmpl-1 / 2 回目 → tmpl-2（毎回衝突するが 3 択は出さない）
-            await t.mod.folderViewDuplicate(t.fm, t.linkId, 'tmpl', depsWithPrompt as any, t.sender);
-            await t.mod.folderViewDuplicate(t.fm, t.linkId, 'tmpl', depsWithPrompt as any, t.sender);
-            expect(prompts, 'Duplicate で 3 択が出た（衝突が前提の操作なので連番固定が正）').toEqual([]);
+            // 1 回目 → tmpl-1 / 2 回目 → tmpl-2
+            await t.mod.folderViewDuplicate(t.fm, t.linkId, 'tmpl', t.deps as any, t.sender);
+            await t.mod.folderViewDuplicate(t.fm, t.linkId, 'tmpl', t.deps as any, t.sender);
             const names = fs.readdirSync(t.root).sort();
             expect(names.includes('tmpl-1')).toBe(true);
             expect(names.includes('tmpl-2'), `2 回目の連番が無い: ${names.join(',')}`).toBe(true);

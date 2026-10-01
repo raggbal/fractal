@@ -165,13 +165,14 @@ test.describe('FR-FLV-16 改訂: fv 内 md D&D の随伴移動（ADRL-0102）', 
 
         expect(await mod.folderViewMove(m, id, 'somedir', 'projB', deps as any, sender as any, moveDeps as any)).toBe(true);
         expect(calls.renames).toHaveLength(2);
-        // 同名衝突は従来どおり中断（rename 経路の既存ガード不変）
+        // 同名衝突は連番の別名で rename（ADRL-0132。md の uniquify と同じ結果に揃った）
         fs.writeFileSync(path.join(root, 'plain.txt'), 'v2');
-        expect(await mod.folderViewMove(m, id, 'plain.txt', 'projB', deps as any, sender as any, moveDeps as any)).toBe(false);
-        expect(fs.readFileSync(path.join(root, 'plain.txt'), 'utf8'), '元無傷').toBe('v2');
+        expect(await mod.folderViewMove(m, id, 'plain.txt', 'projB', deps as any, sender as any, moveDeps as any)).toBe(true);
+        expect(fs.readFileSync(path.join(root, 'projB', 'plain-1.txt'), 'utf8'), '連番で移動していない').toBe('v2');
+        expect(fs.readFileSync(path.join(root, 'projB', 'plain.txt'), 'utf8'), '既存無傷').toBe('T');
     });
 
-    test('TC-FVM-05: md の同名衝突は uniquify で共存（rename 経路の中断と対照）', async () => {
+    test('TC-FVM-05: md の同名衝突は uniquify で共存（非 md の連番 rename と同じ結果）', async () => {
         const { mod, m, id, root } = setupFixture();
         const { deps, moveDeps } = makeDeps();
         const { sender } = makeSender();

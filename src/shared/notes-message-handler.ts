@@ -4415,33 +4415,6 @@ function batchDepsOf(deps: FolderMoveDeps): {
  */
 export type ConflictPolicy = 'abort' | 'overwrite' | 'rename';
 
-/**
- * 宛先ディレクトリの一覧を **1 回**読んで、渡された src 群の名前衝突を全件判定する
- * （`MOD-ConflictPreflight`。中身の走査は不要なので安い）。**種別非依存**でファイルにも効く。
- *
- * 第 3 の結果として「一覧が読めない」を持つ（NFR-P1 / INV-12）:
- * **「衝突なし」に倒さない**（黙って上書きしうる）。呼び出し側は中止に倒す。
- */
-export function detectNameConflicts(
-    dstDirAbs: string,
-    srcAbsList: string[]
-): { readable: boolean; conflicts: string[] } {
-    let names: Set<string>;
-    try {
-        names = new Set(fs.readdirSync(dstDirAbs));
-    } catch {
-        return { readable: false, conflicts: [] };
-    }
-    const conflicts: string[] = [];
-    for (const abs of srcAbsList) {
-        const base = path.basename(abs);
-        // 同じ親からの移動は衝突ではない（no-op 判定は preflight の same_parent が担う）
-        if (path.resolve(path.dirname(abs)) === path.resolve(dstDirAbs)) { continue; }
-        if (names.has(base)) { conflicts.push(base); }
-    }
-    return { readable: true, conflicts };
-}
-
 export async function registerFolderTreeFromFs(
     fileManager: NotesFileManager,
     root: string,
@@ -5393,10 +5366,10 @@ export async function folderViewDuplicate(
     if (!abs || abs === path.resolve(root) || !fs.existsSync(abs)) { return false; }
     let isDir = false;
     try { isDir = fs.lstatSync(abs).isDirectory(); } catch { return false; }
-    // FR-FLV-15 rev2 / ADRL-0123 の例外（TASK-11）: **フォルダも Duplicate 対象**。
-    // Duplicate は「同じ階層に複製する」操作で衝突が起きることが前提なので **3 択は出さず連番固定**。
+    // FR-FLV-15 rev3（TASK-11 / ADRL-0132）: **フォルダも Duplicate 対象**。同じ階層に連番で複製する。
+    // フォルダはドットを拡張子と見ない（FR-FNM-01: `assets.bak` → `assets.bak-1`）。
     if (isDir) {
-        const destName = generateUniqueFileNamePreserving(path.dirname(abs), path.basename(abs));
+        const destName = generateUniqueFileNamePreserving(path.dirname(abs), path.basename(abs), { treatAsDir: true });
         const outcome = await copyFolderRecursive(abs, path.dirname(abs), {
             destName,
             showHidden: readFolderViewShowHidden(root),
@@ -5470,39 +5443,8 @@ export async function folderViewMoveBatch(
             sender.postMessage(message);
         },
     };
-    // FR-CFL-01 / FR-CFL-04 / ADRL-0129（TASK-12）: **事前衝突判定 → 1 回だけ問う → 方針を全件に適用**。
-    // per-item で問わないので操作感が壊れず、「中止」が drop 全体の中止になるので
-    // 部分適用（2 件目で衝突して 1 件目が移動済み）が構造的に起きない。
-    let conflictPolicy: ConflictPolicy | undefined;
-    // 🔴 事前判定を掛けるのは **move の 3 択が配線されているときだけ**:
-    //   - `mode === 'copy'`（clipboard / Duplicate）は **連番固定で問わない**のが仕様
-    //     （FR-CFL-02 の例外。ADRL-0105 の連番裁定を維持）
-    //   - `promptConflict` 未注入（配線の穴 / 旧呼び出し元）は **従来の per-item 拒否**に落ちる。
-    //     ここで全体中止に倒すと既存の挙動（衝突しなかった件は動く）を壊す（実測で回帰を検出）
-    if (mode === 'move' && typeof moveDeps.promptConflict === 'function') {
-        const rootForConflict = fileManager.resolveFolderRoot(folderLinkId);
-        const dstDirForConflict = rootForConflict ? safeResolveUnderFolderRoot(rootForConflict, dstDirRelPath) : null;
-        if (rootForConflict && dstDirForConflict) {
-            const srcAbsList = list
-                .map((rel) => safeResolveUnderFolderRoot(rootForConflict, rel))
-                .filter((x): x is string => !!x);
-            const det = detectNameConflicts(dstDirForConflict, srcAbsList);
-            if (!det.readable) {
-                // INV-12 / NFR-P1: **「衝突なし」に倒さない**（黙って上書きしうる）。中止に倒す
-                deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Could not read the destination folder.');
-                return { verdict: 'abort', outcome: { succeeded: 0, failed: 0, skipped: 0, reasons: {} } };
-            }
-            if (det.conflicts.length > 0) {
-                conflictPolicy = typeof moveDeps.promptConflict === 'function'
-                    ? await moveDeps.promptConflict(det.conflicts[0], det.conflicts.length)
-                    : 'abort';   // 未注入なら安全側
-                if (conflictPolicy === 'abort') {
-                    // FR-CFL-04: **その drop 全体の中止**（1 件も動かさない）
-                    return { verdict: 'cancel', outcome: { succeeded: 0, failed: 0, skipped: 0, reasons: {} } };
-                }
-            }
-        }
-    }
+    // ADRL-0132: 同名衝突は folderViewMove が常に連番で解決する（3 択・事前衝突判定・全体中止は廃止）。
+    // 衝突で失敗・中止しないので、旧 ADRL-0129 の「部分適用」問題は構造的に起きない。
 
     // FR-FDP-08（TASK-08）: **walk → 実件数 → 既存ゲート**の 2 段。
     // フォルダ item は `walkFolderCount`（純関数・書き込み 0）で中身の実ファイル数を数える。
@@ -5534,7 +5476,7 @@ export async function folderViewMoveBatch(
     const r = await runBatchTransfer(list, async (rel) => {
         parents.add(parentRelOf(rel));
         const flags: { partialFail?: boolean } = {};
-        const ok = await folderViewMove(fileManager, folderLinkId, rel, dstDirRelPath, quietDeps, quietSender, quietMoveDeps, mode, flags, conflictPolicy);
+        const ok = await folderViewMove(fileManager, folderLinkId, rel, dstDirRelPath, quietDeps, quietSender, quietMoveDeps, mode, flags);
         // 部分失敗（md の随伴資産が一部コピーできず source を温存した）は **成功に数えない**。
         // iteration 1 は `folderViewMove` が true を返すため succeeded に入り、失敗が集計に現れなかった。
         if (ok && flags.partialFail) { return { ok: false, reason: 'partial_attachment' }; }
@@ -5618,9 +5560,7 @@ export async function folderViewMove(
      * 単一経路（既存 2 呼び出し元）は渡さない = 戻り値の意味論は byte 不変。
      * batch 経路だけがこれを見て `runBatchTransfer` の集計に載せる。
      */
-    outFlags?: { partialFail?: boolean },
-    /** FR-CFL-01 / ADRL-0129（TASK-12）: 同名衝突の解決方針（未指定 = 従来どおり move は拒否 / copy は連番）。 */
-    policy?: ConflictPolicy
+    outFlags?: { partialFail?: boolean }
 ): Promise<boolean> {
     const root = fileManager.resolveFolderRoot(folderLinkId);
     if (!root) {
@@ -5639,7 +5579,9 @@ export async function folderViewMove(
         return false;
     }
     let absDst = path.join(absDstDir, path.basename(absSrc));
-    if (absDst === absSrc) { return false; } // 同一位置 no-op
+    // 同一位置 no-op は **move だけ**（ADRL-0133 / INV-FNM-2）。copy は同一位置でも
+    // 下の md 分岐 / copy 分岐の uniquify で連番複製に進む（Cmd+C → そのまま Cmd+V = その場複製）。
+    if (mode === 'move' && absDst === absSrc) { return false; }
 
     if (/\.md$/i.test(path.basename(absSrc)) && fs.statSync(absSrc).isFile()) {
         // ── md 分岐（ADRL-0102）: 同名は engine の uniquify に委ねるため衝突チェックしない ──
@@ -5666,14 +5608,15 @@ export async function folderViewMove(
 
     // ADRL-0120（非 md 分岐の copy）: rename の代わりに **既存の uniquify コピー**を使う。
     // `folderViewDuplicate` が既に使っている関数なので新規のコピー経路を書かない。
-    // 同名衝突は拒否せず uniquify する（`move` の folderViewNameConflict 拒否は不変）。
+    // 同名衝突は uniquify する（move も ADRL-0132 で連番に統一）。
     if (mode === 'copy') {
         // FR-FDP-06 / ADRL-0124（TASK-11）: **フォルダも複製する**。
         // 旧実装はここで拒否通知を出して return していたが、webview 側が先に dir を捨てていたため
         // **到達不能な dead branch** だった（CHANGELOG の記載と実挙動が矛盾していた）。
-        // 新エンジンに委譲し、同名は uniquify（`move` の拒否は不変）。
+        // 新エンジンに委譲し、同名は uniquify。
         if (fs.lstatSync(absSrc).isDirectory()) {
-            const destName = generateUniqueFileNamePreserving(absDstDir, path.basename(absSrc));
+            // FR-FNM-01: フォルダはドットを拡張子と見ない（`assets.bak` → `assets.bak-1`）
+            const destName = generateUniqueFileNamePreserving(absDstDir, path.basename(absSrc), { treatAsDir: true });
             const outcome = await copyFolderRecursive(absSrc, absDstDir, {
                 destName,
                 showHidden: readFolderViewShowHidden(root),
@@ -5702,27 +5645,13 @@ export async function folderViewMove(
         return true;
     }
     if (fs.existsSync(absDst)) {
-        // FR-FLV-16 rev3 / FR-CFL-01（TASK-12）: 同名衝突は**方針に従う**。
-        // 方針が無い（未配線 / 従来経路）ときは従来どおり拒否 = 安全側（黙って上書きしない）。
-        if (policy === 'rename') {
-            let isDirSrc = false;
-            try { isDirSrc = fs.lstatSync(absSrc).isDirectory(); } catch { isDirSrc = false; }
-            const alt = generateUniqueFileNamePreserving(absDstDir, path.basename(absSrc), { treatAsDir: isDirSrc });
-            absDst = path.join(absDstDir, alt);
-        } else if (policy === 'overwrite') {
-            // FR-CFL-03 / INV-8: **trash 経由**で退避してから置き換える（恒久削除を新規に作らない）
-            let dirOverwrite = false;
-            try { dirOverwrite = fs.lstatSync(absDst).isDirectory(); } catch { dirOverwrite = false; }
-            try {
-                await deps.trashDelete(absDst, dirOverwrite);
-            } catch (e) {
-                notifyOperationFailed(deps, e);
-                return false;
-            }
-        } else {
-            deps.showErrorMessage(deps.t('folderViewNameConflict') || 'An entry with the same name already exists.');
-            return false;
-        }
+        // FR-FLV-16 rev4 / FR-FNM-01 / ADRL-0132: 同名衝突は**常に連番の別名**で移動する
+        // （3 択・拒否・上書きは廃止。種別・件数で分岐しない。改名は通知しない = ユーザー裁定 2026-09-30）。
+        // 既存エントリは置き換えない（NFR-FNM-01）。フォルダはドットを拡張子と見ない。
+        let isDirSrc = false;
+        try { isDirSrc = fs.lstatSync(absSrc).isDirectory(); } catch { isDirSrc = false; }
+        const alt = generateUniqueFileNamePreserving(absDstDir, path.basename(absSrc), { treatAsDir: isDirSrc });
+        absDst = path.join(absDstDir, alt);
     }
     try {
         deps.renameFs(absSrc, absDst);
