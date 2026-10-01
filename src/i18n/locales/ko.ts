@@ -33,12 +33,7 @@ export const messages = {
   batchTransferConfirm: '{count}개 항목을 전송할까요?',
   batchTransferConfirmProceed: '전송',
   batchTransferTooMany: '항목이 너무 많아 전송할 수 없습니다(제한: 2000개). 아무것도 전송하지 않았습니다.',
-  // FR-CFL-01 / FR-FDP-09（TASK-05）: 同名衝突の 3 択 + 集計通知の内訳
-  conflictPromptBody: '"{name}"이(가) 대상에 이미 있습니다. 어떻게 하시겠습니까?',
-  conflictOverwrite: '덮어쓰기',
-  conflictOverwriteAll: '모두 덮어쓰기',
-  conflictRename: '둘 다 유지',
-  conflictRenameAll: '모두 둘 다 유지',
+  // FR-CFL-01 / FR-FDP-09（TASK-05）: 集計通知の内訳
   folderTransferSummary: '폴더 {folders}개(파일 {files}개)를 처리했습니다.',
   folderTransferExcluded: '대상이 처리할 수 없는 종류이므로 {count}개를 제외했습니다.',
   exportFolderConfirm: '선택한 폴더로 {count}개 항목을 내보낼까요?',

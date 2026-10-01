@@ -33,12 +33,7 @@ export const messages = {
   batchTransferConfirm: '¿Transferir {count} elementos?',
   batchTransferConfirmProceed: 'Transferir',
   batchTransferTooMany: 'Demasiados elementos para transferir (límite: 2000). No se transfirió nada.',
-  // FR-CFL-01 / FR-FDP-09（TASK-05）: 同名衝突の 3 択 + 集計通知の内訳
-  conflictPromptBody: '"{name}" ya existe en el destino. ¿Qué desea hacer?',
-  conflictOverwrite: 'Sobrescribir',
-  conflictOverwriteAll: 'Sobrescribir todo',
-  conflictRename: 'Conservar ambos',
-  conflictRenameAll: 'Conservar ambos en todo',
+  // FR-CFL-01 / FR-FDP-09（TASK-05）: 集計通知の内訳
   folderTransferSummary: 'Se procesaron {folders} carpeta(s) ({files} archivo(s)).',
   folderTransferExcluded: '{count} elemento(s) se excluyeron porque el destino no los admite.',
   exportFolderConfirm: '¿Exportar {count} elementos a la carpeta seleccionada?',

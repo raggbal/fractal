@@ -3882,12 +3882,6 @@ export interface FolderMoveDeps {
     /** 201〜2000 件の確認 modal（false = 取り込まない） */
     confirmLarge?(totalCount: number): Promise<boolean> | boolean;
     /**
-     * FR-CFL-01 / ADRL-0129（TASK-12）: 同名衝突の 3 択を **1 回だけ**提示して方針を返す。
-     * 未注入なら安全側（`'abort'`）に倒す（黙って上書きしない）。
-     * @param name 衝突した代表名 / @param count 衝突件数
-     */
-    promptConflict?(name: string, count: number): Promise<ConflictPolicy> | ConflictPolicy;
-    /**
      * FR-FDP-09 / NFR-FDP-06（TASK-08）: 「何が動いたか」の集計内訳通知。
      * undo が無い面なので、これがユーザーの唯一の手がかりになる（optional = 既存の単一経路を壊さない）。
      */
@@ -4409,12 +4403,6 @@ function batchDepsOf(deps: FolderMoveDeps): {
  *   ② `registerMarkdownFile(content)` で本文をそのまま登録 → **フォルダ内 md の資産随伴が無い**
  *   ③ `.filter(n => !n.startsWith('.'))` が無条件 → `showHidden` ON で dotfile が黙って消える
  */
-/**
- * FR-CFL-01 / ADRL-0129（TASK-12）: 同名衝突の解決方針。
- * `'abort'` は **その drop / 貼り付け全体の中止**（1 件だけの skip ではない = FR-CFL-04）。
- */
-export type ConflictPolicy = 'abort' | 'overwrite' | 'rename';
-
 export async function registerFolderTreeFromFs(
     fileManager: NotesFileManager,
     root: string,

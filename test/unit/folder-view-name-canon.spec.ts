@@ -240,3 +240,50 @@ test.describe('move の同名は連番で移動（FR-FLV-16 rev4 / ADRL-0132）'
         } finally { t.cleanup(); }
     });
 });
+
+/** src/ 配下の .ts / .js を列挙する（TC-RMV 用のソース走査）。 */
+function listSrcFiles(dir: string): string[] {
+    const out: string[] = [];
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) { out.push(...listSrcFiles(p)); }
+        else if (/\.(ts|js)$/.test(e.name)) { out.push(p); }
+    }
+    return out;
+}
+const SRC_DIR = path.join(__dirname, '..', '..', 'src');
+
+test.describe('3 択撤去の完全性（NFR-FNM-02 / ADRL-0132）', () => {
+    test('TC-RMV-01: 3 択関連シンボルが src に残っていない', () => {
+        const hits: string[] = [];
+        for (const f of listSrcFiles(SRC_DIR)) {
+            const body = fs.readFileSync(f, 'utf8');
+            for (const sym of ['ConflictPolicy', 'detectNameConflicts', 'promptConflict']) {
+                if (body.includes(sym)) { hits.push(`${path.relative(SRC_DIR, f)}: ${sym}`); }
+            }
+        }
+        expect(hits, `3 択の残骸: ${hits.join(' / ')}`).toEqual([]);
+    });
+
+    test('TC-RMV-02: i18n の 3 択キー 5 個が messages.ts と 7 locale に残っていない（folderViewNameConflict は残る）', () => {
+        const files = ['messages.ts', ...['en', 'ja', 'ko', 'zh-cn', 'zh-tw', 'fr', 'es'].map((l) => `locales/${l}.ts`)];
+        for (const rel of files) {
+            const body = fs.readFileSync(path.join(SRC_DIR, 'i18n', rel), 'utf8');
+            for (const k of ['conflictPromptBody', 'conflictOverwrite', 'conflictOverwriteAll', 'conflictRename', 'conflictRenameAll']) {
+                expect(new RegExp(`\\b${k}\\b`).test(body), `${rel} に ${k} が残っている`).toBe(false);
+            }
+            expect(/\bfolderViewNameConflict\b/.test(body), `${rel} から folderViewNameConflict を消してしまった（New Folder / Rename が使う）`).toBe(true);
+        }
+    });
+
+    test('TC-RMV-03: 件数確認 modal（showModalChoice）は生きている', () => {
+        // provider の deps は resolveCustomEditor のクロージャ内で組まれ seam が無いため、
+        // 既存の番人（i18n-sendto-keys.spec.ts の QUAL3-3）と同じくソースで構造を確認する。
+        const code = fs.readFileSync(path.join(SRC_DIR, 'notesEditorProvider.ts'), 'utf8')
+            .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+        expect((code.match(/showWarningMessage\([\s\S]{0,200}?\{ modal: true \}/g) || []).length,
+            'modal の実装が 1 箇所でない').toBe(1);
+        expect(/const showModalChoice = /.test(code), 'showModalChoice を消してしまった').toBe(true);
+        expect(/confirmLargeWith[\s\S]{0,600}?showModalChoice\(/.test(code), 'confirmLarge が showModalChoice を使っていない').toBe(true);
+    });
+});
