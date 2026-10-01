@@ -114,6 +114,25 @@ export async function openNotesMdAttachmentViaSidePanel(
     deps.openExternal(absPath);
 }
 
+/**
+ * FR-FVT-01 / DOM-TransferDoneSignal（sprint 20260930-192647）: linkedfd の移動・複製要求を処理し、
+ * **結末（成功 / false / 例外 / verdict 非 ok）によらず** `folderViewTransferDone` を 1 回だけ webview へ送る。
+ * webview の進行中フラグ（INV-11）は一覧再送でも解除されるが、no-op・失敗・件数ゲート拒否では一覧が来ないため
+ * こちらを確実な解除契機にする。dispose 後の postMessage 失敗は握りつぶす（処理本体の結果を変えない）。
+ * platform 実装はクロージャ内にあり seam が無いので、テストのために module レベルで export する。
+ */
+export async function runFolderViewTransfer<T>(
+    senderRef: { postMessage(message: unknown): unknown },
+    folderLinkId: string,
+    run: () => Promise<T>
+): Promise<T> {
+    try {
+        return await run();
+    } finally {
+        try { senderRef.postMessage({ type: 'folderViewTransferDone', folderLinkId }); } catch { /* webview disposed */ }
+    }
+}
+
 export class NotesEditorProvider {
     // 開いているパネルを追跡（folderPath → { panel, postMessage, fileManager, openPage }）
     private openPanels = new Map<string, {
@@ -3006,7 +3025,8 @@ export class NotesEditorProvider {
                 await folderViewDuplicate(fileManager, id, relPath, folderViewDeps, senderRef);
             },
             folderViewMove: async (id: string, srcRelPath: string, dstDirRelPath: string, senderRef: NotesSender, mode?: 'move' | 'copy') => {
-                await folderViewMove(fileManager, id, srcRelPath, dstDirRelPath, folderViewDeps, senderRef, folderMoveDeps, mode || 'move'); // ADRL-0102: md 分岐は随伴転送（FR-FLV-34 の deleteFile フォールバック込み）/ ADRL-0120: mode
+                await runFolderViewTransfer(senderRef, id, () =>   // FR-FVT-01: 結末によらず完了通知 1 回
+                    folderViewMove(fileManager, id, srcRelPath, dstDirRelPath, folderViewDeps, senderRef, folderMoveDeps, mode || 'move')); // ADRL-0102: md 分岐は随伴転送（FR-FLV-34 の deleteFile フォールバック込み）/ ADRL-0120: mode
             },
             // FR-FMV-01/03 / FR-CBD-07: linkedfd 内の一括移動 / 一括複製（件数ゲート + 集計通知 1 回は runBatchTransfer 経由）
             // 🔴 TASK-19 (SEC-3): batch deps は **`platformBatchDeps`**（`batchTransfer*` 文言）を渡す。
@@ -3016,7 +3036,8 @@ export class NotesEditorProvider {
             // linkedfd 側の fs 移動・複製は undo を持たないので、この modal が唯一の informed consent ゲート。
             // 閾値定数は `checkBatchLimit` 経由で共有のまま（第 3 の上限実装を書かない）。
             folderViewMoveBatch: async (id: string, srcRelPaths: string[], dstDirRelPath: string, mode: 'move' | 'copy', senderRef: NotesSender) => {
-                await folderViewMoveBatch(fileManager, id, srcRelPaths, dstDirRelPath, mode, folderViewDeps, senderRef, platformBatchDeps);
+                await runFolderViewTransfer(senderRef, id, () =>   // FR-FVT-01: verdict 非 ok（件数ゲート拒否）でも完了通知 1 回
+                    folderViewMoveBatch(fileManager, id, srcRelPaths, dstDirRelPath, mode, folderViewDeps, senderRef, platformBatchDeps));
             },
             folderViewRevealEntry: (id: string, relPath: string) => {
                 folderViewRevealEntry(fileManager, id, relPath, folderViewDeps);
