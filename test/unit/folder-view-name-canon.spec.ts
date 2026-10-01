@@ -241,6 +241,23 @@ test.describe('move の同名は連番で移動（FR-FLV-16 rev4 / ADRL-0132）'
     });
 });
 
+test.describe('その場複製の通し確認（US-002 / FR-CBD-07 rev3）', () => {
+    test('TC-IPP-05: webview が渡す引数（宛先 = コピー元の親）で host に同一フォルダ複製ができる', async () => {
+        const t = setup();
+        try {
+            t.w('a.md', '# A\n');
+            t.w('assets/x.txt', 'X');
+            // TC-IPP-01 の bridge 引数: ('fl1', 'a.md', '', 'copy') / TC-IPP-02: (['assets'], '', 'copy')
+            expect(await t.mv('a.md', '', 'copy')).toBe(true);
+            await t.batch(['assets'], '', 'copy');
+            expect(t.r('a-1.md')).toBe('# A\n');
+            expect(t.r('assets-1/x.txt')).toBe('X');
+            expect(t.r('a.md')).toBe('# A\n');
+            expect(t.r('assets/x.txt')).toBe('X');
+        } finally { t.cleanup(); }
+    });
+});
+
 /** src/ 配下の .ts / .js を列挙する（TC-RMV 用のソース走査）。 */
 function listSrcFiles(dir: string): string[] {
     const out: string[] = [];

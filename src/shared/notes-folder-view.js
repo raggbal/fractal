@@ -1408,9 +1408,15 @@
                 }
                 if (files.length === 0) { return; }   // 貼る対象が 1 つも無い（= clipboard が空）
                 e.preventDefault();
+                // FR-CBD-07 rev3 / ADRL-0133（その場複製）: focus 行が clipboard のコピー元に含まれる
+                // （= Cmd+C 直後に選択を変えていない）なら、宛先は focus 行の**親**（コピー元と同じ階層）。
+                // フォルダ行の「その中」にすると自分自身の中への複製になり host の自己子孫ガードに当たる。
+                // それ以外のフォルダ行は従来どおり「その中」（resolveDstFromRel 本体は D&D / G と共有なので触らない）。
+                var hDst = dst;
+                if (selectedRel && fmeta.relPaths.indexOf(selectedRel) >= 0) { hDst = parentRelOf(selectedRel); }
                 // 🔴 fvMovePreflight は**通さない**（NFR-REL-1）。H は「同じ階層への複製」が正常系で、
                 //    D&D 用の全体拒否ガード（既に同じ親 → reject）を掛けると原理的に動かなくなる。
-                dispatchFvMove(files, dst, 'copy');
+                dispatchFvMove(files, hDst, 'copy');
                 return;
             }
         }
