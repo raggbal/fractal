@@ -60,12 +60,13 @@ const normFill = (fill) => {
     if (!fill) { return null; }
     if (typeof fill === 'string') { return fill.startsWith('#') || fill.startsWith('rgb') ? fill : '#' + fill; }
     if (fill.type === 'color' && typeof fill.value === 'string') { return normFill(fill.value); }
-    // スライド背景の画像は fill.mjs getBgPicFill が { ref, base64, blob, opacity } で返す（slide / layout / master 共通）。
-    // 旧実装は図形 picFill 用の picBase64 を読んでいて画像背景が 1 枚も描画されなかった
+    // 画像塗りは fill.mjs が { ref, base64, blob, opacity } で返す（背景 getBgPicFill も図形の PIC_FILL も同じ形）。
+    // 旧実装は数式要素（processMathNode）専用のフィールド名を fill.value から読んでいて、そのような値は
+    // どこからも作られないため画像背景が 1 枚も描画されなかった
     // （sprint 20261002-140024 — レイアウト・マスターが画像背景で文字が白いスライドが真っ白に見えた）。
     if (fill.type === 'image' && fill.value) {
         const v = fill.value;
-        const src = [v.base64, v.blob, v.picBase64].find(
+        const src = [v.base64, v.blob].find(
             (x) => typeof x === 'string' && (x.startsWith('data:') || x.startsWith('blob:')));
         if (!src) { return null; }
         const opacity = typeof v.opacity === 'number' && v.opacity >= 0 && v.opacity < 1 ? v.opacity : 1;
@@ -319,22 +320,20 @@ export function renderSlideContent(doc, slideEl, slide, ctx) {
     const bg = normFill(slide.fill);
     if (typeof bg === 'string') { slideEl.style.background = bg; }
     else if (bg && bg.image) {
+        // a:alphaModFix（opacity < 1）は背景画像だけを半透明にする（スライド全体の opacity にするとテキストまで薄くなる）。
+        // 背景レイヤーは先頭の子・絶対配置で、後に追加される要素（同じく絶対配置）より下に描かれる
+        let target = slideEl;
         if (bg.opacity < 1) {
-            // a:alphaModFix: 背景画像だけを半透明にする（スライド全体の opacity にするとテキストまで薄くなる）。
-            // 背景レイヤーは先頭の子・絶対配置で、後に追加される要素（同じく絶対配置）より下に描かれる
-            const layer = doc.createElement('div');
-            layer.className = 'ppv-bg';
-            layer.style.position = 'absolute';
-            layer.style.left = '0'; layer.style.top = '0'; layer.style.width = '100%'; layer.style.height = '100%';
-            layer.style.backgroundImage = `url("${bg.image}")`;
-            layer.style.backgroundSize = 'cover';
-            layer.style.opacity = String(bg.opacity);
-            layer.style.pointerEvents = 'none';
-            slideEl.insertBefore(layer, slideEl.firstChild);
-        } else {
-            slideEl.style.backgroundImage = `url("${bg.image}")`;
-            slideEl.style.backgroundSize = 'cover';
+            target = doc.createElement('div');
+            target.className = 'ppv-bg';
+            target.style.position = 'absolute';
+            target.style.left = '0'; target.style.top = '0'; target.style.width = '100%'; target.style.height = '100%';
+            target.style.opacity = String(bg.opacity);
+            target.style.pointerEvents = 'none';
+            slideEl.insertBefore(target, slideEl.firstChild);
         }
+        target.style.backgroundImage = `url("${bg.image}")`;
+        target.style.backgroundSize = 'cover';
     }
     const all = [...(slide.layoutElements || []), ...(slide.elements || [])];
     for (const el of all) { renderElement(doc, slideEl, el, ctx); }

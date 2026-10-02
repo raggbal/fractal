@@ -3,11 +3,11 @@
  * sprint 20261002-140024-pptx-image-background-render（TC-PBG-01〜07）
  *
  * 実バグ: パーサ fill.mjs getBgPicFill は背景画像を { ref, base64, blob, opacity } で返すが、
- * render.mjs normFill は図形 picFill 用の fill.value.picBase64 を読んでいたため、画像背景が
+ * render.mjs normFill は（どこからも作られない）fill.value.picBase64 を読んでいたため、画像背景が
  * 1 枚も描画されなかった（レイアウト・マスターが画像背景で文字が白いスライドは真っ白に見える）。
  * 既存 viewer-pptx-bg.spec.ts は bgRef（単色）だけでパーサ出力しか見ておらず、描画の継ぎ目を踏んでいなかった。
  *
- * 番人: normFill の画像分岐を picBase64 読みに戻すと TC-PBG-01〜03 / 05 / 07 が落ちる。
+ * 番人: normFill の画像分岐を fill.value.picBase64 読みに戻すと TC-PBG-01〜03 / 05 / 07 が落ちる。
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
@@ -155,9 +155,11 @@ test('TC-PBG-06: 単色背景は従来どおり background に色（回帰 pin�
     expect(bgUrlOf(el)).toBe('');
 });
 
-const REAL = '/Users/imaken/workspace/fractal/pace/files/2026_APJ_PACE_SIFTGuide-1.pptx';
-test('TC-PBG-07: 実ファイル 2026_APJ_PACE_SIFTGuide-1.pptx の 1 ページ目に背景画像が出る', async () => {
-    test.skip(!fs.existsSync(REAL), '実ファイルが無い環境');
+// 実ファイルでの確認は環境変数でパスを渡したときだけ走る（個人のパスや文書名をリポジトリに残さない）。
+// 例: FRACTAL_REAL_PPTX_FIXTURE=/path/to/deck.pptx npx playwright test test/unit/viewer-pptx-bg-image.spec.ts
+const REAL = process.env.FRACTAL_REAL_PPTX_FIXTURE || '';
+test('TC-PBG-07: 実ファイル（レイアウトが画像背景の 1 ページ目）に背景画像が出る', async () => {
+    test.skip(!REAL || !fs.existsSync(REAL), 'FRACTAL_REAL_PPTX_FIXTURE が未設定');
     const el = await renderFirst(fs.readFileSync(REAL));
     expect(bgUrlOf(el), '1 ページ目（レイアウトの画像背景）が描画されていない').toMatch(/^url\("data:image\/png;base64,/);
 });
