@@ -303,6 +303,20 @@ test.describe('資産の無い md の複製で空の images/ files/ を作らな
         } finally { t.cleanup(); }
     });
 
+    test('TC-FNM-15: サブページの無い md 自身が壊れたリンクだけを持つ場合も空フォルダを作らない', async () => {
+        const t = setup();
+        try {
+            t.w('A/top.md', '# Top\n![](images/missing.png)\n[📎 r.pdf](files/missing.pdf)\n');
+            t.w('B/.keep', '');
+            expect(await t.mv('A/top.md', 'A', 'copy')).toBe(true);
+            expect(t.ex('A/images'), 'copy で空の images/').toBe(false);
+            expect(t.ex('A/files'), 'copy で空の files/').toBe(false);
+            expect(await t.mv('A/top.md', 'B', 'move')).toBe(true);
+            expect(t.ex('B/images'), 'move で空の images/').toBe(false);
+            expect(t.ex('B/files'), 'move で空の files/').toBe(false);
+        } finally { t.cleanup(); }
+    });
+
     test('TC-FNM-14: 参照はあるが実体が無い（壊れたリンク）だけの md でも空フォルダを作らない', async () => {
         const t = setup();
         try {
