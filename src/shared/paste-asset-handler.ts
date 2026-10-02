@@ -285,6 +285,7 @@ function copyAssetsAndRewriteForMd(
         const src = path.resolve(curDir, ref);
         if (!fs.existsSync(src)) { report?.skipped.push(src); continue; }
         if (!isRefUnderRoots(src, restrictSourceRoots)) { report?.skipped.push(src); continue; } // SEC-1: roots 外は複製しない（書換なし温存）
+        ensureDir(destImageDir);   // FR-ACC-02: 実体をコピーするときだけ作る（copier は dir を作らない）
         const destAbs = copyImg(path.resolve(src), `copy-${Date.now()}-${path.basename(ref)}`);
         // QUAL-1（reviewer iter1）: makeUniqueImageCopier は copy 失敗を握って destAbs を返す —
         // report 指定時（= 削除フェーズの全成功判定に使う transfer 経路）のみ実在検証して copyFailed に落とす
@@ -300,6 +301,7 @@ function copyAssetsAndRewriteForMd(
         const src = path.resolve(curDir, ref);
         if (!fs.existsSync(src)) { report?.skipped.push(src); continue; }
         if (!isRefUnderRoots(src, restrictSourceRoots)) { report?.skipped.push(src); continue; } // SEC-1: roots 外は複製しない
+        ensureDir(destFileDir);   // FR-ACC-02: 実体をコピーするときだけ作る
         const originalName = path.basename(ref);
         const lower = originalName.toLowerCase();
         const isMultiExt = lower.endsWith('.drawio.svg') || lower.endsWith('.drawio.png');
@@ -884,12 +886,8 @@ export function replicateMdClosureToDest(opts: {
         closureNameMap.set(srcAbs, path.relative(destMdDir, destAbs).replace(/\\/g, '/'));
         closureDestAbs.set(srcAbs, destAbs);
     }
-    // 起点 md に画像/添付が無いケースでも closure md の資産を受けられるよう dest dir を事前作成
-    // （copyAssetsAndRewriteForMd / copier は destImageDir を ensureDir しないため）。
-    if (closureDestAbs.size > 0) {
-        ensureDir(destImageDir);
-        ensureDir(destFileDir);
-    }
+    // dest の images/ files/ は事前作成しない（FR-ACC-02「資産がある時のみ作成」— sprint 20260930-192647 TASK-08）。
+    // closure md に資産が無いのに空 dir が残っていた。作成は copyAssetsAndRewriteForMd が実体をコピーする直前に行う。
     // closure md 群で 1 つの copier を共有（別 md が同名別画像を持っても連番退避で別ファイル化 = 1:1 所有権保証）。
     const closureImgCopier = makeUniqueImageCopier(destImageDir);
     for (const srcAbs of closure) {

@@ -260,6 +260,62 @@ test.describe('その場複製の通し確認（US-002 / FR-CBD-07 rev3）', () 
     });
 });
 
+test.describe('資産の無い md の複製で空の images/ files/ を作らない（FR-ACC-02 の実装是正）', () => {
+    test('TC-FNM-12: 資産の無いサブページ付き md を移動・複製しても images/ files/ を作らない', async () => {
+        const t = setup();
+        try {
+            t.w('A/top.md', '# Top\n[[Sub]](sub.md)\n');
+            t.w('A/sub.md', '# Sub\nplain text only\n');
+            t.w('B/.keep', '');
+            // (b) 同一フォルダ copy
+            expect(await t.mv('A/top.md', 'A', 'copy')).toBe(true);
+            expect(t.ex('A/top-1.md'), '複製ができていない').toBe(true);
+            expect(t.ex('A/images'), 'copy で空の images/ が作られた').toBe(false);
+            expect(t.ex('A/files'), 'copy で空の files/ が作られた').toBe(false);
+            // (a) 別フォルダへ move
+            expect(await t.mv('A/top.md', 'B', 'move')).toBe(true);
+            expect(t.ex('B/top.md')).toBe(true);
+            expect(t.ex('B/images'), 'move で空の images/ が作られた').toBe(false);
+            expect(t.ex('B/files'), 'move で空の files/ が作られた').toBe(false);
+        } finally { t.cleanup(); }
+    });
+
+    test('TC-FNM-13: サブページに画像・添付があれば images/ files/ が作られ実体が入る（回帰 pin）', async () => {
+        const t = setup();
+        try {
+            t.w('A/top.md', '# Top\n[[Sub]](sub.md)\n');
+            t.w('A/sub.md', '# Sub\n![](images/x.png)\n[📎 r.pdf](files/r.pdf)\n');
+            t.w('A/images/x.png', 'IMG');
+            t.w('A/files/r.pdf', 'PDF');
+            t.w('B/.keep', '');
+            expect(await t.mv('A/top.md', 'B', 'move')).toBe(true);
+            const imgs = fs.existsSync(path.join(t.root, 'B', 'images')) ? fs.readdirSync(path.join(t.root, 'B', 'images')) : [];
+            const files = fs.existsSync(path.join(t.root, 'B', 'files')) ? fs.readdirSync(path.join(t.root, 'B', 'files')) : [];
+            expect(imgs.length, `B/images の実体: ${imgs.join(',')}`).toBe(1);
+            expect(files.length, `B/files の実体: ${files.join(',')}`).toBe(1);
+            // 複製されたサブページの参照が解決する
+            const subs = fs.readdirSync(path.join(t.root, 'B')).filter((n) => /^sub.*\.md$/.test(n));
+            expect(subs.length).toBe(1);
+            const body = t.r(`B/${subs[0]}`);
+            for (const m of body.matchAll(/\]\(([^)]+)\)/g)) {
+                expect(fs.existsSync(path.join(t.root, 'B', m[1])), `参照先 ${m[1]} が無い`).toBe(true);
+            }
+        } finally { t.cleanup(); }
+    });
+
+    test('TC-FNM-14: 参照はあるが実体が無い（壊れたリンク）だけの md でも空フォルダを作らない', async () => {
+        const t = setup();
+        try {
+            t.w('A/top.md', '# Top\n[[Sub]](sub.md)\n');
+            t.w('A/sub.md', '# Sub\n![](images/missing.png)\n');
+            t.w('B/.keep', '');
+            expect(await t.mv('A/top.md', 'B', 'move')).toBe(true);
+            expect(t.ex('B/images'), '壊れたリンクだけで空の images/ が作られた').toBe(false);
+            expect(t.ex('B/files')).toBe(false);
+        } finally { t.cleanup(); }
+    });
+});
+
 /** src/ 配下の .ts / .js を列挙する（TC-RMV 用のソース走査）。 */
 function listSrcFiles(dir: string): string[] {
     const out: string[] = [];
