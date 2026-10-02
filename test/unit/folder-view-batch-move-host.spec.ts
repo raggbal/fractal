@@ -115,25 +115,29 @@ test('TC-FMV-10 per-item 通知を抑止して集計 1 回にする（トース�
     const { sender } = makeSender();
     fs.mkdirSync(path.join(root, 'dst'));
     for (const f of ['a.txt', 'b.txt', 'c.txt']) { fs.writeFileSync(path.join(root, f), f); }
-    // dst に同名 b.txt を置いて 1 件だけ衝突させる（folderViewNameConflict を誘発）
-    fs.writeFileSync(path.join(root, 'dst', 'b.txt'), 'existing');
+    // b.txt の rename だけを EACCES で失敗させる（ADRL-0132 で同名衝突は失敗にならなくなったため誘発手段を差し替え）
+    const realRename = deps.renameFs;
+    deps.renameFs = (a: string, b: string) => {
+        if (path.basename(a) === 'b.txt') { const e: any = new Error('EACCES'); e.code = 'EACCES'; throw e; }
+        realRename(a, b);
+    };
 
     const r = await mod.folderViewMoveBatch(m, id, ['a.txt', 'b.txt', 'c.txt'], 'dst', 'move',
         deps as any, sender as any, moveDeps as any);
 
-    expect(r.outcome.succeeded, '衝突しなかった 2 件が移動していない').toBe(2);
+    expect(r.outcome.succeeded, '失敗しなかった 2 件が移動していない').toBe(2);
     // 既存 `runBatchTransfer` の分類契約: **`ok:false` → skipped（+ reason）/ 例外 → failed**。
-    // 名前衝突は「実行したが受理されなかった」= skipped 側に入る（第 3 の分類を発明しない）。
-    expect(r.outcome.skipped, '衝突した 1 件が skipped に計上されていない').toBe(1);
+    // rename 失敗は folderViewMove が通知して false を返す = skipped 側に入る（第 3 の分類を発明しない）。
+    expect(r.outcome.skipped, '失敗した 1 件が skipped に計上されていない').toBe(1);
     expect(r.outcome.failed, '例外でもないのに failed に計上された').toBe(0);
     expect(r.outcome.reasons, '理由が集計されていない（集計通知に出せない）').toHaveProperty('transfer_failed', 1);
     // 🔴 per-item の showErrorMessage が抑止されている（3 件回して 1 件失敗 → 0 回）
     expect(calls.errors, `per-item トーストが出ている（集計通知 1 回に委ねるはず）: ${JSON.stringify(calls.errors)}`).toEqual([]);
     // 集計通知は runBatchTransfer が 1 回だけ出す
     expect(mCalls.outcome.length, '集計通知が 1 回でない').toBe(1);
-    // 衝突した実体は無傷
-    expect(fs.readFileSync(path.join(root, 'dst', 'b.txt'), 'utf8'), '衝突先が上書きされた').toBe('existing');
-    expect(fs.existsSync(path.join(root, 'b.txt')), '衝突した source が消えた').toBe(true);
+    // 失敗した source は無傷
+    expect(fs.existsSync(path.join(root, 'b.txt')), '失敗した source が消えた').toBe(true);
+    expect(fs.existsSync(path.join(root, 'dst', 'b.txt')), '失敗したのに移動している').toBe(false);
 });
 
 test('TC-FMV-09 件数ゲートを通る（>2000 は 0 件処理で中断 / 201-2000 は確認 modal）', async () => {

@@ -114,6 +114,25 @@ export async function openNotesMdAttachmentViaSidePanel(
     deps.openExternal(absPath);
 }
 
+/**
+ * FR-FVT-01 / DOM-TransferDoneSignal（sprint 20260930-192647）: linkedfd の移動・複製要求を処理し、
+ * **結末（成功 / false / 例外 / verdict 非 ok）によらず** `folderViewTransferDone` を 1 回だけ webview へ送る。
+ * webview の進行中フラグ（INV-11）は一覧再送でも解除されるが、no-op・失敗・件数ゲート拒否では一覧が来ないため
+ * こちらを確実な解除契機にする。dispose 後の postMessage 失敗は握りつぶす（処理本体の結果を変えない）。
+ * platform 実装はクロージャ内にあり seam が無いので、テストのために module レベルで export する。
+ */
+export async function runFolderViewTransfer<T>(
+    senderRef: { postMessage(message: unknown): unknown },
+    folderLinkId: string,
+    run: () => Promise<T>
+): Promise<T> {
+    try {
+        return await run();
+    } finally {
+        try { senderRef.postMessage({ type: 'folderViewTransferDone', folderLinkId }); } catch { /* webview disposed */ }
+    }
+}
+
 export class NotesEditorProvider {
     // 開いているパネルを追跡（folderPath → { panel, postMessage, fileManager, openPage }）
     private openPanels = new Map<string, {
@@ -741,8 +760,8 @@ export class NotesEditorProvider {
         // （iteration 5 で実際にこれで RED になった）。
         /**
          * modal を出す**唯一の実装**（TASK-14 / QUAL3-3 の番人が「複製されていない」ことを検査する）。
-         * 件数確認（2 択）と同名衝突の 3 択は**選択肢の数と文言だけが違う**ので、
-         * ここを共有して実装を 1 箇所に保つ。
+         * 件数確認（2 択）が使う。新たに modal が要る操作もここを共有して実装を 1 箇所に保つ
+         * （同名衝突の 3 択は ADRL-0132 で廃止）。
          */
         const showModalChoice = async (body: string, ...items: string[]): Promise<string | undefined> =>
             await vscode.window.showWarningMessage(body, { modal: true }, ...items);
@@ -763,23 +782,6 @@ export class NotesEditorProvider {
             showErrorMessage: (message) => { vscode.window.showErrorMessage(message); },
             // FR-FDP-09 / NFR-FDP-06（TASK-08）: フォルダを含む転送の内訳通知
             showInformationMessage: (message) => { vscode.window.showInformationMessage(message); },
-            // FR-CFL-01 / ADRL-0129（TASK-12）: 同名衝突の 3 択を **1 回だけ**提示する。
-            // 既存の確認 modal 機構（showWarningMessage + modal:true）を流用し、
-            // 「すべてに適用」はチェックボックスではなく**ボタンを 2 系統**にする
-            //（VS Code の modal はチェックボックスを持てない）。**Cancel = 中止 = drop 全体の中止**。
-            promptConflict: async (name: string, count: number) => {
-                const ow = t('conflictOverwrite');
-                const owAll = t('conflictOverwriteAll');
-                const rn = t('conflictRename');
-                const rnAll = t('conflictRenameAll');
-                const body = t('conflictPromptBody').replace('{name}', name);
-                const items = count > 1 ? [ow, owAll, rn, rnAll] : [ow, rn];
-                // 🔴 modal 実装は `showModalChoice` に集約する（2 つ目の実装を書かない = QUAL3-3 の番人）
-                const answer = await showModalChoice(body, ...items);
-                if (answer === ow || answer === owAll) { return 'overwrite'; }
-                if (answer === rn || answer === rnAll) { return 'rename'; }
-                return 'abort';   // Cancel / 閉じる = 中止
-            },
             t: (key) => t(key as any),
             trashDelete: async (absPath, recursive) => {
                 await vscode.workspace.fs.delete(vscode.Uri.file(absPath), { useTrash: true, recursive });
@@ -3023,7 +3025,8 @@ export class NotesEditorProvider {
                 await folderViewDuplicate(fileManager, id, relPath, folderViewDeps, senderRef);
             },
             folderViewMove: async (id: string, srcRelPath: string, dstDirRelPath: string, senderRef: NotesSender, mode?: 'move' | 'copy') => {
-                await folderViewMove(fileManager, id, srcRelPath, dstDirRelPath, folderViewDeps, senderRef, folderMoveDeps, mode || 'move'); // ADRL-0102: md 分岐は随伴転送（FR-FLV-34 の deleteFile フォールバック込み）/ ADRL-0120: mode
+                await runFolderViewTransfer(senderRef, id, () =>   // FR-FVT-01: 結末によらず完了通知 1 回
+                    folderViewMove(fileManager, id, srcRelPath, dstDirRelPath, folderViewDeps, senderRef, folderMoveDeps, mode || 'move')); // ADRL-0102: md 分岐は随伴転送（FR-FLV-34 の deleteFile フォールバック込み）/ ADRL-0120: mode
             },
             // FR-FMV-01/03 / FR-CBD-07: linkedfd 内の一括移動 / 一括複製（件数ゲート + 集計通知 1 回は runBatchTransfer 経由）
             // 🔴 TASK-19 (SEC-3): batch deps は **`platformBatchDeps`**（`batchTransfer*` 文言）を渡す。
@@ -3033,7 +3036,8 @@ export class NotesEditorProvider {
             // linkedfd 側の fs 移動・複製は undo を持たないので、この modal が唯一の informed consent ゲート。
             // 閾値定数は `checkBatchLimit` 経由で共有のまま（第 3 の上限実装を書かない）。
             folderViewMoveBatch: async (id: string, srcRelPaths: string[], dstDirRelPath: string, mode: 'move' | 'copy', senderRef: NotesSender) => {
-                await folderViewMoveBatch(fileManager, id, srcRelPaths, dstDirRelPath, mode, folderViewDeps, senderRef, platformBatchDeps);
+                await runFolderViewTransfer(senderRef, id, () =>   // FR-FVT-01: verdict 非 ok（件数ゲート拒否）でも完了通知 1 回
+                    folderViewMoveBatch(fileManager, id, srcRelPaths, dstDirRelPath, mode, folderViewDeps, senderRef, platformBatchDeps));
             },
             folderViewRevealEntry: (id: string, relPath: string) => {
                 folderViewRevealEntry(fileManager, id, relPath, folderViewDeps);

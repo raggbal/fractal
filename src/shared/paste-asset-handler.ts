@@ -285,6 +285,7 @@ function copyAssetsAndRewriteForMd(
         const src = path.resolve(curDir, ref);
         if (!fs.existsSync(src)) { report?.skipped.push(src); continue; }
         if (!isRefUnderRoots(src, restrictSourceRoots)) { report?.skipped.push(src); continue; } // SEC-1: roots 外は複製しない（書換なし温存）
+        ensureDir(destImageDir);   // FR-ACC-02: 実体をコピーするときだけ作る（copier は dir を作らない）
         const destAbs = copyImg(path.resolve(src), `copy-${Date.now()}-${path.basename(ref)}`);
         // QUAL-1（reviewer iter1）: makeUniqueImageCopier は copy 失敗を握って destAbs を返す —
         // report 指定時（= 削除フェーズの全成功判定に使う transfer 経路）のみ実在検証して copyFailed に落とす
@@ -300,6 +301,7 @@ function copyAssetsAndRewriteForMd(
         const src = path.resolve(curDir, ref);
         if (!fs.existsSync(src)) { report?.skipped.push(src); continue; }
         if (!isRefUnderRoots(src, restrictSourceRoots)) { report?.skipped.push(src); continue; } // SEC-1: roots 外は複製しない
+        ensureDir(destFileDir);   // FR-ACC-02: 実体をコピーするときだけ作る
         const originalName = path.basename(ref);
         const lower = originalName.toLowerCase();
         const isMultiExt = lower.endsWith('.drawio.svg') || lower.endsWith('.drawio.png');
@@ -416,10 +418,10 @@ export function handlePageAssets(opts: {
     const bodyImageSet = new Set(bodyImageRefs);
     const imageRefsOrdered = [...bodyImageRefs, ...nodeImageOnly.filter(r => !bodyImageSet.has(r))];
     const allImageRefs = Array.from(new Set(imageRefsOrdered));
-    if (allImageRefs.length > 0) ensureDir(destImagesDir);
     for (const ref of allImageRefs) {
         const srcImg = resolveSourceImage(ref, opts.srcOutDir, opts.srcPagesDir);
         if (!srcImg) continue;
+        ensureDir(destImagesDir);   // FR-ACC-02: 実体をコピーするときだけ作る
         const srcAbs = path.resolve(srcImg);
         let destImg = srcAbsToDestImg.get(srcAbs);
         if (!destImg) {
@@ -461,11 +463,11 @@ export function handlePageAssets(opts: {
     const regularFileRefs: string[] = parser.extractMarkdownFileLinks(mdContent);
     const fileRefs: string[] = Array.from(new Set([...regularFileRefs, ...bodyDrawioRefs, ...nodeImageDrawio]));
     if (fileRefs.length > 0) {
-        ensureDir(destFilesDir);
         const fileRenames = new Map<string, string>();
         for (const fileRef of fileRefs) {
             const srcFile = resolveSourceImage(fileRef, opts.srcOutDir, opts.srcPagesDir);
             if (!srcFile) continue;
+            ensureDir(destFilesDir);   // FR-ACC-02: 実体をコピーするときだけ作る
             const originalName = path.basename(fileRef);
             // TC-03: drawio.svg/png は多重拡張子 suffix 対応
             const lowerOrig = originalName.toLowerCase();
@@ -549,7 +551,7 @@ export function handleImageAssets(opts: {
 
     ensureDir(opts.destPagesDir);
     const destImagesDir = path.join(opts.destPagesDir, 'images');
-    ensureDir(destImagesDir);
+    // images/ は実体が見つかった時だけ作る（FR-ACC-02）— 下の各ループで ensureDir
 
     const isCut = opts.renamePrefix === null;
     const destImagesRelToOut = path
@@ -562,6 +564,7 @@ export function handleImageAssets(opts: {
             const base = path.basename(ref);
             const srcImg = resolveSourceImage(ref, opts.srcOutDir, opts.srcPagesDir);
             if (!srcImg) continue;
+            ensureDir(destImagesDir);   // FR-ACC-02: 実体をコピーするときだけ作る
             const destImg = path.join(destImagesDir, base);
             if (srcImg === destImg) continue;
             try {
@@ -583,6 +586,7 @@ export function handleImageAssets(opts: {
     for (const ref of images) {
         const srcImg = resolveSourceImage(ref, opts.srcOutDir, opts.srcPagesDir);
         if (!srcImg) continue;
+        ensureDir(destImagesDir);   // FR-ACC-02: 実体をコピーするときだけ作る
         const destAbs = copyImg(path.resolve(srcImg), opts.renamePrefix + path.basename(ref));
         refToNodeImage.set(ref, path.relative(opts.destOutDir, destAbs).replace(/\\/g, '/'));
     }
@@ -624,8 +628,6 @@ export function handleFileAsset(opts: {
         return { newFilePath: opts.filePath };
     }
 
-    ensureDir(opts.destFileDir);
-
     const srcFilePath = path.isAbsolute(opts.filePath)
         ? opts.filePath
         : path.resolve(opts.srcOutDir, opts.filePath);
@@ -633,6 +635,7 @@ export function handleFileAsset(opts: {
     if (!fs.existsSync(srcFilePath)) {
         return { newFilePath: null };
     }
+    ensureDir(opts.destFileDir);   // FR-ACC-02: 実体をコピーするときだけ作る
 
     // destName 指定時はそれを希望名にする（Export folder = node text 名。未指定は従来どおり src の basename）
     const originalName = opts.destName ? path.basename(opts.destName) : path.basename(srcFilePath);
@@ -884,12 +887,8 @@ export function replicateMdClosureToDest(opts: {
         closureNameMap.set(srcAbs, path.relative(destMdDir, destAbs).replace(/\\/g, '/'));
         closureDestAbs.set(srcAbs, destAbs);
     }
-    // 起点 md に画像/添付が無いケースでも closure md の資産を受けられるよう dest dir を事前作成
-    // （copyAssetsAndRewriteForMd / copier は destImageDir を ensureDir しないため）。
-    if (closureDestAbs.size > 0) {
-        ensureDir(destImageDir);
-        ensureDir(destFileDir);
-    }
+    // dest の images/ files/ は事前作成しない（FR-ACC-02「資産がある時のみ作成」— sprint 20260930-192647 TASK-08）。
+    // closure md に資産が無いのに空 dir が残っていた。作成は copyAssetsAndRewriteForMd が実体をコピーする直前に行う。
     // closure md 群で 1 つの copier を共有（別 md が同名別画像を持っても連番退避で別ファイル化 = 1:1 所有権保証）。
     const closureImgCopier = makeUniqueImageCopier(destImageDir);
     for (const srcAbs of closure) {
@@ -1191,13 +1190,8 @@ export function copyMdPasteAssets(opts: {
     // Extract file paths from markdown (📎 attached files)
     const filePaths = refs.files;
 
-    // Ensure dest directories exist
-    if (imagePaths.length > 0) {
-        ensureDir(opts.destImageDir);
-    }
-    if (filePaths.length > 0 || drawioImagePaths.length > 0) {
-        ensureDir(opts.destFileDir);
-    }
+    // dest の images/ files/ は事前作成しない（FR-ACC-02 — 参照があっても実体が無ければ作らない）。
+    // 各ループで実体の存在と roots の検査を通った直後に ensureDir する（TASK-09 / reviewer iter4 QUAL-4）。
 
     // Copy images with rename pattern: copy-{timestamp}-{originalName}
     // 1:1 所有権保証: 別 dir 同名の別実体は連番退避で別ファイル化・同一物理 src は 1 コピー集約。
@@ -1213,6 +1207,7 @@ export function copyMdPasteAssets(opts: {
             continue; // Skip missing files
         }
         if (!isRefUnderRoots(srcAbsolute, opts.restrictSourceRoots)) { opts.report?.skipped.push(srcAbsolute); continue; } // SEC-1
+        ensureDir(opts.destImageDir);   // FR-ACC-02: 実体をコピーするときだけ作る
 
         const originalName = path.basename(imagePath);
         const destAbsolute = copyImg(path.resolve(srcAbsolute), `copy-${timestamp}-${originalName}`);
@@ -1233,6 +1228,7 @@ export function copyMdPasteAssets(opts: {
         const srcAbsolute = path.resolve(opts.sourceMdDir, drawioPath);
         if (!fs.existsSync(srcAbsolute)) { opts.report?.skipped.push(srcAbsolute); continue; }
         if (!isRefUnderRoots(srcAbsolute, opts.restrictSourceRoots)) { opts.report?.skipped.push(srcAbsolute); continue; } // SEC-1
+        ensureDir(opts.destFileDir);   // FR-ACC-02: 実体をコピーするときだけ作る（drawio 画像は files/）
         const originalName = path.basename(drawioPath);
         const uniqueName = buildUniqueDrawioName(originalName, (n) =>
             fs.existsSync(path.join(opts.destFileDir, n))
@@ -1262,6 +1258,7 @@ export function copyMdPasteAssets(opts: {
             continue; // Skip missing files
         }
         if (!isRefUnderRoots(srcAbsolute, opts.restrictSourceRoots)) { opts.report?.skipped.push(srcAbsolute); continue; } // SEC-1
+        ensureDir(opts.destFileDir);   // FR-ACC-02: 実体をコピーするときだけ作る
 
         const originalName = path.basename(filePath);
         const uniqueName = generateUniqueFileNamePreserving(opts.destFileDir, originalName);
@@ -1412,13 +1409,13 @@ export function buildOutlinerNodesPasteMd(opts: {
         // (c) node 直付き画像 (非 page) → 複製 + 画像行 (FR-NP-04)。
         //     page node の images は handlePageAssets が処理済みなので対象外。
         if (!node.isPage && node.images && node.images.length) {
-            ensureDir(opts.destImagesDir);
             for (const ref of node.images) {
                 const srcImg = resolveSourceImage(ref, opts.srcOutDir, opts.srcPagesDir);
                 if (!srcImg) {
                     console.warn(`[buildOutlinerNodesPasteMd] node image not found: ${ref}`);
                     continue;
                 }
+                ensureDir(opts.destImagesDir);   // FR-ACC-02: 実体をコピーするときだけ作る
                 // 1:1 所有: 常に新実体 (衝突時 uniquify)
                 const destName = generateUniqueFileNamePreserving(opts.destImagesDir, path.basename(srcImg));
                 try { fs.copyFileSync(srcImg, path.join(opts.destImagesDir, destName)); } catch { continue; }

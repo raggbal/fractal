@@ -6018,8 +6018,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                 <div class="toolbar-fixed toolbar-fixed--right">
                     <div class="toolbar-group" data-group="utility">
                         <button data-action="attachments" title="Attachments"></button>
-                        <button data-action="openInTextEditor" title=" (Ctrl+Shift+.)"></button>
-                        <button data-action="source" title=" (Ctrl+.)"></button>
+                        <button data-action="openInTextEditor" title=" (Cmd+Shift+.)"></button>
+                        <button data-action="source" title=" (Cmd+.)"></button>
                         <button data-action="translate" class="toolbar-translate-fixed" title="Translate"></button>
                         <button data-action="exportPdf" title="Export to PDF"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg></button>
                         <button data-action="exportBundle" title="Export bundle"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
@@ -61095,8 +61095,14 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
     window.addEventListener('message', function (event) {
         var msg = event.data;
         if (!msg || !container || !currentLinkId || msg.folderLinkId !== currentLinkId) { return; }
+        // FR-FVT-01 / DOM-TransferDoneSignal: host は移動・複製要求を処理し終えたら結末によらず 1 回これを送る。
+        // 一覧再送（下の folderViewListResult）は no-op・失敗・件数ゲート拒否では来ないため、解除契機をこちらに持つ。
+        if (msg.type === 'folderViewTransferDone') {
+            fvEndTransfer();
+            return;
+        }
         if (msg.type === 'folderViewListResult') {
-            fvEndTransfer();   // INV-11: 転送完了（host の一覧再送）でフラグを解除する
+            fvEndTransfer();   // INV-11: 転送完了（host の一覧再送）でもフラグを解除する（二重解除は冪等）
             if (msg.error) {
                 var errRel = msg.relPath || '';
                 if (errRel === '') {
@@ -61822,7 +61828,7 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         var b = bridge();
         var m = mode || 'move';
         if (!ids || ids.length === 0) { return; }
-        // INV-11: 進行中は受け付けない（完了は host からの一覧再送で解除する）
+        // INV-11: 進行中は受け付けない（完了は host の folderViewTransferDone / 一覧再送で解除する = FR-FVT-01）
         if (!fvBeginTransfer()) { return; }
         // FR-FDP-09 / NFR-FDP-06（TASK-08）: **フォルダを含むなら 1 件でも batch 経路**に通す。
         // 単数 bridge を直呼びすると件数ゲート（2 段化した実件数判定）と集計通知の両方を迂回し、
@@ -61838,7 +61844,8 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             return;
         }
         if (ids.length === 1) {
-            if (typeof b.folderViewMove !== 'function') { return; }
+            // FR-FVT-01: host に要求が届かない = 完了通知も来ないので、ここで解除してから返す
+            if (typeof b.folderViewMove !== 'function') { fvEndTransfer(); return; }
             // 🔴 `mode === 'move'`（= D&D）のときは **第 4 引数を渡さない**。
             //    既存 spec（`folder-view-dnd.spec.ts` TC-FLV-39）が bridge 呼び出しの
             //    **引数配列を完全一致で assert** しているため、引数を増やすと byte 不変が崩れる（実測で検出）。
@@ -61849,6 +61856,8 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         }
         if (typeof b.folderViewMoveBatch === 'function') {
             b.folderViewMoveBatch(currentLinkId, ids, dstDirRel, m);
+        } else {
+            fvEndTransfer();   // FR-FVT-01: 同上（bridge 不在 = 完了通知が来ない）
         }
     }
 
@@ -62232,9 +62241,15 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 }
                 if (files.length === 0) { return; }   // 貼る対象が 1 つも無い（= clipboard が空）
                 e.preventDefault();
+                // FR-CBD-07 rev3 / ADRL-0133（その場複製）: focus 行が clipboard のコピー元に含まれる
+                // （= Cmd+C 直後に選択を変えていない）なら、宛先は focus 行の**親**（コピー元と同じ階層）。
+                // フォルダ行の「その中」にすると自分自身の中への複製になり host の自己子孫ガードに当たる。
+                // それ以外のフォルダ行は従来どおり「その中」（resolveDstFromRel 本体は D&D / G と共有なので触らない）。
+                var hDst = dst;
+                if (selectedRel && fmeta.relPaths.indexOf(selectedRel) >= 0) { hDst = parentRelOf(selectedRel); }
                 // 🔴 fvMovePreflight は**通さない**（NFR-REL-1）。H は「同じ階層への複製」が正常系で、
                 //    D&D 用の全体拒否ガード（既に同じ親 → reject）を掛けると原理的に動かなくなる。
-                dispatchFvMove(files, dst, 'copy');
+                dispatchFvMove(files, hDst, 'copy');
                 return;
             }
         }

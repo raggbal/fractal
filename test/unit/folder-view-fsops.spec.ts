@@ -307,7 +307,7 @@ test.describe('folder view fs 操作 host 端（TASK-04）', () => {
         expect(calls.trash).toHaveLength(2);
     });
 
-    test('TC-FLV-14: move — rename 移動・同名/自己子孫/EXDEV エラー中断（copy+delete 不発）', async () => {
+    test('TC-FLV-14: move — rename 移動・同名は連番（ADRL-0132）・自己子孫/EXDEV エラー中断（copy+delete 不発）', async () => {
         const { mod, m, id, root } = setupLinked();
         const { deps, calls } = makeFvDeps();
         const { sender } = makeSender();
@@ -319,16 +319,18 @@ test.describe('folder view fs 操作 host 端（TASK-04）', () => {
         expect(await mod.folderViewMove(m, id, 'mv.txt', 'dst', deps as any, sender as any)).toBe(true);
         expect(fs.readFileSync(path.join(root, 'dst', 'mv.txt'), 'utf8')).toBe('body');
         expect(fs.existsSync(path.join(root, 'mv.txt'))).toBe(false);
-        // 同名衝突 → 中断（両実体無傷）
+        // 同名衝突 → 連番で移動（ADRL-0132。既存は無傷）
         fs.writeFileSync(path.join(root, 'mv.txt'), 'v2');
-        expect(await mod.folderViewMove(m, id, 'mv.txt', 'dst', deps as any, sender as any)).toBe(false);
-        expect(fs.readFileSync(path.join(root, 'mv.txt'), 'utf8')).toBe('v2');
+        expect(await mod.folderViewMove(m, id, 'mv.txt', 'dst', deps as any, sender as any)).toBe(true);
+        expect(fs.readFileSync(path.join(root, 'dst', 'mv-1.txt'), 'utf8')).toBe('v2');
         expect(fs.readFileSync(path.join(root, 'dst', 'mv.txt'), 'utf8')).toBe('body');
+        expect(fs.existsSync(path.join(root, 'mv.txt'))).toBe(false);
         // フォルダを自己子孫へ → no-op エラー
         fs.mkdirSync(path.join(root, 'mv-dir', 'inner'));
         expect(await mod.folderViewMove(m, id, 'mv-dir', 'mv-dir/inner', deps as any, sender as any)).toBe(false);
         expect(fs.existsSync(path.join(root, 'mv-dir'))).toBe(true);
         // EXDEV → エラー中断・copy+delete を試みない（fs 状態不変 — renameFs 注入 seam で再現）
+        fs.writeFileSync(path.join(root, 'mv.txt'), 'v2');   // 上の同名移動で mv.txt は dst へ移ったので作り直す
         (deps as any).renameFs = () => { const e: any = new Error('EXDEV'); e.code = 'EXDEV'; throw e; };
         expect(await mod.folderViewMove(m, id, 'mv.txt', 'mv-dir', deps as any, sender as any)).toBe(false);
         expect(fs.readFileSync(path.join(root, 'mv.txt'), 'utf8')).toBe('v2'); // 元無傷

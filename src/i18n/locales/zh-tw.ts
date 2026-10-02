@@ -33,12 +33,7 @@ export const messages = {
   batchTransferConfirm: '要傳輸 {count} 個項目嗎？',
   batchTransferConfirmProceed: '傳輸',
   batchTransferTooMany: '項目過多，無法傳輸（上限：2000 個）。未傳輸任何內容。',
-  // FR-CFL-01 / FR-FDP-09（TASK-05）: 同名衝突の 3 択 + 集計通知の内訳
-  conflictPromptBody: '目標位置已存在「{name}」。您想如何處理？',
-  conflictOverwrite: '覆寫',
-  conflictOverwriteAll: '全部覆寫',
-  conflictRename: '保留兩者',
-  conflictRenameAll: '全部保留兩者',
+  // FR-CFL-01 / FR-FDP-09（TASK-05）: 集計通知の内訳
   folderTransferSummary: '已處理 {folders} 個資料夾（{files} 個檔案）。',
   folderTransferExcluded: '有 {count} 項因目標位置不支援該類型而被排除。',
   exportFolderConfirm: '要將 {count} 個項目匯出到所選資料夾嗎？',

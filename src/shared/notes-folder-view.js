@@ -262,8 +262,14 @@
     window.addEventListener('message', function (event) {
         var msg = event.data;
         if (!msg || !container || !currentLinkId || msg.folderLinkId !== currentLinkId) { return; }
+        // FR-FVT-01 / DOM-TransferDoneSignal: host は移動・複製要求を処理し終えたら結末によらず 1 回これを送る。
+        // 一覧再送（下の folderViewListResult）は no-op・失敗・件数ゲート拒否では来ないため、解除契機をこちらに持つ。
+        if (msg.type === 'folderViewTransferDone') {
+            fvEndTransfer();
+            return;
+        }
         if (msg.type === 'folderViewListResult') {
-            fvEndTransfer();   // INV-11: 転送完了（host の一覧再送）でフラグを解除する
+            fvEndTransfer();   // INV-11: 転送完了（host の一覧再送）でもフラグを解除する（二重解除は冪等）
             if (msg.error) {
                 var errRel = msg.relPath || '';
                 if (errRel === '') {
@@ -989,7 +995,7 @@
         var b = bridge();
         var m = mode || 'move';
         if (!ids || ids.length === 0) { return; }
-        // INV-11: 進行中は受け付けない（完了は host からの一覧再送で解除する）
+        // INV-11: 進行中は受け付けない（完了は host の folderViewTransferDone / 一覧再送で解除する = FR-FVT-01）
         if (!fvBeginTransfer()) { return; }
         // FR-FDP-09 / NFR-FDP-06（TASK-08）: **フォルダを含むなら 1 件でも batch 経路**に通す。
         // 単数 bridge を直呼びすると件数ゲート（2 段化した実件数判定）と集計通知の両方を迂回し、
@@ -1005,7 +1011,8 @@
             return;
         }
         if (ids.length === 1) {
-            if (typeof b.folderViewMove !== 'function') { return; }
+            // FR-FVT-01: host に要求が届かない = 完了通知も来ないので、ここで解除してから返す
+            if (typeof b.folderViewMove !== 'function') { fvEndTransfer(); return; }
             // 🔴 `mode === 'move'`（= D&D）のときは **第 4 引数を渡さない**。
             //    既存 spec（`folder-view-dnd.spec.ts` TC-FLV-39）が bridge 呼び出しの
             //    **引数配列を完全一致で assert** しているため、引数を増やすと byte 不変が崩れる（実測で検出）。
@@ -1016,6 +1023,8 @@
         }
         if (typeof b.folderViewMoveBatch === 'function') {
             b.folderViewMoveBatch(currentLinkId, ids, dstDirRel, m);
+        } else {
+            fvEndTransfer();   // FR-FVT-01: 同上（bridge 不在 = 完了通知が来ない）
         }
     }
 
@@ -1399,9 +1408,15 @@
                 }
                 if (files.length === 0) { return; }   // 貼る対象が 1 つも無い（= clipboard が空）
                 e.preventDefault();
+                // FR-CBD-07 rev3 / ADRL-0133（その場複製）: focus 行が clipboard のコピー元に含まれる
+                // （= Cmd+C 直後に選択を変えていない）なら、宛先は focus 行の**親**（コピー元と同じ階層）。
+                // フォルダ行の「その中」にすると自分自身の中への複製になり host の自己子孫ガードに当たる。
+                // それ以外のフォルダ行は従来どおり「その中」（resolveDstFromRel 本体は D&D / G と共有なので触らない）。
+                var hDst = dst;
+                if (selectedRel && fmeta.relPaths.indexOf(selectedRel) >= 0) { hDst = parentRelOf(selectedRel); }
                 // 🔴 fvMovePreflight は**通さない**（NFR-REL-1）。H は「同じ階層への複製」が正常系で、
                 //    D&D 用の全体拒否ガード（既に同じ親 → reject）を掛けると原理的に動かなくなる。
-                dispatchFvMove(files, dst, 'copy');
+                dispatchFvMove(files, hDst, 'copy');
                 return;
             }
         }

@@ -99,3 +99,46 @@ test.describe('TASK-12 転送中の排他（進行中フラグ）', () => {
         expect(moves.length, '完了後もフラグが残って次の drop が通らない').toBeGreaterThan(0);
     });
 });
+
+/**
+ * sprint 20260930-192647-linkedfd-conflict-rename-and-paste-sibling — FR-FVT-01（転送中フラグは結末によらず解除）
+ * TC-FVT-03: folderViewTransferDone（一覧再送なし）で解除される
+ * TC-FVT-04: 別 linkedfd 宛ての完了通知では解除しない（面単位）
+ * TC-FVT-06: bridge 関数が無いとき dispatch はその場で解除する
+ */
+test.describe('転送完了通知で進行中フラグを解除（FR-FVT-01）', () => {
+    async function movesOf(page: Page, grab: string, dropOn: string) {
+        await page.evaluate(() => { (window as any).__calls.length = 0; });
+        const c = await dnd(page, grab, dropOn);
+        return c.filter((x: any) => /^folderViewMove/.test(x.type)).length;
+    }
+
+    test('TC-FVT-03: folderViewTransferDone だけで解除され次の drop が通る', async ({ page }) => {
+        await mountFv(page);
+        expect(await movesOf(page, 'docs', 'archive')).toBeGreaterThan(0);
+        await page.evaluate(() => { window.postMessage({ type: 'folderViewTransferDone', folderLinkId: 'fl1' }, '*'); });
+        await page.waitForTimeout(80);
+        expect(await movesOf(page, 'src', 'archive'), '完了通知で解除されていない').toBeGreaterThan(0);
+    });
+
+    test('TC-FVT-04: 別 linkedfd 宛ての完了通知では解除しない', async ({ page }) => {
+        await mountFv(page);
+        expect(await movesOf(page, 'docs', 'archive')).toBeGreaterThan(0);
+        await page.evaluate(() => { window.postMessage({ type: 'folderViewTransferDone', folderLinkId: 'other' }, '*'); });
+        await page.waitForTimeout(80);
+        expect(await movesOf(page, 'src', 'archive'), '別面の完了通知で解除された').toBe(0);
+    });
+
+    test('TC-FVT-06: bridge 関数が無いとき dispatch はその場でフラグを解除する', async ({ page }) => {
+        await mountFv(page);
+        // folderViewMove / folderViewMoveBatch を持たない bridge に差し替えて 1 回目を dispatch
+        await page.evaluate(() => {
+            const w = window as any;
+            w.__savedBridge = w.notesHostBridge;
+            w.notesHostBridge = { notifyError: () => { /* noop */ } };
+        });
+        await dnd(page, 'docs', 'archive');
+        await page.evaluate(() => { const w = window as any; w.notesHostBridge = w.__savedBridge; });
+        expect(await movesOf(page, 'src', 'archive'), 'bridge 不在の 1 回目でフラグが残った').toBeGreaterThan(0);
+    });
+});
