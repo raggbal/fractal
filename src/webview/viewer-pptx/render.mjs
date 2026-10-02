@@ -36,8 +36,11 @@ function ensureStyle(doc) {
         '  box-shadow: 0 1px 4px rgba(0,0,0,0.25); }',
         '.ppv-el { position: absolute; }',
         '.ppv-el svg { position: absolute; inset: 0; overflow: visible; }',
+        // PowerPoint は枠をはみ出したテキストを切らずに描く（t=下へ / ctr=上下へ / b=上へ — justify-content で再現）。
+        // 段落は縮めない（flex-shrink の既定 1 だと溢れた段落が押し縮められて行が重なり、下が切れる）
         '.ppv-text { position: absolute; inset: 0; display: flex; flex-direction: column;',
-        '  overflow: hidden; white-space: pre-wrap; word-break: break-word; }',
+        '  overflow: visible; white-space: pre-wrap; word-break: break-word; }',
+        '.ppv-text > * { flex-shrink: 0; }',
         '.ppv-text p { margin: 0; min-height: 1em; }',
         '.ppv-text.ppv-vert { writing-mode: vertical-rl; }',
         '.ppv-text.ppv-vert270 { writing-mode: vertical-rl; transform: rotate(180deg); }',
@@ -284,11 +287,18 @@ function attachText(doc, wrap, el) {
 // autofit を再計算する。DOM attach 後に高さ超過を実測し、収まるまで段階縮小する。
 // stored fontScale は renderRuns で適用済み = ここでの縮小はそこを起点に「下げる」だけ（上げない）。
 const AUTOFIT_FACTORS = [0.925, 0.85, 0.775, 0.7, 0.625, 0.55, 0.475, 0.4, 0.325, 0.25];
+// 内容の高さが枠を超えるか。ctr / b で上へはみ出した分は scrollHeight に数えられないため、
+// 先頭〜最終の子要素の範囲で測る（offsetTop は変形の影響を受けない）
+function overflows(tb) {
+    const first = tb.firstElementChild; const last = tb.lastElementChild;
+    if (!first) { return false; }
+    return last.offsetTop + last.offsetHeight - first.offsetTop > tb.clientHeight + 1;
+}
 function autofitPass(slideEl) {
     const boxes = slideEl.querySelectorAll('.ppv-text[data-ppv-autofit="1"]');
     for (const tb of boxes) {
         if (!tb.clientHeight) { continue; }               // 未レイアウト（jsdom / display:none）は対象外
-        if (tb.scrollHeight <= tb.clientHeight + 1) { continue; }
+        if (!overflows(tb)) { continue; }
         // 基準サイズを記憶（p の line-height / run の font-size — 因子は常に基準からの乗算で累積誤差なし）
         const targets = [];
         for (const n of tb.querySelectorAll('p, span, a')) {
@@ -304,7 +314,7 @@ function autofitPass(slideEl) {
                 if (t.fs) { t.n.style.fontSize = `${Math.round(t.fs[0] * f * 100) / 100}${t.fs[1]}`; }
                 if (t.lh) { t.n.style.lineHeight = `${Math.round(t.lh[0] * f * 1000) / 1000}${t.lh[1]}`; }
             }
-            if (tb.scrollHeight <= tb.clientHeight + 1) { break; }
+            if (!overflows(tb)) { break; }
         }
     }
 }

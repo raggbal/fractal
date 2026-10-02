@@ -7,7 +7,7 @@
  * 1 枚も描画されなかった（レイアウト・マスターが画像背景で文字が白いスライドは真っ白に見える）。
  * 既存 viewer-pptx-bg.spec.ts は bgRef（単色）だけでパーサ出力しか見ておらず、描画の継ぎ目を踏んでいなかった。
  *
- * 番人: normFill の画像分岐を fill.value.picBase64 読みに戻すと TC-PBG-01〜03 / 05 / 07 が落ちる。
+ * 番人: normFill の画像分岐を fill.value.picBase64 読みに戻すと TC-PBG-01〜05 / 07 が落ちる。
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
