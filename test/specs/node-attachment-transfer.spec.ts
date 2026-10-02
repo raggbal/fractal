@@ -327,7 +327,9 @@ test.describe('TC-MSEL-06 fv 複数選択 → note ツリーの受け手（FR-MS
         expect(got.moves[0].relPath).toBe('solo.txt');
     });
 
-    test('TC-MSEL-07 受け手: フォルダ混在は file だけ転送し通知は 1 回だけ', async ({ page }) => {
+    test('TC-MSEL-07 受け手: フォルダ混在でも全件を選択順で転送し通知は出さない', async ({ page }) => {
+        // ⚠️ 期待値更新（sprint 20261002-154417-folder-dnd-stale-tests / 許可: test_update）:
+        // v1.3.16（FR-FDP-01/05・ADRL-0122）でフォルダも運ぶ仕様に変わった。旧期待（フォルダ除外）は v1.3.16 から red のまま残っていた
         await setup(page);
         const got = await dropFv(page, {
             v: 1, folderLinkId: 'fl1',
@@ -338,9 +340,10 @@ test.describe('TC-MSEL-06 fv 複数選択 → note ツリーの受け手（FR-MS
                 { folderLinkId: 'fl1', relPath: 'f2.txt', isDir: false },
             ],
         });
-        expect(got.transferred.map((x: any) => x.relPath), 'フォルダが転送された').toEqual(['f1.txt', 'f2.txt']);
-        // NFR-MSEL-03: アイテム毎ではなく 1 回だけ
-        expect(got.notices.length, `除外通知が ${got.notices.length} 回（1 回であるべき）`).toBe(1);
+        expect(got.transferred.map((x: any) => x.relPath), 'フォルダが落とされた')
+            .toEqual(['dirA', 'f1.txt', 'dirB', 'f2.txt']);
+        expect(got.batch.length, '複数は配列 bridge を 1 回（件数ゲートを迂回しない）').toBe(1);
+        expect(got.notices.length, `不要な除外通知が出た（${got.notices.length} 回）`).toBe(0);
     });
 
     test('TC-MSEL-07b 送り手が数えた excludedDirs も 1 回の通知に合算される', async ({ page }) => {
@@ -353,7 +356,9 @@ test.describe('TC-MSEL-06 fv 複数選択 → note ツリーの受け手（FR-MS
         expect(got.notices.length, '送り手側の除外件数が通知されない').toBe(1);
     });
 
-    test('フォルダのみの payload は転送 0 件 + 通知 1 回（部分実行しない）', async ({ page }) => {
+    test('フォルダのみの payload も全件転送し通知は出さない', async ({ page }) => {
+        // ⚠️ 期待値更新（sprint 20261002-154417-folder-dnd-stale-tests / 許可: test_update）:
+        // v1.3.16（FR-FDP-01/05・ADRL-0122）でフォルダも運ぶ仕様に変わった。旧期待（フォルダ除外）は v1.3.16 から red のまま残っていた
         await setup(page);
         const got = await dropFv(page, {
             v: 1, folderLinkId: 'fl1',
@@ -362,8 +367,8 @@ test.describe('TC-MSEL-06 fv 複数選択 → note ツリーの受け手（FR-MS
                 { folderLinkId: 'fl1', relPath: 'dirB', isDir: true },
             ],
         });
-        expect(got.transferred.length, 'フォルダが転送された').toBe(0);
-        expect(got.notices.length).toBe(1);
+        expect(got.transferred.map((x: any) => x.relPath), 'フォルダが落とされた').toEqual(['dirA', 'dirB']);
+        expect(got.notices.length).toBe(0);
     });
 });
 

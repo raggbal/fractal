@@ -257,7 +257,10 @@ test.describe('TC-MSEL-05..08 複数選択 D&D の送り手契約（FR-MSEL-02/0
         expect(await selectedRels(page)).toEqual(['f1.txt', 'f2.txt', 'f3.txt']);
     });
 
-    test('TC-MSEL-07 選択にフォルダを含む → ファイルのみ載り除外件数が payload に出る', async ({ page }) => {
+    test('TC-MSEL-07 選択にフォルダを含む → フォルダも isDir の実値で payload に載る', async ({ page }) => {
+        // ⚠️ 期待値更新（sprint 20261002-154417-folder-dnd-stale-tests / 許可: test_update）:
+        // v1.3.16（FR-FDP-01/05・ADRL-0122）でフォルダも運ぶ仕様に変わった。旧期待（フォルダ除外）は v1.3.16 から red のまま残っていた
+
         await mountFv(page);
         // dirA(0) .. f2.txt(3) = dir 2 + file 2
         await clickRow(page, 'dirA');
@@ -265,25 +268,33 @@ test.describe('TC-MSEL-05..08 複数選択 D&D の送り手契約（FR-MSEL-02/0
         expect((await selectedRels(page)).length, '前提: 4 行選択（dir 2 + file 2）').toBe(4);
 
         const r = await fireDragstart(page, 'f1.txt');
-        expect(r.payload.items.map((x: any) => x.relPath), 'フォルダが payload に載った')
-            .toEqual(['f1.txt', 'f2.txt']);
-        expect(r.payload.excludedDirs, '除外件数が payload に無い（集計通知に出せない）').toBe(2);
-        expect(r.payload.items.every((x: any) => x.isDir === false), 'isDir:true が混入').toBe(true);
+        const items = r.payload.items as any[];
+        expect(items.length, 'フォルダが落とされた').toBe(4);
+        expect(items.filter((x) => x.isDir).map((x) => x.relPath).sort(), 'フォルダの isDir が実値でない')
+            .toEqual(['dirA', 'dirB']);
+        expect(items.filter((x) => !x.isDir).map((x) => x.relPath)).toEqual(['f1.txt', 'f2.txt']);
+        // フォルダはもう除外しないので 0（ここに dir 件数を入れると受け手が偽の「N 件除外」通知を出す）
+        expect(r.payload.excludedDirs).toBe(0);
     });
 
-    test('TC-MSEL-08 複数選択がフォルダのみ → preventDefault + 通知 1 回（無反応にしない）', async ({ page }) => {
+    test('TC-MSEL-08 複数選択がフォルダのみ → drag が始まりフォルダが payload に載る（通知なし）', async ({ page }) => {
+        // ⚠️ 期待値更新（sprint 20261002-154417-folder-dnd-stale-tests / 許可: test_update）:
+        // v1.3.16（FR-FDP-01/05・ADRL-0122）でフォルダも運ぶ仕様に変わった。旧期待（フォルダ除外）は v1.3.16 から red のまま残っていた
+
         await mountFv(page);
         await clickRow(page, 'dirA');
         await clickRow(page, 'dirB', { shift: true });
         await page.evaluate(() => { (window as any).__calls.length = 0; });
 
         const r = await fireDragstart(page, 'dirA');
-        expect(r.prevented, 'preventDefault されていない（drag が始まって無反応になる）').toBe(true);
-        expect(r.types, 'フォルダのみなのに payload が積まれた').not.toContain(FV_MIME);
+        expect(r.prevented, 'drag が始まらない（v1.3.16 以前の症状）').toBe(false);
+        expect(r.types, 'payload が積まれていない').toContain(FV_MIME);
+        expect(r.payload.items.map((x: any) => [x.relPath, x.isDir]), 'フォルダが選択順で載っていない')
+            .toEqual([['dirA', true], ['dirB', true]]);
 
         const notices = await page.evaluate(() =>
             (window as any).__calls.filter((c: any) => c.type === 'notifyError'));
-        expect(notices.length, `通知が 1 回でない（実際 ${notices.length} 回）`).toBe(1);
+        expect(notices.length, `不要な通知が出た（${notices.length} 回）`).toBe(0);
     });
 
     /**

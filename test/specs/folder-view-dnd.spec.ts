@@ -116,6 +116,10 @@ test.describe('TC-FLV-39 — W1: ビュー内移動（real mouse・one-shot・�
         await setup(page);
         await resetCalls(page);
         await realDrag(page, '.fv-row[data-rel="a.txt"]', '.fv-row[data-rel="dirA"]');
+        // ⚠️ 期待値更新（sprint 20261002-154417-folder-dnd-stale-tests / 許可: test_update）:
+        // v1.3.16 から転送中は次の drop を受けない（INV-11）。host の完了通知を模してから 2 回目を drag する
+        await page.evaluate(() => { window.postMessage({ type: 'folderViewTransferDone', folderLinkId: 'fl1' }, '*'); });
+        await page.waitForTimeout(80);
         await realDrag(page, '.fv-row[data-rel="b.md"]', '.fv-row[data-rel="dirA"]');
         const mv = await calls(page, 'folderViewMove');
         expect(mv.length).toBe(2);
@@ -218,12 +222,17 @@ test.describe('TC-FLV-41 — W2 受信端: フォルダビュー → Note ツリ
         expect(mt[0].args).toEqual(['fl1', 'a.txt', null, 5]);
     });
 
-    test('isDir=true の drop → 不受理通知 + bridge 不発', async ({ page }) => {
+    test('isDir=true の drop → フォルダも folderViewMoveToTree で運ぶ（通知なし）', async ({ page }) => {
+        // ⚠️ 期待値更新（sprint 20261002-154417-folder-dnd-stale-tests / 許可: test_update）:
+        // v1.3.16（FR-FDP-01/05・ADRL-0122）でフォルダも運ぶ仕様に変わった。旧期待（フォルダ除外）は v1.3.16 から red のまま残っていた
         await setup(page);
         await resetCalls(page);
         await realDrag(page, '.fv-row[data-rel="dirA"]', '[data-item-id="mdDoc"]', 0.25);
-        expect((await calls(page, 'folderViewMoveToTree')).length, 'bridge 不発').toBe(0);
-        expect((await calls(page, 'notifyError')).length, '不受理通知').toBe(1);
+        const mt = await calls(page, 'folderViewMoveToTree');
+        expect(mt.length, 'フォルダが運ばれていない').toBe(1);
+        expect(mt[0].args[0]).toBe('fl1');
+        expect(mt[0].args[1]).toBe('dirA');
+        expect((await calls(page, 'notifyError')).length, '不受理通知が出た').toBe(0);
     });
 });
 
