@@ -5,6 +5,18 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.17] - 2026-10-02
+
+### Changed
+- **Name clashes in a linked folder are always resolved by numbering** — dragging a file or folder onto a folder that already has something with the same name now moves it under a numbered name (`a.md` → `a-1.md`, `assets` → `assets-1`), with no dialog, no error and no notification. This is the same rule copy & paste already used, so drag and paste now behave alike. The **Cancel / Overwrite / Keep Both** dialog added in 1.3.16 is gone, and a single dragged file is no longer refused with "already exists"
+- **Folder names keep their dots when numbered** — `assets.bak` becomes `assets.bak-1` on drag, paste and Duplicate alike (paste and Duplicate used to produce `assets-1.bak`)
+
+### Fixed
+- **`Cmd/Ctrl+C` then `Cmd/Ctrl+V` without changing the selection now duplicates in place** — in a linked folder the copy appears next to the original as `name-1` for files, markdown and folders. Previously a file paste silently did nothing, and a selected folder was pasted into itself and failed. Selecting a different folder before pasting still puts the copy inside that folder
+- **A linked folder no longer stops responding after a drag or paste that did nothing** — a drop onto the same folder, a refused drop or a cancelled large transfer used to leave the view ignoring every further drag and paste until it was reopened
+- **Copying or moving a markdown file no longer creates empty `images/` and `files/` folders** — they used to appear whenever the file linked to a subpage, or referenced an image or attachment that did not exist, even though nothing was copied into them. This also applies to pasting outliner pages, node images and node attachments
+- **1.3.16 release notes corrected** — the 1.3.16 entry above says moving **or copying** offered a Cancel / Overwrite / Keep Both choice; in practice copying always numbered, and only some drags showed the dialog. That dialog has now been removed (see Changed)
+
 ## [1.3.16] - 2026-09-24
 
 ### Added
