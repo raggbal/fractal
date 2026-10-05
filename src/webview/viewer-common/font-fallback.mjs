@@ -32,7 +32,8 @@ function withBaseNames(name) {
     return out;
 }
 
-const quote = (name) => (/[^a-zA-Z0-9-]/.test(name) ? `"${name}"` : name);
+// 名前は文書由来の非信頼入力。" と \ をエスケープして引用の外へ出られないようにする
+const quote = (name) => (/[^a-zA-Z0-9-]/.test(name) ? `"${name.replace(/["\\]/g, '\\$&')}"` : name);
 
 /**
  * families（文書指定のフォント名列。falsy は無視）→ CSS font-family 文字列。

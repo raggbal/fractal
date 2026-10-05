@@ -4,7 +4,7 @@
  *
  * テーマの見出しフォント "Amazon Ember Display" が閲覧環境に無いと汎用フォントで描かれ、字幅が変わって
  * 折り返し位置がずれる。同じファミリーの基本名（"Amazon Ember"）を次の候補に置く。
- * 番人: 接尾語の規則を外すと (a)(b)(c)(e) が落ちる
+ * 番人: 接尾語の規則を外すと (a)(b)(c)(e) が落ちる / quote の " \\ エスケープを外すと TC-PBG-13 が落ちる
  */
 import { test, expect } from '@playwright/test';
 import * as path from 'path';
@@ -40,4 +40,18 @@ test('TC-PBG-12: 太さ・用途の接尾語を外した基本名が次の候補
     const node = { 'a:rPr': { attrs: { order: 0 } }, 'a:t': 'AWSentral' };
     const info = getSpanStyleInfo(node, {}, {}, undefined, undefined, undefined, 'title', undefined, undefined, warpObj);
     expect(info.styleText).toContain('font-family: "Amazon Ember Display", "Amazon Ember", sans-serif;');
+});
+
+test('TC-PBG-13: フォント名に " や \\ が入っても font-family の引用が壊れない（reviewer iter3 SEC-3）', async () => {
+    const { withJaFallback } = await import(/* webpackIgnore: true */ path.join(SRC, 'viewer-common', 'font-fallback.mjs'));
+    const evil = 'Arial" } .x{color:red} .y{font-family:"';
+    const out = withJaFallback([evil]);
+    expect(out.startsWith('"Arial\\" } .x{color:red} .y{font-family:\\""'), out).toBe(true);
+    // ブラウザの CSS パーサで 1 宣言として解釈され、color が漏れない
+    const { JSDOM: J } = await import('jsdom');
+    const d = new J('<span id="s"></span>').window.document;
+    const s = d.getElementById('s') as any;
+    s.style.cssText = `font-family: ${out};`;
+    expect(s.style.color, '注入した color が適用された').toBe('');
+    expect(withJaFallback(['a\\b'])).toBe('"a\\\\b", sans-serif');
 });
