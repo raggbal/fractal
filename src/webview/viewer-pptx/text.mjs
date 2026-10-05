@@ -9,6 +9,7 @@
  */
 import { getHorizontalAlign, getParagraphSpacing, getParagraphIndent } from './paragraph.mjs'
 import { getTextByPathList } from './utils.mjs'
+import { withJaFallback } from '../viewer-common/font-fallback.mjs' // fractal: 指定フォントが無い環境の代替
 
 import {
   getFontType,
@@ -162,7 +163,7 @@ export function getSpanStyleInfo(node, pNode, textBodyNode, pFontStyle, slideLay
     }
   }
   if (fontSize) styleText += `font-size: ${fontSize};`
-  if (fontType) styleText += `font-family: ${fontType};`
+  if (fontType) styleText += `font-family: ${withJaFallback(fontType.split(', '))};` // Modified for fractal: 基本名・和文別名・総称で補う
   if (fontBold) styleText += `font-weight: ${fontBold};`
   if (fontItalic) styleText += `font-style: ${fontItalic};`
   if (fontDecoration) styleText += `text-decoration: ${fontDecoration};`

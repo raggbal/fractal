@@ -5,6 +5,14 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.18] - 2026-10-05
+
+### Fixed
+- **PowerPoint slides with a picture background are drawn again** — slides whose background is an image (set on the slide, its layout or its master) used to appear blank or white, which made white text invisible. This mostly showed up on decks that switch designs or layouts between slides. Background transparency is now applied to the picture only
+- **Text in a PowerPoint text box is no longer cut off** — when text is taller than its box (for example a two-line title in a one-line title box), the lower lines used to be clipped or squeezed so that the lines overlapped. Text now spills out of the box the way PowerPoint draws it: downward for top-aligned boxes, both ways for centred ones and upward for bottom-aligned ones. Anything beyond the edge of the slide is still hidden
+- **Line breaks in PowerPoint and Word documents are closer to the original when a font is missing** — when a document asks for a font such as "Amazon Ember Display" or "Segoe UI Semibold" that is not installed, the viewer now falls back to the same family ("Amazon Ember", "Segoe UI") before a generic font, so lines wrap closer to where they do in Office
+- **Font names containing quotes no longer break the text style** in the PowerPoint and Word viewers
+
 ## [1.3.17] - 2026-10-02
 
 ### Changed
