@@ -230,8 +230,7 @@ test.describe('TC-FLV-41 — W2 受信端: フォルダビュー → Note ツリ
         await realDrag(page, '.fv-row[data-rel="dirA"]', '[data-item-id="mdDoc"]', 0.25);
         const mt = await calls(page, 'folderViewMoveToTree');
         expect(mt.length, 'フォルダが運ばれていない').toBe(1);
-        expect(mt[0].args[0]).toBe('fl1');
-        expect(mt[0].args[1]).toBe('dirA');
+        expect(mt[0].args).toEqual(['fl1', 'dirA', null, 0]);
         expect((await calls(page, 'notifyError')).length, '不受理通知が出た').toBe(0);
     });
 });
