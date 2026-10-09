@@ -401,6 +401,11 @@ export interface WebviewMessages {
   viewerUnsupportedMath: string;
   viewerSheetHidden: string;
   viewerVerticalTextApprox: string;
+  // drawio viewer（sprint 20261009-130815 / FR-DIO-06/07）
+  viewerDrawioPage: string;
+  viewerDrawioLayers: string;
+  viewerDrawioLoading: string;
+  viewerDrawioRenderFailed: string;
 }
 
 // Supported locales

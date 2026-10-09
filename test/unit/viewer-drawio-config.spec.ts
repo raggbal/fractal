@@ -132,4 +132,21 @@ test.describe('drawio viewer の配線', () => {
             expect(fs.existsSync(path.join(ROOT, 'test', 'html', 'drawio-viewer', f)), f).toBe(true);
         }
     });
+
+    test('TC-DIO-10: drawio の i18n キーは WebviewMessages に属し、7 locale の webviewMessages に非空で存在', () => {
+        const KEYS = ['viewerDrawioPage', 'viewerDrawioLayers', 'viewerDrawioLoading', 'viewerDrawioRenderFailed'];
+        const ifaceSrc = fs.readFileSync(path.join(ROOT, 'src', 'i18n', 'messages.ts'), 'utf8');
+        const wmStart = ifaceSrc.indexOf('export interface WebviewMessages');
+        expect(wmStart).toBeGreaterThan(-1);
+        const wmBody = ifaceSrc.slice(wmStart, ifaceSrc.indexOf('\n}', wmStart));
+        for (const k of KEYS) { expect(wmBody, `WebviewMessages.${k}`).toContain(`${k}:`); }
+        for (const loc of ['en', 'es', 'fr', 'ja', 'ko', 'zh-cn', 'zh-tw']) {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const mod = require(`../../src/i18n/locales/${loc}`);
+            for (const k of KEYS) {
+                const v = mod.webviewMessages && mod.webviewMessages[k];
+                expect(typeof v === 'string' && v.length > 0, `${loc}.${k}`).toBe(true);
+            }
+        }
+    });
 });

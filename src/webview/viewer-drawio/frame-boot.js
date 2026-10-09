@@ -7,6 +7,7 @@
 // 通信は親が渡す MessagePort だけ（window.postMessage での返信は親の "null" origin 拒否で届かない — ADRL-0067）:
 //   親 → {type:'drawioInit'} + port（window message・1 回だけ受ける）
 //   親 → port {type:'load', format:'xml'|'svg'|'png', data: string|ArrayBuffer}
+//   親 → port {type:'page', index} / {type:'zoom', dir:'in'|'out'|'fit'} / {type:'layer', id, visible}
 //   iframe → port {type:'rendered', pages:[{name}], page, layers:[{id,name,visible}]} / {type:'noDiagram'} / {type:'error', code}
 (function () {
     'use strict';
@@ -39,7 +40,59 @@
     });
 
     function onCommand(m) {
-        if (m.type === 'load') { load(m); }
+        if (m.type === 'load') { load(m); return; }
+        if (!graph) { return; }
+        if (m.type === 'page') {
+            var i = Number(m.index);
+            if (i >= 0 && i < pages.length && i !== pageIndex) { show(i); }
+        } else if (m.type === 'zoom') {
+            if (m.dir === 'fit') { fit(); return; }
+            var pane = document.getElementById('pane');
+            zoomAt(m.dir === 'in' ? 1.25 : 1 / 1.25, pane.clientWidth / 2, pane.clientHeight / 2);
+        } else if (m.type === 'layer') {
+            var model = graph.getModel();
+            var cell = model.getCell(String(m.id));
+            // 表示だけを切り替える（ファイルへは書かない — FR-DIO-07）
+            if (cell && model.getParent(cell) === model.getRoot()) { model.setVisible(cell, !!m.visible); }
+        }
+    }
+
+    // (px, py)（pane 座標）を動かさずに倍率を f 倍する
+    function zoomAt(f, px, py) {
+        var s = graph.view.scale, t = graph.view.translate;
+        var s2 = Math.min(32, Math.max(0.02, s * f));
+        var gx = px / s - t.x, gy = py / s - t.y;
+        graph.view.scaleAndTranslate(s2, px / s2 - gx, py / s2 - gy);
+    }
+
+    // ホイール: (ctrl||meta)+wheel（トラックパッドのピンチ）はカーソル不動点ズーム。係数は ADRL-0100 決定 1 の
+    // 全 kind 共通値 exp(-deltaY*0.003)（pinch-zoom.mjs / file-viewer.js と同値 — 4 箇所同時変更の対象）。
+    // iframe 内のイベントは親に届かないので、ここで preventDefault して VS Code 全体ズームも止める。修飾なしはパン
+    function attachInput(pane) {
+        pane.addEventListener('wheel', function (e) {
+            if (!graph) { return; }
+            e.preventDefault();
+            var r = pane.getBoundingClientRect();
+            if (e.ctrlKey || e.metaKey) {
+                zoomAt(Math.exp(-e.deltaY * 0.003), e.clientX - r.left, e.clientY - r.top);
+            } else {
+                var s = graph.view.scale, t = graph.view.translate;
+                graph.view.setTranslate(t.x - e.deltaX / s, t.y - e.deltaY / s);
+            }
+        }, { passive: false });
+        var drag = null;
+        pane.addEventListener('mousedown', function (e) {
+            if (!graph || e.button !== 0) { return; }
+            drag = { x: e.clientX, y: e.clientY };
+            e.preventDefault();
+        });
+        window.addEventListener('mousemove', function (e) {
+            if (!drag) { return; }
+            var s = graph.view.scale, t = graph.view.translate;
+            graph.view.setTranslate(t.x + (e.clientX - drag.x) / s, t.y + (e.clientY - drag.y) / s);
+            drag = { x: e.clientX, y: e.clientY };
+        });
+        window.addEventListener('mouseup', function () { drag = null; });
     }
 
     function fail(code) { post({ type: 'error', code: code }); }
@@ -101,6 +154,7 @@
         graph = new Graph(pane);
         graph.setEnabled(false); // 読み取り専用
         editor = new Editor(true, null, null, graph);
+        attachInput(pane);
     }
 
     // 全体表示（最大 100%・中央寄せ — howto §3）

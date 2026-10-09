@@ -369,6 +369,10 @@ export const webviewMessages = {
   viewerUnsupportedMath: '[公式]',
   viewerSheetHidden: '隐藏的工作表',
   viewerVerticalTextApprox: '直排文档以横排近似显示',
+  viewerDrawioPage: '页面',
+  viewerDrawioLayers: '图层',
+  viewerDrawioLoading: '正在准备图表…',
+  viewerDrawioRenderFailed: '无法显示此图表',
   viewerExpand: '最大化',
   viewerClose: '关闭',
 };

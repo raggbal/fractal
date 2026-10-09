@@ -369,6 +369,10 @@ export const webviewMessages = {
   viewerUnsupportedMath: '[ecuación]',
   viewerSheetHidden: 'Hoja oculta',
   viewerVerticalTextApprox: 'Texto vertical mostrado en horizontal (aproximación)',
+  viewerDrawioPage: 'Página',
+  viewerDrawioLayers: 'Capas',
+  viewerDrawioLoading: 'Preparando el diagrama…',
+  viewerDrawioRenderFailed: 'No se pudo mostrar este diagrama',
   viewerExpand: 'Expandir',
   viewerClose: 'Cerrar',
 };

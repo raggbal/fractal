@@ -414,6 +414,10 @@ export const webviewMessages = {
   viewerUnsupportedMath: '[数式]',
   viewerSheetHidden: '非表示シート',
   viewerVerticalTextApprox: '縦書き文書のため表示が原本と異なります',
+  viewerDrawioPage: 'ページ',
+  viewerDrawioLayers: 'レイヤー',
+  viewerDrawioLoading: '図を準備中…',
+  viewerDrawioRenderFailed: 'この図を表示できませんでした',
   viewerExpand: '最大化',
   viewerClose: '閉じる',
 };

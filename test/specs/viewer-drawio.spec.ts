@@ -108,3 +108,105 @@ test.describe('drawio viewer — 描画', () => {
         expect(msgs.some((m: any) => m.type === 'openExternalFallback')).toBe(true);
     });
 });
+
+/** 描画中の図形（path）の外接幅。svg 直下の g は背景を含み倍率で変わらないため使わない */
+const GRAPH_WIDTH_JS = `(() => { let l = 1e9, r = -1e9;
+    document.querySelectorAll('#pane svg path').forEach((p) => { const b = p.getBoundingClientRect(); l = Math.min(l, b.left); r = Math.max(r, b.right); });
+    return r - l; })()`;
+async function graphWidth(frame: Frame): Promise<number> {
+    return frame.evaluate(GRAPH_WIDTH_JS);
+}
+/** 図形幅が条件を満たすまで待つ（iframe の CSP が文字列評価を禁じるので waitForFunction ではなく poll） */
+async function waitWidth(frame: Frame, ok: (w: number) => boolean): Promise<void> {
+    await expect.poll(async () => ok(await graphWidth(frame)), { timeout: 5000 }).toBe(true);
+}
+
+test.describe('drawio viewer — ツールバー・操作（TASK-07）', () => {
+    test('TC-DIO-22: 複数ページの切替', async ({ page }) => {
+        await openDrawio(page, 'three-pages.drawio');
+        const frame = await drawioFrame(page);
+        await waitForLabel(frame, 'ONLY_ON_P1');
+        const sel = page.locator('.viewer-drawio-page');
+        await expect(sel).toBeVisible();
+        expect(await sel.locator('option').allTextContents()).toEqual(['P1', 'P2', 'P3']);
+        await sel.selectOption({ label: 'P2' });
+        await waitForLabel(frame, 'ONLY_ON_P2');
+        const text = await frame.evaluate(() => document.querySelector('#pane svg')!.textContent || '');
+        expect(text).not.toContain('ONLY_ON_P1');
+    });
+
+    test('TC-DIO-23: 1 ページ・1 レイヤーならページ選択・レイヤーは出ない', async ({ page }) => {
+        await openDrawio(page, 'aws-plain.drawio');
+        await waitForLabel(await drawioFrame(page), 'LAMBDA_LABEL');
+        await expect(page.locator('.viewer-drawio-page')).toBeHidden();
+        await expect(page.locator('.viewer-drawio-layers')).toBeHidden();
+    });
+
+    test('TC-DIO-24: レイヤーの表示切替（ファイルは変更しない）', async ({ page }) => {
+        await openDrawio(page, 'two-layers.drawio');
+        const frame = await drawioFrame(page);
+        await waitForLabel(frame, 'NET_LABEL');
+        const posted0 = await page.evaluate(() => (window as any).__postedMessages.length);
+        await page.locator('.viewer-drawio-layers').click();
+        const menu = page.locator('.viewer-drawio-layer-menu');
+        await expect(menu).toBeVisible();
+        expect(await menu.locator('label').allTextContents()).toEqual(['Background', 'Network']);
+        await menu.locator('label', { hasText: 'Network' }).locator('input').uncheck();
+        await frame.waitForFunction(() => !(document.querySelector('#pane svg')!.textContent || '').includes('NET_LABEL'));
+        expect(await frame.evaluate(() => document.querySelector('#pane svg')!.textContent)).toContain('BG_LABEL');
+        await menu.locator('label', { hasText: 'Network' }).locator('input').check();
+        await waitForLabel(frame, 'NET_LABEL');
+        // レイヤー操作で host へのメッセージ（保存等）は飛ばない
+        expect(await page.evaluate(() => (window as any).__postedMessages.length)).toBe(posted0);
+    });
+
+    test('TC-DIO-25: [+][−][⟲]', async ({ page }) => {
+        await openDrawio(page, 'aws-plain.drawio');
+        const frame = await drawioFrame(page);
+        await waitForLabel(frame, 'LAMBDA_LABEL');
+        const w0 = await graphWidth(frame);
+        await page.locator('.viewer-zoom-in').click();
+        await waitWidth(frame, (w) => w > w0 + 1);
+        const w1 = await graphWidth(frame);
+        await page.locator('.viewer-zoom-in').click();
+        await waitWidth(frame, (w) => w > w1 + 1);
+        await page.locator('.viewer-zoom-reset').click();
+        await waitWidth(frame, (w) => Math.abs(w - w0) <= 2);
+        await page.locator('.viewer-zoom-out').click();
+        await waitWidth(frame, (w) => w < w0 - 1);
+    });
+
+    test('TC-DIO-26: Ctrl+ホイールは iframe 内でズーム（係数 exp(-deltaY*0.003)）、修飾なしはズームしない', async ({ page }) => {
+        await openDrawio(page, 'aws-plain.drawio');
+        const frame = await drawioFrame(page);
+        await waitForLabel(frame, 'LAMBDA_LABEL');
+        const box = (await page.locator('iframe.fv-drawio-frame').boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        const w0 = await graphWidth(frame);
+        await page.mouse.wheel(0, -100); // 修飾なし: ズームしない
+        await page.waitForTimeout(150);
+        expect(Math.abs((await graphWidth(frame)) - w0)).toBeLessThanOrEqual(1);
+        await page.keyboard.down('Control');
+        await page.mouse.wheel(0, -100);
+        await page.keyboard.up('Control');
+        await waitWidth(frame, (w) => w > w0 + 1);
+        const ratio = (await graphWidth(frame)) / w0;
+        expect(Math.abs(ratio - Math.exp(0.3)) / Math.exp(0.3)).toBeLessThan(0.02);
+        expect(await page.evaluate(() => window.visualViewport ? window.visualViewport.scale : 1)).toBe(1);
+    });
+
+    test('TC-DIO-33: ツールバーの全順序と find 非表示', async ({ page }) => {
+        await openDrawio(page, 'three-pages.drawio');
+        await waitForLabel(await drawioFrame(page), 'ONLY_ON_P1');
+        const classes = await page.evaluate(() => [...document.querySelector('.viewer-toolbar')!.children].map((c) => c.className.split(' ')[0]));
+        const i = classes.indexOf('viewer-title');
+        expect(classes.slice(i, i + 7)).toEqual([
+            'viewer-title', 'viewer-drawio-page', 'viewer-drawio-layers',
+            'viewer-zoom-out', 'viewer-zoom-in', 'viewer-zoom-reset', 'viewer-open-external',
+        ]);
+        expect(classes).not.toContain('viewer-find-toggle');
+        await page.locator('.viewer-title').click();
+        await page.keyboard.press('ControlOrMeta+f');
+        await expect(page.locator('.viewer-find-bar:visible')).toHaveCount(0);
+    });
+});
