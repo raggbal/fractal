@@ -159,7 +159,7 @@
 
     // 全体表示（最大 100%・中央寄せ — howto §3）
     function fit(pad) {
-        pad = pad == null ? 16 : pad;
+        pad = (pad === undefined || pad === null) ? 16 : pad;
         var pane = document.getElementById('pane');
         var b = graph.getGraphBounds(), s = graph.view.scale, t = graph.view.translate;
         var w = b.width / s, h = b.height / s, x = b.x / s - t.x, y = b.y / s - t.y;

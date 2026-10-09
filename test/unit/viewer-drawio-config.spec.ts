@@ -134,7 +134,7 @@ test.describe('drawio viewer の配線', () => {
     });
 
     test('TC-DIO-10: drawio の i18n キーは WebviewMessages に属し、7 locale の webviewMessages に非空で存在', () => {
-        const KEYS = ['viewerDrawioPage', 'viewerDrawioLayers', 'viewerDrawioLoading', 'viewerDrawioRenderFailed'];
+        const KEYS = ['viewerDrawioPage', 'viewerDrawioLayers', 'viewerDrawioLoading', 'viewerDrawioRenderFailed', 'drawioOpenInViewer'];
         const ifaceSrc = fs.readFileSync(path.join(ROOT, 'src', 'i18n', 'messages.ts'), 'utf8');
         const wmStart = ifaceSrc.indexOf('export interface WebviewMessages');
         expect(wmStart).toBeGreaterThan(-1);

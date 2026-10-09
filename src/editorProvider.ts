@@ -158,6 +158,28 @@ function normalizeTrailingSlash(p: string): string {
     return p.replace(/[\/\\]+$/, '');
 }
 
+/**
+ * standalone md の 📎 リンク（md 以外のローカルファイル）を開く。
+ * FR-FV-01 マトリクス行5: viewer 対象は standalone 面（新タブで kind 別 viewType）。50MB 超・例外は openExternal 縮退（ARCH-5 / FR-FV-07）。
+ * sprint 20261009-130815 / TC-DIO-41b: resolveCustomTextEditor のクロージャから切り出した seam（unit から呼べるように）。
+ */
+export function openLocalLinkTarget(resolvedUri: vscode.Uri): void {
+    let viewerOpened = false;
+    try {
+        const kind = isViewerTarget(path.basename(resolvedUri.fsPath));
+        if (kind && fs.existsSync(resolvedUri.fsPath)
+            && fs.statSync(resolvedUri.fsPath).size <= VIEWER_SIZE_LIMIT) {
+            // ADRL-0093: kind → viewType は viewer-target.ts の表が唯一の定義（インライン複製しない）
+            vscode.commands.executeCommand('vscode.openWith', resolvedUri, viewerViewType(kind));
+            viewerOpened = true;
+        }
+    } catch { viewerOpened = false; }
+    if (!viewerOpened) {
+        // Non-MD local file - open with OS default application
+        vscode.env.openExternal(resolvedUri);
+    }
+}
+
 export class ImageDirectoryManager {
     // ファイルURIをキーとしたIMAGE_DIRのマップ
     private fileImageDirs: Map<string, string> = new Map();
@@ -1189,22 +1211,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                             // 旧 sidePanel オプションは sidepanel が peek 用途として頻度低く、混乱の元になるため tab 固定化。
                             vscode.commands.executeCommand('vscode.openWith', resolvedUri, 'fractal.editor');
                         } else {
-                            // FR-FV-01 マトリクス行5: standalone md の 📎 → viewer 対象は standalone 面
-                            // （新タブで fractal.fileViewer）。50MB 超・例外は openExternal 縮退（ARCH-5 / FR-FV-07）
-                            let viewerOpened = false;
-                            try {
-                                const kind = isViewerTarget(path.basename(resolvedUri.fsPath));
-                                if (kind && fs.existsSync(resolvedUri.fsPath)
-                                    && fs.statSync(resolvedUri.fsPath).size <= VIEWER_SIZE_LIMIT) {
-                                    // ADRL-0093: kind → viewType は viewer-target.ts の表が唯一の定義（インライン複製しない）
-                                    vscode.commands.executeCommand('vscode.openWith', resolvedUri, viewerViewType(kind));
-                                    viewerOpened = true;
-                                }
-                            } catch { viewerOpened = false; }
-                            if (!viewerOpened) {
-                                // Non-MD local file - open with OS default application
-                                vscode.env.openExternal(resolvedUri);
-                            }
+                            openLocalLinkTarget(resolvedUri);
                         }
                     }
                     break;

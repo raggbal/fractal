@@ -373,6 +373,7 @@ export const webviewMessages = {
   viewerDrawioLayers: '레이어',
   viewerDrawioLoading: '다이어그램 준비 중…',
   viewerDrawioRenderFailed: '이 다이어그램을 표시할 수 없습니다',
+  drawioOpenInViewer: '뷰어에서 열기',
   viewerExpand: '최대화',
   viewerClose: '닫기',
 };

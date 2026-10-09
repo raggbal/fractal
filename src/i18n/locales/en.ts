@@ -418,6 +418,7 @@ export const webviewMessages = {
   viewerDrawioLayers: 'Layers',
   viewerDrawioLoading: 'Preparing diagram…',
   viewerDrawioRenderFailed: 'Could not display this diagram',
+  drawioOpenInViewer: 'Open in Viewer',
   viewerExpand: 'Expand',
   viewerClose: 'Close',
 };

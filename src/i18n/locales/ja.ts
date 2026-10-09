@@ -418,6 +418,7 @@ export const webviewMessages = {
   viewerDrawioLayers: 'レイヤー',
   viewerDrawioLoading: '図を準備中…',
   viewerDrawioRenderFailed: 'この図を表示できませんでした',
+  drawioOpenInViewer: 'ビューアで開く',
   viewerExpand: '最大化',
   viewerClose: '閉じる',
 };

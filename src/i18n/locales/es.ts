@@ -373,6 +373,7 @@ export const webviewMessages = {
   viewerDrawioLayers: 'Capas',
   viewerDrawioLoading: 'Preparando el diagrama…',
   viewerDrawioRenderFailed: 'No se pudo mostrar este diagrama',
+  drawioOpenInViewer: 'Abrir en el visor',
   viewerExpand: 'Expandir',
   viewerClose: 'Cerrar',
 };

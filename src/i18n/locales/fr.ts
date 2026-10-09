@@ -373,6 +373,7 @@ export const webviewMessages = {
   viewerDrawioLayers: 'Calques',
   viewerDrawioLoading: 'Préparation du diagramme…',
   viewerDrawioRenderFailed: 'Impossible d\'afficher ce diagramme',
+  drawioOpenInViewer: 'Ouvrir dans la visionneuse',
   viewerExpand: 'Agrandir',
   viewerClose: 'Fermer',
 };

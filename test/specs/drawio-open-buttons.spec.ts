@@ -18,7 +18,8 @@ test('drawio hover shows 3 buttons and VS Code button posts openImageInNewTab', 
     await img.hover();
     // 3 ボタンが可視
     const btns = page.locator('.drawio-open-btn');
-    await expect(btns).toHaveCount(3);
+    // 【許可: test_update】sprint 20261009-130815（FR-DIO-08）: Open in Viewer が加わり 4 個
+    await expect(btns).toHaveCount(4);
     const texts = await btns.allTextContents();
     expect(texts).toContain('Open in External');
     expect(texts).toContain('Open in VS Code');

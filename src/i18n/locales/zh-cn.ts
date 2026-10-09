@@ -373,6 +373,7 @@ export const webviewMessages = {
   viewerDrawioLayers: '图层',
   viewerDrawioLoading: '正在准备图表…',
   viewerDrawioRenderFailed: '无法显示此图表',
+  drawioOpenInViewer: '在查看器中打开',
   viewerExpand: '最大化',
   viewerClose: '关闭',
 };

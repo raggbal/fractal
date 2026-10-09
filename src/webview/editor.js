@@ -6697,13 +6697,23 @@ class EditorInstance {
     drawioCopyPathBtn.style.display = 'none';
     document.body.appendChild(drawioCopyPathBtn);
 
+    // FR-DIO-08（sprint 20261009-130815）: file viewer（drawio kind）で開く。click = md 内 📎 リンクと同じ host.openLink 経路
+    // （host 側の isViewerTarget → notes 面は viewer sidepanel / 単体 md editor は viewer タブ）
+    var drawioOpenViewerBtn = document.createElement('button');
+    drawioOpenViewerBtn.className = 'drawio-open-btn'; // 同 style 流用
+    drawioOpenViewerBtn.textContent = i18n.drawioOpenInViewer || 'Open in Viewer';
+    drawioOpenViewerBtn.title = i18n.drawioOpenInViewer || 'Open in Viewer';
+    drawioOpenViewerBtn.setAttribute('contenteditable', 'false');
+    drawioOpenViewerBtn.style.display = 'none';
+    document.body.appendChild(drawioOpenViewerBtn);
+
     var drawioOpenBtnTargetImg = null;
     var drawioOpenBtnHideTimer = null;
 
     function isDrawioImg(el) {
         if (!el || el.tagName !== 'IMG') return false;
         var p = (el.dataset.markdownPath || el.getAttribute('src') || '').toLowerCase().split('?')[0].split('#')[0];
-        return p.endsWith('.drawio.svg') || p.endsWith('.drawio.png');
+        return p.endsWith('.drawio.svg') || p.endsWith('.drawio.png') || p.endsWith('.dio.svg') || p.endsWith('.dio.png');
     }
     function positionDrawioOpenBtn(img) {
         var rect = img.getBoundingClientRect();
@@ -6720,6 +6730,9 @@ class EditorInstance {
         var copyLeft = vscodeLeft - drawioCopyPathBtn.offsetWidth - 4;
         drawioCopyPathBtn.style.top = openTop + 'px';
         drawioCopyPathBtn.style.left = copyLeft + 'px';
+        // Open in Viewer を左端に gap 4px で
+        drawioOpenViewerBtn.style.top = openTop + 'px';
+        drawioOpenViewerBtn.style.left = (copyLeft - drawioOpenViewerBtn.offsetWidth - 4) + 'px';
     }
     function showDrawioOpenBtnFor(img) {
         if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
@@ -6727,6 +6740,7 @@ class EditorInstance {
         drawioOpenBtn.style.display = 'block';
         drawioOpenVscodeBtn.style.display = 'block';
         drawioCopyPathBtn.style.display = 'block';
+        drawioOpenViewerBtn.style.display = 'block';
         positionDrawioOpenBtn(img);
         // 幅確定後に再配置 (display:none → block 直後は offsetWidth が 0 のことがある)
         requestAnimationFrame(function() { positionDrawioOpenBtn(img); });
@@ -6737,6 +6751,7 @@ class EditorInstance {
             drawioOpenBtn.style.display = 'none';
             drawioOpenVscodeBtn.style.display = 'none';
             drawioCopyPathBtn.style.display = 'none';
+            drawioOpenViewerBtn.style.display = 'none';
             drawioOpenBtnTargetImg = null;
         }, 120);
     }
@@ -6749,6 +6764,23 @@ class EditorInstance {
             : rawSrc.replace(/^https:\/\/file(?:\+|%2B)\.vscode-resource\.vscode-cdn\.net/, '');
         return (cleaned || '').split('?')[0].split('#')[0];
     }
+
+    drawioOpenViewerBtn.addEventListener('mouseenter', function() {
+        if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
+    });
+    drawioOpenViewerBtn.addEventListener('mouseleave', hideDrawioOpenBtnSoon);
+    drawioOpenViewerBtn.addEventListener('mousedown', function(e) { e.preventDefault(); });
+    drawioOpenViewerBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!drawioOpenBtnTargetImg) return;
+        var mdPath = drawioOpenBtnTargetImg.dataset.markdownPath || drawioOpenBtnTargetImg.getAttribute('src') || '';
+        if (!mdPath) return;
+        var cleanPath = mdPath.split('?')[0].split('#')[0];
+        if (typeof host !== 'undefined' && host.openLink) {
+            host.openLink(cleanPath);
+        }
+    });
 
     drawioOpenBtn.addEventListener('mouseenter', function() {
         if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
@@ -6834,7 +6866,7 @@ class EditorInstance {
         if (isDrawioImg(t)) {
             // related target がボタン or 同じ img なら維持
             var rt = e.relatedTarget;
-            if (rt === drawioOpenBtn || rt === drawioOpenVscodeBtn || rt === drawioCopyPathBtn || rt === drawioOpenBtnTargetImg) return;
+            if (rt === drawioOpenBtn || rt === drawioOpenVscodeBtn || rt === drawioCopyPathBtn || rt === drawioOpenViewerBtn || rt === drawioOpenBtnTargetImg) return;
             hideDrawioOpenBtnSoon();
         }
     });

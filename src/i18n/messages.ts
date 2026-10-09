@@ -406,6 +406,7 @@ export interface WebviewMessages {
   viewerDrawioLayers: string;
   viewerDrawioLoading: string;
   viewerDrawioRenderFailed: string;
+  drawioOpenInViewer: string;
 }
 
 // Supported locales
