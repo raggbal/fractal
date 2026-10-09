@@ -49,6 +49,12 @@ export function getFileViewerHtml(
             docx: asUri(vscode.Uri.joinPath(modulesDir, 'viewer-docx.mjs')),
             xlsx: asUri(vscode.Uri.joinPath(modulesDir, 'viewer-xlsx.mjs')),
             pptx: asUri(vscode.Uri.joinPath(modulesDir, 'viewer-pptx.mjs')),
+            drawio: asUri(vscode.Uri.joinPath(modulesDir, 'viewer-drawio.mjs')),
+        },
+        // sprint 20261009-130815 / ADRL-0135: drawio の描画ライブラリ（viewer-drawio が fetch して隔離 iframe に埋め込む）
+        drawioAssetUris: {
+            viewerStatic: asUri(vscode.Uri.joinPath(extensionUri, 'media', 'drawio-viewer', 'viewer-static.min.js')),
+            stencils: asUri(vscode.Uri.joinPath(extensionUri, 'media', 'drawio-viewer', 'stencils.min.js')),
         },
         kind,
         fileUri: asUri(fileUri),

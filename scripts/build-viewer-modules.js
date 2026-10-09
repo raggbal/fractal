@@ -14,7 +14,19 @@ const esbuild = require('esbuild');
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'out', 'webview');
-const KINDS = ['text', 'image', 'docx', 'xlsx', 'pptx'];
+const KINDS = ['text', 'image', 'docx', 'xlsx', 'pptx', 'drawio'];
+
+// drawio（sprint 20261009-130815 / ADRL-0135）: iframe 内で実行する frame-boot.js は bundle せず
+// 文字列として取り込む（viewer-drawio が nonce 付き inline script として blob 文書に埋め込む）
+const textBootPlugin = {
+    name: 'drawio-frame-boot-text',
+    setup(build) {
+        build.onLoad({ filter: /[\\/]viewer-drawio[\\/]frame-boot\.js$/ }, (args) => ({
+            contents: fs.readFileSync(args.path, 'utf8'),
+            loader: 'text',
+        }));
+    },
+};
 
 async function main() {
     fs.mkdirSync(OUT, { recursive: true });
@@ -34,6 +46,7 @@ async function main() {
             platform: 'browser',
             target: 'chrome114', // VS Code 1.85 = Electron 25+ 相当
             legalComments: 'inline', // 移植ファイルの MIT ヘッダをバンドルに保持（NFR-VEX-08）
+            plugins: kind === 'drawio' ? [textBootPlugin] : [],
         });
         built.push(kind);
     }
