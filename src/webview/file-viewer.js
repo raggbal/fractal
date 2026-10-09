@@ -42,7 +42,8 @@
     // ── 新 viewer kind（sprint 20260823-165314 / FR-FV-17 = ADRL-0092） ─────────────────
     // kind 別 ESM モジュールを初回 open 時に動的 import（pdfjs の import(config.pdfjsLibUri) precedent）。
     // Promise キャッシュで単一飛行（同 kind 連続 open で二重 import しない）。失敗はキャッシュしない。
-    const VIEWER_MODULE_KINDS = ['text', 'image', 'docx', 'xlsx', 'pptx'];
+    // drawio: sprint 20261009-130815（ADRL-0135 — 隔離 iframe 描画のモジュール）
+    const VIEWER_MODULE_KINDS = ['text', 'image', 'docx', 'xlsx', 'pptx', 'drawio'];
     const viewerModulePromises = new Map();
     function loadViewerModule(kind) {
         const cached = viewerModulePromises.get(kind);
