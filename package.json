@@ -375,6 +375,31 @@
           }
         ],
         "priority": "option"
+      },
+      {
+        "viewType": "fractal.fileViewerDrawio",
+        "displayName": "Fractal File Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.drawio"
+          },
+          {
+            "filenamePattern": "*.dio"
+          },
+          {
+            "filenamePattern": "*.drawio.svg"
+          },
+          {
+            "filenamePattern": "*.dio.svg"
+          },
+          {
+            "filenamePattern": "*.drawio.png"
+          },
+          {
+            "filenamePattern": "*.dio.png"
+          }
+        ],
+        "priority": "option"
       }
     ],
     "configuration": {

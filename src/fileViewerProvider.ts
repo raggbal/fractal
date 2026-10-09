@@ -11,6 +11,7 @@
  *   fractal.fileViewerOffice — *.docx/*.xlsx/*.pptx（priority: default — 標準では開けない形式）
  *   fractal.fileViewerText   — text 群（priority: option — 標準テキストエディタを奪わない）
  *   fractal.fileViewerImage  — image 群（priority: option — 組込 Media Preview を奪わない）
+ *   fractal.fileViewerDrawio — drawio 系 6 拡張子（priority: option — hediet.vscode-drawio 等の編集エディタを奪わない）
  * すべて本 provider の同一インスタンスを登録する。
  */
 import * as vscode from 'vscode';
@@ -127,5 +128,6 @@ export function registerFileViewer(context: vscode.ExtensionContext, getFolders?
         vscode.window.registerCustomEditorProvider('fractal.fileViewerOffice', provider, options),
         vscode.window.registerCustomEditorProvider('fractal.fileViewerText', provider, options),
         vscode.window.registerCustomEditorProvider('fractal.fileViewerImage', provider, options),
+        vscode.window.registerCustomEditorProvider('fractal.fileViewerDrawio', provider, options),
     );
 }

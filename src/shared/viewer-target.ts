@@ -9,11 +9,14 @@
  * 全 open sink（vscode.env.openExternal を呼ぶ経路）はこの関数で viewer 対象を判定する —
  * 拡張子リストをインライン複製しない（「N 経路の一部にだけ配線」クラスの構造的防止）。
  *
+ * sprint 20261009-130815-file-viewer-drawio / FR-FV-01 改訂 + FR-FV-16（ADRL-0134）:
+ * kind `drawio` を追加。`.drawio.svg` 等の複合拡張子は lastIndexOf('.') 判定より先に見る。
+ *
  * スコープ外の明示: .mhtml / .xhtml / .md（既存 md editor の領分）/ macro 系（.docm/.xlsm/.pptm）/
  * OLE2 旧形式（.doc/.xls/.ppt）は null。.svg は image kind の `<img>` 経路限定で対象（ADRL-0091）。
  */
 
-export type ViewerKind = 'html' | 'pdf' | 'text' | 'image' | 'docx' | 'xlsx' | 'pptx';
+export type ViewerKind = 'html' | 'pdf' | 'text' | 'image' | 'docx' | 'xlsx' | 'pptx' | 'drawio';
 
 /** 50MB 超は viewer を開かず OS 既定アプリへフォールバック（FR-FV-07 — FR-TF-01/FR-DS-07(d) と同閾値） */
 export const VIEWER_SIZE_LIMIT = 50 * 1024 * 1024;
@@ -36,12 +39,18 @@ const EXT_TO_KIND = new Map<string, ViewerKind>([
     ['.docx', 'docx'], ['.xlsx', 'xlsx'], ['.pptx', 'pptx'],
 ]);
 
+// drawio 系（複合拡張子を含む）。単一拡張子の EXT_TO_KIND より先に照合する（`.drawio.svg` を image にしない）
+const DRAWIO_SUFFIXES = ['.drawio.svg', '.drawio.png', '.dio.svg', '.dio.png', '.drawio', '.dio'];
+
 /**
  * @param filename ファイル名またはパス（basename の拡張子で判定・case-insensitive）
  * @returns ViewerKind | null（null = viewer 対象外 → 従来どおり openExternal）
  */
 export function isViewerTarget(filename: string): ViewerKind | null {
     const name = String(filename || '');
+    const base = name.slice(Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\')) + 1).toLowerCase();
+    // stem が空（basename が suffix そのもの = `drawio.svg` / `.drawio`）は複合拡張子とみなさない
+    if (DRAWIO_SUFFIXES.some((s) => base.length > s.length && base.endsWith(s))) { return 'drawio'; }
     const dot = name.lastIndexOf('.');
     if (dot < 0) { return null; }
     const ext = name.slice(dot).toLowerCase();
@@ -57,6 +66,7 @@ const KIND_TO_VIEWTYPE: Record<ViewerKind, string> = {
     pptx: 'fractal.fileViewerOffice',
     text: 'fractal.fileViewerText',
     image: 'fractal.fileViewerImage',
+    drawio: 'fractal.fileViewerDrawio',
 };
 
 /**

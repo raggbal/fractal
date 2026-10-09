@@ -5,7 +5,7 @@ import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { OutlinerProvider, buildPdfExportDeps } from './outlinerProvider';
 import { runExportMdToPdf, PdfPanelLike } from './shared/pdf-export-host';
 import { SidePanelManager } from './shared/sidePanelManager';
-import { isViewerTarget, VIEWER_SIZE_LIMIT } from './shared/viewer-target';
+import { isViewerTarget, VIEWER_SIZE_LIMIT, viewerViewType } from './shared/viewer-target';
 import {
     extractImageDir,
     extractForceRelativePath,
@@ -1196,8 +1196,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                                 const kind = isViewerTarget(path.basename(resolvedUri.fsPath));
                                 if (kind && fs.existsSync(resolvedUri.fsPath)
                                     && fs.statSync(resolvedUri.fsPath).size <= VIEWER_SIZE_LIMIT) {
-                                    const viewType = kind === 'pdf' ? 'fractal.fileViewer' : 'fractal.fileViewerHtml';
-                                    vscode.commands.executeCommand('vscode.openWith', resolvedUri, viewType);
+                                    // ADRL-0093: kind → viewType は viewer-target.ts の表が唯一の定義（インライン複製しない）
+                                    vscode.commands.executeCommand('vscode.openWith', resolvedUri, viewerViewType(kind));
                                     viewerOpened = true;
                                 }
                             } catch { viewerOpened = false; }
