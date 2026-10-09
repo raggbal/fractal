@@ -55,6 +55,7 @@ export default {
         const win = doc.defaultView || window;
         const timings = { start: win.performance.now(), rendered: null };
         if (state) { state.drawioTimings = timings; }
+        win.__fvDrawioTimings = timings; // テスト観測用（image の __fvImageState と同じ扱い）
 
         const format = formatOf(ctx.filePath || ctx.fileUri);
         const registry = createBlobRegistry();
@@ -208,7 +209,7 @@ export default {
         const html = buildFrameDoc({ nonce, viewerStatic: libs[0], stencils: libs[1], boot: BOOT });
 
         iframe = doc.createElement('iframe');
-        // ADRL-0067 不変条件 6: allow-scripts のみ（allow-same-origin を付けると隔離がなくなる）
+        // ADRL-0067 不変条件 6: allow-scripts のみ（same-origin の許可を足すと隔離がなくなる）
         iframe.setAttribute('sandbox', 'allow-scripts');
         iframe.setAttribute('referrerpolicy', 'no-referrer');
         iframe.className = 'fv-drawio-frame';

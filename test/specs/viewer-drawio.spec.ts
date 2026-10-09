@@ -210,3 +210,156 @@ test.describe('drawio viewer — ツールバー・操作（TASK-07）', () => {
         await expect(page.locator('.viewer-find-bar:visible')).toHaveCount(0);
     });
 });
+
+/**
+ * ネットワークに実際に出た外部要求を数える。Playwright は CSP で止まった要求にも 'request' を出す
+ * （failure = 'csp'）ため、route に届いた要求（= CSP を通過した要求）と requestfinished だけを数える
+ */
+async function trackExternal(page: Page): Promise<string[]> {
+    const hits: string[] = [];
+    await page.route(/external\.test|fonts\.googleapis\.com|fonts\.gstatic\.com/, (r) => { hits.push(r.request().url()); return r.fulfill({ status: 200, body: '' }); });
+    page.on('requestfinished', (r) => {
+        const u = r.url();
+        if (!u.startsWith('http://localhost:3000') && !u.startsWith('blob:') && !u.startsWith('data:')) { hits.push(u); }
+    });
+    return hits;
+}
+
+test.describe('drawio viewer — セキュリティ・資源・失敗・性能（TASK-08）', () => {
+    test('TC-DIO-31: 外部通信 0（notes 面と同じ緩い CSP のハーネス）', async ({ page }) => {
+        const hits = await trackExternal(page);
+        await openDrawio(page, 'external.drawio', '/standalone-viewer-notescsp.html');
+        // 前提: このハーネスの外側 CSP は https 画像・Google Fonts を許す（notes 面と同じ）。止めているのは iframe 内の meta CSP
+        const frame = await drawioFrame(page);
+        await waitForLabel(frame, 'EXT_LABEL');
+        await waitForLabel(frame, 'FONT_LABEL');
+        await page.waitForTimeout(500);
+        await openDrawio(page, 'aws-plain.drawio', '/standalone-viewer-notescsp.html');
+        await waitForLabel(await drawioFrame(page), 'LAMBDA_LABEL');
+        // notes 面の webview 本体が読む Inter フォント（googleapis）はハーネス本体の要求なので、iframe 発（external.test・Roboto）だけを見る
+        expect(hits.filter((u) => /external\.test|family=Roboto/.test(u))).toEqual([]);
+        await expect(page.locator('.viewer-error')).toHaveCount(0);
+    });
+
+    test('TC-DIO-32: 図中リンクで遷移しない', async ({ page, context }) => {
+        const external = await trackExternal(page);
+        await openDrawio(page, 'external.drawio');
+        const frame = await drawioFrame(page);
+        await waitForLabel(frame, 'LINK_LABEL');
+        const before = frame.url();
+        await frame.getByText('LINK_LABEL').click();
+        await page.waitForTimeout(500);
+        expect(external.filter((u) => /external\.test/.test(u))).toEqual([]);
+        expect(frame.url()).toBe(before);
+        expect(context.pages()).toHaveLength(1);
+    });
+
+    test('TC-DIO-34: sandbox は allow-scripts のみ、iframe → 親 window の postMessage は届かない', async ({ page }) => {
+        await openDrawio(page, 'aws-plain.drawio');
+        const frame = await drawioFrame(page);
+        await waitForLabel(frame, 'LAMBDA_LABEL');
+        expect(await page.locator('iframe.fv-drawio-frame').getAttribute('sandbox')).toBe('allow-scripts');
+        await page.evaluate(() => {
+            (window as any).__gotNull = 0;
+            window.addEventListener('message', (e) => { if (e.origin === 'null') { (window as any).__gotNull++; } });
+            (window as any).__postedMessages.length = 0;
+        });
+        await frame.evaluate(() => { parent.postMessage({ type: 'openExternalFallback', fileUri: 'x' }, '*'); });
+        await page.waitForTimeout(300);
+        expect(await page.evaluate(() => (window as any).__gotNull)).toBe(0);
+        expect(await page.evaluate(() => (window as any).__postedMessages.length)).toBe(0);
+    });
+
+    test('TC-DIO-35: 別ファイルを開くと blob revoke・port close・iframe とポップオーバーの除去・タイマー解除', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            const w = window as any;
+            w.__revoked = []; w.__closed = 0; w.__timers = new Map(); w.__cleared = new Set();
+            const rv = URL.revokeObjectURL.bind(URL);
+            URL.revokeObjectURL = (u: string) => { w.__revoked.push(u); rv(u); };
+            const cl = MessagePort.prototype.close;
+            MessagePort.prototype.close = function () { w.__closed++; return cl.call(this); };
+            const st = window.setTimeout.bind(window); const ct = window.clearTimeout.bind(window);
+            (window as any).setTimeout = (fn: any, ms?: number, ...a: any[]) => { const id = st(fn, ms, ...a); w.__timers.set(id, ms); return id; };
+            (window as any).clearTimeout = (id: any) => { w.__cleared.add(id); ct(id); };
+            w.__fileViewer.open('drawio', './viewer-fixtures/drawio/two-layers.drawio', document.getElementById('viewer-root'), '/tmp/two-layers.drawio');
+        });
+        const frame = await drawioFrame(page);
+        await waitForLabel(frame, 'NET_LABEL');
+        await page.locator('.viewer-drawio-layers').click();
+        await expect(page.locator('.viewer-drawio-layer-menu')).toBeVisible();
+        const src = await page.locator('iframe.fv-drawio-frame').getAttribute('src');
+        fs.writeFileSync(path.join(DEST, 'note.txt'), 'hello');
+        await page.evaluate(() => (window as any).__fileViewer.open('text', './viewer-fixtures/drawio/note.txt', document.getElementById('viewer-root'), '/tmp/note.txt'));
+        await expect(page.locator('iframe.fv-drawio-frame')).toHaveCount(0);
+        await expect(page.locator('.viewer-drawio-layer-menu')).toHaveCount(0);
+        const r = await page.evaluate(() => {
+            const w = window as any;
+            const pending = [...w.__timers.entries()].filter(([id, ms]: any) => ms === 15000 && !w.__cleared.has(id));
+            return { revoked: w.__revoked, closed: w.__closed, pending: pending.length };
+        });
+        expect(r.revoked).toContain(src);
+        expect(r.closed).toBeGreaterThanOrEqual(1);
+        expect(r.pending).toBe(0);
+    });
+
+    test('TC-DIO-36: 描画が時間内に終わらなければ失敗 UI', async ({ page }) => {
+        // 返信を握りつぶす script をライブラリの代わりに埋め込ませる（rendered が来ない状態）
+        await page.route('**/drawio-viewer/viewer-static.min.js', (r) => r.fulfill({ body: 'MessagePort.prototype.postMessage = function () {};', contentType: 'text/javascript' }));
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            (window as any).__viewerConfig.drawioRenderTimeoutMs = 1000;
+            (window as any).__fileViewer.open('drawio', './viewer-fixtures/drawio/aws-plain.drawio', document.getElementById('viewer-root'), '/tmp/aws-plain.drawio');
+        });
+        await expect(page.locator('.viewer-error')).toContainText('Could not display this diagram', { timeout: 5000 });
+        await expect(page.locator('iframe.fv-drawio-frame')).toHaveCount(0);
+    });
+
+    test('TC-DIO-37: 抽出 XML が 20MB 超なら tooLarge、ちょうどは通る', async ({ page }) => {
+        const LIMIT = 20 * 1024 * 1024;
+        const head = '<mxfile><diagram name="Big"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="BIG_LABEL" style="rounded=0;" vertex="1" parent="1"><mxGeometry x="10" y="10" width="80" height="40" as="geometry"/></mxCell><!--';
+        const tail = '--></root></mxGraphModel></diagram></mxfile>';
+        const make = (n: number) => head + 'x'.repeat(n - head.length - tail.length) + tail;
+        await page.route('**/big-over.drawio', (r) => r.fulfill({ body: make(LIMIT + 1), contentType: 'text/plain' }));
+        await page.route('**/big-exact.drawio', (r) => r.fulfill({ body: make(LIMIT), contentType: 'text/plain' }));
+        await openDrawio(page, 'big-over.drawio');
+        await expect(page.locator('.viewer-error')).toContainText('too large', { timeout: 15000 });
+        await openDrawio(page, 'big-exact.drawio');
+        await waitForLabel(await drawioFrame(page), 'BIG_LABEL');
+        await expect(page.locator('.viewer-error')).toHaveCount(0);
+    });
+
+    test('TC-DIO-38: 性能 — ライブラリは 1 回だけ取得、drawio 以外では取得しない', async ({ page }) => {
+        const libReq: string[] = [];
+        page.on('request', (r) => { if (/drawio-viewer\/(viewer-static|stencils)\.min\.js/.test(r.url())) { libReq.push(r.url()); } });
+        fs.writeFileSync(path.join(DEST, 'note.txt'), 'hello');
+        await page.goto('/standalone-viewer.html');
+        const root = 'document.getElementById("viewer-root")';
+        await page.evaluate(() => (window as any).__fileViewer.open('text', './viewer-fixtures/drawio/note.txt', document.getElementById('viewer-root'), '/tmp/note.txt'));
+        await page.waitForSelector('.viewer-body');
+        await page.waitForTimeout(300);
+        expect(libReq).toHaveLength(0);
+        void root;
+        const openOnce = async () => {
+            await page.evaluate(() => (window as any).__fileViewer.open('drawio', './viewer-fixtures/drawio/aws-plain.drawio', document.getElementById('viewer-root'), '/tmp/aws-plain.drawio'));
+            await waitForLabel(await drawioFrame(page), 'LAMBDA_LABEL');
+            await expect.poll(() => page.evaluate(() => (window as any).__fvDrawioTimings && (window as any).__fvDrawioTimings.rendered)).not.toBeNull();
+            return page.evaluate(() => { const t = (window as any).__fvDrawioTimings; return t.rendered - t.start; });
+        };
+        const t1 = await openOnce();
+        await page.evaluate(() => (window as any).__fileViewer.open('text', './viewer-fixtures/drawio/note.txt', document.getElementById('viewer-root'), '/tmp/note.txt'));
+        const t2 = await openOnce();
+        expect(libReq).toHaveLength(2); // viewer-static + stencils を 1 回ずつ
+        expect(t1).toBeLessThan(2000);
+        expect(t2).toBeLessThan(1000);
+    });
+
+    test('TC-DIO-39: ライブラリ取得に失敗しても、次に開いたときは描画できる', async ({ page }) => {
+        await page.route('**/drawio-viewer/viewer-static.min.js', (r) => r.fulfill({ status: 404, body: '' }));
+        await openDrawio(page, 'aws-plain.drawio');
+        await expect(page.locator('.viewer-error')).toHaveCount(1, { timeout: 5000 });
+        await page.unroute('**/drawio-viewer/viewer-static.min.js');
+        await page.evaluate(() => (window as any).__fileViewer.open('drawio', './viewer-fixtures/drawio/aws-plain.drawio', document.getElementById('viewer-root'), '/tmp/aws-plain.drawio'));
+        await waitForLabel(await drawioFrame(page), 'LAMBDA_LABEL');
+    });
+});
