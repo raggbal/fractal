@@ -139,4 +139,34 @@ test.describe('viewer sidepanel の重ね表示（再オープン① / TASK-11�
         expect(await count(page, '.viewer-side-panel.open'), 'viewer は閉じない').toBe(1);
         expect(await page.evaluate(() => (window as any).__outsideEsc), '外側の要素が Esc を受ける').toBe(1);
     });
+
+    test('TC-VSO-07: md に合わせた幅は md 無しの再オープンで既定に戻り、手でリサイズした幅は残る', async ({ page }) => {
+        const viewerW = () => page.evaluate(() => document.querySelector('.viewer-side-panel')!.getBoundingClientRect().width);
+        const containerHalf = () => page.evaluate(() => {
+            const p = document.querySelector('.viewer-side-panel')!.parentElement as HTMLElement;
+            return p.getBoundingClientRect().width * 0.5;
+        });
+        // md 600px に合わせて開く → viewer と md を閉じる → md 無しで開く
+        await openMd(page);
+        await page.evaluate(() => { (document.querySelector('.side-panel') as HTMLElement).style.width = '600px'; });
+        await openViewer(page);
+        expect(Math.abs((await viewerW()) - 600)).toBeLessThanOrEqual(1);
+        await page.evaluate(() => (window as any).__viewerSidePanel.close());
+        await page.evaluate(() => (document.querySelector('.side-panel.open .side-panel-close') as HTMLElement).click());
+        await page.waitForTimeout(300);
+        expect(await count(page, '.side-panel.open')).toBe(0);
+        await openViewer(page);
+        expect(Math.abs((await viewerW()) - (await containerHalf())), 'md に合わせた幅は残らない（既定 50%）').toBeLessThanOrEqual(1);
+        // 手でリサイズした幅は md 無しの再オープンでも残る（従来どおり）
+        const handle = page.locator('.viewer-side-panel-resize-handle');
+        const hb = (await handle.boundingBox())!;
+        await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(hb.x + hb.width / 2 - 80, hb.y + hb.height / 2, { steps: 5 });
+        await page.mouse.up();
+        const resized = await viewerW();
+        await page.evaluate(() => (window as any).__viewerSidePanel.close());
+        await openViewer(page);
+        expect(Math.abs((await viewerW()) - resized), 'リサイズした幅は残る').toBeLessThanOrEqual(1);
+    });
 });

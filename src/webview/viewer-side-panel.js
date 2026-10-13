@@ -77,6 +77,7 @@
             const w = clampWidth(startWidth + (startX - e.clientX));
             panel.style.width = w + 'px';
             panel.style.maxWidth = w + 'px';
+            delete panel.dataset.autoWidth; // ユーザーのリサイズ値 = md 合わせの印を外す（開き直しても保持）
         }
         function onUp() {
             // ③ 掃除は 4 点対（listener ×2 + body カーソル/選択 + iframe pointerEvents 復元）
@@ -155,7 +156,7 @@
         }
     }
 
-    /** viewer サイドペインを開く（md sidepanel が開いていれば排他で閉じる） */
+    /** viewer サイドペインを開く（md sidepanel が開いていても閉じずに前面へ重ね、幅を md に合わせる — ADRL-0138） */
     function open(kind, fileUri, fileName, filePath) {
         // focus 復帰用の退避（viewer が focus を奪う前に。パネル自身からの再 open では上書きしない）
         try {
@@ -179,10 +180,20 @@
         // ADRL-0138: md sidepanel は閉じずに上に重ねる。md が開いていれば幅を md に合わせる
         //（開いた後のリサイズ追従はしない — FR-VSO-03）。⤢ expanded は class が上書きする
         const panel = ensurePanel();
+        // md に合わせた幅には印（dataset.autoWidth）を付け、md 不在で開くときは印付きの幅だけを既定（CSS 50%）へ戻す。
+        // 手のリサイズ値は印が外れるので保持される（reviewer iter3 QUAL-3 / DC-2）
         try {
             const md = document.querySelector('.side-panel.open');
             const w = md ? md.getBoundingClientRect().width : 0;
-            if (w > 0) { panel.style.width = Math.round(w) + 'px'; } // md 不在時は従来の幅（既定 50% / ユーザーのリサイズ値）のまま
+            if (w > 0) {
+                panel.style.width = Math.round(w) + 'px';
+                panel.style.maxWidth = Math.round(w) + 'px'; // 過去のリサイズで残った max-width に縮められないように
+                panel.dataset.autoWidth = '1';
+            } else if (panel.dataset.autoWidth) {
+                panel.style.width = '';
+                panel.style.maxWidth = '';
+                delete panel.dataset.autoWidth;
+            }
         } catch { /* noop */ }
         panel.classList.add('open');
         const mount = panel.querySelector('.viewer-side-panel-mount');
@@ -263,7 +274,7 @@
         if (e.key !== 'Escape' || !panelEl || !panelEl.classList.contains('open')) { return; }
         if (document.querySelector('.outliner-image-overlay')) { return; }
         const t = e.target;
-        if (!(t === document.body || t === document.documentElement || (t && panelEl.contains(t)))) { return; }
+        if (!(t === document.body || (t && panelEl.contains(t)))) { return; }
         close();
         e.preventDefault();
         e.stopImmediatePropagation();
