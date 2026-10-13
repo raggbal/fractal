@@ -2,11 +2,13 @@
  * viewer-side-panel.js — file viewer の sidepanel 面（.viewer-side-panel ペイン管理）
  *
  * sprint 20260815-075428-file-viewer-3panes / FR-FV-05 / ADRL-0066 決定 2。
- * 既存 md の .side-panel とは別 DOM。md sidepanel との排他表示（design §5 — SYS-2 裁定）:
- *   - viewer open 時の md close: DOM class の直接除去はせず、md 側が既に持つ close ボタンの
- *     click を経由（md 側コードへの直接参照ゼロ — NFR-FV-02）
+ * 既存 md の .side-panel とは別 DOM。md sidepanel の**上に重ねる**（sprint 20261009-130815 再オープン① /
+ * ADRL-0138 — ADRL-0066 決定 2「排他表示」の viewer open 側を supersede。全 kind 共通）:
+ *   - viewer open 時: md sidepanel は閉じない。viewer を前面（z-index 150 > md 100）に置き、md が開いていれば
+ *     幅を md の現在幅に合わせる（md が下からはみ出さない）。viewer を閉じれば md がそのまま見える
+ *   - Esc: 最前面の 1 枚だけを閉じる（下の keydown handler — target スコープ検査 + stopImmediatePropagation）
  *   - md open 時の viewer close: md 側 open 処理の冒頭に window.__viewerSidePanel?.close() の
- *     1 行 hook（NFR-FV-02 許容 ②）
+ *     1 行 hook（NFR-FV-02 許容 ② — 従来どおり）。md だけが閉じても viewer は閉じない
  *
  * 再オープン③（FR-FV-14 / design §15）: md .side-panel との**自己完結ミラー**パリティ —
  *   ジオメトリ（styles.css:1658-1694 と同値: position:absolute / top=タブバー変数 / width 50% /
@@ -44,7 +46,8 @@
             '  background: var(--fr-color-bg-panel, var(--vscode-editorWidget-background, #f7f7f5));',
             '  border-left: 1px solid var(--fr-color-border, var(--vscode-panel-border, #ddd));',
             '  box-shadow: -4px 0 12px rgba(0,0,0,0.08);',
-            '  z-index: 90; flex-direction: column; }',
+            // ADRL-0138: md .side-panel（z-index 100）の上に重ねる。既存 popup（200 以上）・lightbox（1000 以上）より下
+            '  z-index: 150; flex-direction: column; }',
             '.viewer-side-panel.open { display: flex; }',
             // ⤢ expand（md .expanded :1692-1694 と同値）
             '.viewer-side-panel.expanded { width: 95%; max-width: 95%; }',
@@ -173,14 +176,14 @@
                 }
             }
         } catch { /* noop */ }
-        // 排他: md sidepanel を閉じる（DOM 直接ではなく既存 close ボタンの click で閉じる =
-        // md 側コードへの直接参照を持たない）
-        try {
-            const mdCloseBtn = document.querySelector('.side-panel.open .side-panel-close');
-            if (mdCloseBtn) { mdCloseBtn.click(); }
-        } catch { /* md sidepanel 不在は正常 */ }
-
+        // ADRL-0138: md sidepanel は閉じずに上に重ねる。md が開いていれば幅を md に合わせる
+        //（開いた後のリサイズ追従はしない — FR-VSO-03）。⤢ expanded は class が上書きする
         const panel = ensurePanel();
+        try {
+            const md = document.querySelector('.side-panel.open');
+            const w = md ? md.getBoundingClientRect().width : 0;
+            if (w > 0) { panel.style.width = Math.round(w) + 'px'; } // md 不在時は従来の幅（既定 50% / ユーザーのリサイズ値）のまま
+        } catch { /* noop */ }
         panel.classList.add('open');
         const mount = panel.querySelector('.viewer-side-panel-mount');
         if (window.__fileViewer && mount) {
@@ -250,14 +253,20 @@
         return !!(panelEl && panelEl.classList.contains('open'));
     }
 
-    // Esc で閉じる（第 8 ラウンド③ — md sidepanel の precedent = editor.js:19625-19634 と同型。
-    // lightbox が開いている間はそちらの ESC を優先）
+    // Esc で閉じる（第 8 ラウンド③ — md sidepanel の precedent と同型。lightbox が開いている間はそちらを優先）。
+    // ADRL-0138: md sidepanel と重なっているとき、Esc 1 回で閉じるのは最前面の viewer だけ。
+    //   - document の bubble 段階で受ける（本ファイルは script 読み込み時に登録 = md 側 handler
+    //     — outliner.js / editor.js — より先）。要素レベルで Esc を処理するもの（find bar / ポップアップ）は先に処理される
+    //   - target が viewer パネル内か body のときだけ閉じる（メインペインのダイアログ等で押した Esc は奪わない）
+    //   - 閉じたら stopImmediatePropagation（同じ document にいる md の Esc handler に届かない）
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && panelEl && panelEl.classList.contains('open')) {
-            if (document.querySelector('.outliner-image-overlay')) { return; }
-            close();
-            e.preventDefault();
-        }
+        if (e.key !== 'Escape' || !panelEl || !panelEl.classList.contains('open')) { return; }
+        if (document.querySelector('.outliner-image-overlay')) { return; }
+        const t = e.target;
+        if (!(t === document.body || t === document.documentElement || (t && panelEl.contains(t)))) { return; }
+        close();
+        e.preventDefault();
+        e.stopImmediatePropagation();
     });
 
     window.__viewerSidePanel = { open, close, isOpen };

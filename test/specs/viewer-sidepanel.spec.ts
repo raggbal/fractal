@@ -27,11 +27,12 @@ test.describe('viewer sidepanel 面（FR-FV-05 / TASK-04）', () => {
         expect(await page.locator('.viewer-side-panel .viewer-html-frame').count()).toBe(0);
     });
 
-    test('TC-FV-21: 排他番人 — 両方向（viewer open で md close / md open で viewer close）', async ({ page }) => {
+    // 【許可: test_update】sprint 20261009-130815 再オープン①（ADRL-0138）: 方向 1 を「viewer open で md は開いたまま（重ねる）」に反転。方向 2 は不変
+    test('TC-FV-21: 重ね表示 + 排他番人 — viewer open で md は残る / md open で viewer close', async ({ page }) => {
         await page.goto('/standalone-outliner.html');
         await page.waitForFunction(() => (window as any).__viewerSidePanel && (window as any).__testApi);
 
-        // 方向 1: md sidepanel 表示中に viewer を開く → md 側が閉じる
+        // 方向 1: md sidepanel 表示中に viewer を開く → md は開いたまま（viewer が上に重なる — ADRL-0138）
         await page.evaluate(() => {
             // md sidepanel を開く（outliner.js の openSidePanel 相当を message で）
             (window as any).__hostMessageHandler({ type: 'openSidePanel', markdown: '# md panel', filePath: '/x/a.md', fileName: 'a.md', toc: [], documentBaseUri: '' });
@@ -42,7 +43,7 @@ test.describe('viewer sidepanel 面（FR-FV-05 / TASK-04）', () => {
         });
         await page.waitForSelector('.viewer-side-panel.open', { timeout: 5000 });
         await page.waitForTimeout(500);   // md close のアニメーション（200ms）余裕
-        expect(await page.locator('.side-panel.open').count(), 'md sidepanel が閉じる').toBe(0);
+        expect(await page.locator('.side-panel.open').count(), 'md sidepanel は開いたまま').toBe(1);
 
         // 方向 2: viewer 表示中に md sidepanel を開く → viewer が閉じる（counterfactual: hook を外すと残留で RED）
         await page.evaluate(() => {
