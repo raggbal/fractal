@@ -221,4 +221,27 @@ test.describe('viewer sidepanel の重ね表示 — Notes 面の登録順（再�
         await page.waitForTimeout(400);
         expect(await page.locator('.side-panel.open').count(), '2 回目: md が閉じる').toBe(0);
     });
+
+    test('TC-VSO-10: フォルダビューから開いた viewer を Esc で閉じると .fv-tree に focus が戻る（FR-FLV-27）', async ({ page }) => {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__folderViewDispatcher);
+        const list = () => page.evaluate(() => window.postMessage({ type: 'folderViewListResult', folderLinkId: 'fl1', relPath: '',
+            entries: [{ name: 'a.pdf', relPath: 'a.pdf', isDir: false }, { name: 'b.md', relPath: 'b.md', isDir: false }] }, '*'));
+        await list();
+        await page.evaluate(() => (window as any).__folderViewDispatcher.showFolderView('fl1', 'Docs'));
+        await list();
+        await page.waitForSelector('.fv-row[data-rel="a.pdf"]', { timeout: 5000 });
+        await page.click('.fv-row[data-rel="a.pdf"]');
+        await page.addScriptTag({ path: require('path').join(__dirname, '../../src/webview/viewer-side-panel.js') });
+        await page.evaluate(() => (window as any).__viewerSidePanel.open('html', './viewer-fixtures/sample.html', 'sample.html', '/x/sample.html'));
+        await page.waitForSelector('.viewer-side-panel.open', { timeout: 5000 });
+        await page.evaluate(() => { const p = document.querySelector('.viewer-side-panel') as HTMLElement; p.tabIndex = -1; p.focus(); });
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(400);
+        expect(await page.locator('.viewer-side-panel.open').count()).toBe(0);
+        const active = await page.evaluate(() => (document.activeElement as HTMLElement | null)?.className || '');
+        expect(active.includes('fv-tree'), 'focus が .fv-tree に戻る').toBe(true);
+        await page.keyboard.press('ArrowDown');
+        expect(await page.evaluate(() => (document.querySelector('.fv-row.fv-selected') as HTMLElement)?.dataset.rel)).toBe('b.md');
+    });
 });
