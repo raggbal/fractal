@@ -6,7 +6,8 @@
  * ADRL-0138 — ADRL-0066 決定 2「排他表示」の viewer open 側を supersede。全 kind 共通）:
  *   - viewer open 時: md sidepanel は閉じない。viewer を前面（z-index 150 > md 100）に置き、md が開いていれば
  *     幅を md の現在幅に合わせる（md が下からはみ出さない）。viewer を閉じれば md がそのまま見える
- *   - Esc: 最前面の 1 枚だけを閉じる（下の keydown handler — target スコープ検査 + stopImmediatePropagation）
+ *   - Esc: 最前面の 1 枚だけを閉じる（下の keydown handler — window capture + target スコープ検査 + stopImmediatePropagation。
+ *     script の読み込み順に依存しない — Notes 面は md editor の handler が先に登録される: 再オープン②）
  *   - md open 時の viewer close: md 側 open 処理の冒頭に window.__viewerSidePanel?.close() の
  *     1 行 hook（NFR-FV-02 許容 ② — 従来どおり）。md だけが閉じても viewer は閉じない
  *
@@ -266,19 +267,21 @@
 
     // Esc で閉じる（第 8 ラウンド③ — md sidepanel の precedent と同型。lightbox が開いている間はそちらを優先）。
     // ADRL-0138: md sidepanel と重なっているとき、Esc 1 回で閉じるのは最前面の viewer だけ。
-    //   - document の bubble 段階で受ける（本ファイルは script 読み込み時に登録 = md 側 handler
-    //     — outliner.js / editor.js — より先）。要素レベルで Esc を処理するもの（find bar / ポップアップ）は先に処理される
-    //   - target が viewer パネル内か body のときだけ閉じる（メインペインのダイアログ等で押した Esc は奪わない）
-    //   - 閉じたら stopImmediatePropagation（同じ document にいる md の Esc handler に届かない）
-    document.addEventListener('keydown', (e) => {
+    //   - **window の capture 段階**で受ける: document の全 handler より先に走るので script の読み込み順に依存しない
+    //     （Notes 面は md editor = editor.js の Esc handler が本ファイルより先に登録される — 再オープン② で実測）
+    //   - target が viewer パネル内か body のときだけ閉じる（メインペインのダイアログ・入力欄・md 側で押した Esc は奪わない）
+    //   - viewer の find bar 内の Esc は find bar 自身の handler（bubble）に任せる（capture で先に奪わない）
+    //   - 閉じたら stopImmediatePropagation（以降の全 handler — md の Esc を含む — に届かない = 1 回で 1 枚）
+    window.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape' || !panelEl || !panelEl.classList.contains('open')) { return; }
         if (document.querySelector('.outliner-image-overlay')) { return; }
         const t = e.target;
         if (!(t === document.body || (t && panelEl.contains(t)))) { return; }
+        if (t && t.closest && t.closest('.viewer-find-bar')) { return; }
         close();
         e.preventDefault();
         e.stopImmediatePropagation();
-    });
+    }, true);
 
     window.__viewerSidePanel = { open, close, isOpen };
 

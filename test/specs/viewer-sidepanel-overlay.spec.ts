@@ -169,4 +169,56 @@ test.describe('viewer sidepanel の重ね表示（再オープン① / TASK-11�
         await openViewer(page);
         expect(Math.abs((await viewerW()) - resized), 'リサイズした幅は残る').toBeLessThanOrEqual(1);
     });
+
+    test('TC-VSO-09: メインペインのモーダル（document capture で Esc を受ける）に focus があるときは奪わない', async ({ page }) => {
+        await openMd(page);
+        await openViewer(page);
+        await page.evaluate(() => {
+            // editor.js の rename modal と同型: overlay + input、document の capture で Esc を受けて自分を閉じる
+            const ov = document.createElement('div');
+            ov.id = 'fake-modal';
+            ov.style.cssText = 'position:fixed;left:8px;top:8px;z-index:5000;background:#fff;padding:4px';
+            const inp = document.createElement('input');
+            ov.appendChild(inp);
+            document.body.appendChild(ov);
+            (window as any).__modalEsc = 0;
+            const h = (e: KeyboardEvent) => {
+                if (e.key !== 'Escape') { return; }
+                e.preventDefault(); e.stopPropagation();
+                (window as any).__modalEsc++;
+                document.removeEventListener('keydown', h, true);
+                ov.remove();
+            };
+            document.addEventListener('keydown', h, true);
+        });
+        await page.locator('#fake-modal input').focus();
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(300);
+        expect(await page.evaluate(() => (window as any).__modalEsc), 'モーダルが Esc を受ける').toBe(1);
+        expect(await count(page, '#fake-modal'), 'モーダルが閉じる').toBe(0);
+        expect(await count(page, '.viewer-side-panel.open'), 'viewer は開いたまま').toBe(1);
+    });
+});
+
+// 再オープン②: Notes 面と同じ順（md editor の Esc handler が先に登録 → viewer-side-panel.js が後）で踏む
+test.describe('viewer sidepanel の重ね表示 — Notes 面の登録順（再オープン② / TASK-13）', () => {
+    test('TC-VSO-08: md の Esc handler が先に登録されていても、Esc 1 回は viewer だけ', async ({ page }) => {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => typeof (window as any).__hostMessageHandler === 'function');
+        expect(await page.evaluate(() => typeof (window as any).__viewerSidePanel), 'ハーネスに viewer がまだ無い（後から読む）').toBe('undefined');
+        await page.addScriptTag({ path: require('path').join(__dirname, '../../src/webview/viewer-side-panel.js') });
+        await page.evaluate(() => (window as any).__hostMessageHandler({ type: 'openSidePanel', markdown: '# md', filePath: '/x/a.md', fileName: 'a.md', toc: [], documentBaseUri: '' }));
+        await page.waitForSelector('.side-panel.open', { timeout: 5000 });
+        await page.waitForTimeout(300);
+        await page.evaluate(() => (window as any).__viewerSidePanel.open('html', './viewer-fixtures/sample.html', 'sample.html', '/x/sample.html'));
+        await page.waitForSelector('.viewer-side-panel.open', { timeout: 5000 });
+        await page.evaluate(() => { const p = document.querySelector('.viewer-side-panel') as HTMLElement; p.tabIndex = -1; p.focus(); });
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(400);
+        expect(await page.locator('.viewer-side-panel.open').count(), '1 回目: viewer が閉じる').toBe(0);
+        expect(await page.locator('.side-panel.open').count(), '1 回目: md は残る').toBe(1);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(400);
+        expect(await page.locator('.side-panel.open').count(), '2 回目: md が閉じる').toBe(0);
+    });
 });
