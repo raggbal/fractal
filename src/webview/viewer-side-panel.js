@@ -219,23 +219,35 @@
             //（md 正典順 — FR-FV-14-2。1 実装 3 マウントの原則で sidepanel 専用ヘッダを持たない）
             window.__fileViewer.open(kind, fileUri, mount, filePath, {
                 onExpand: toggleExpand,
-                onClose: close,
+                onClose: () => close({ byUser: true }),
             });
         }
     }
 
-    /** viewer サイドペインを閉じる（md 側 open 冒頭 hook からも呼ばれる） */
-    function close() {
+    /**
+     * viewer サイドペインを閉じる（md 側 open 冒頭 hook からも呼ばれる）。
+     * closeOpts.byUser = ✗ / Esc で閉じた（md や別ファイルを開いたことによる close ではない）
+     */
+    function close(closeOpts) {
         if (!panelEl) { return; }
+        const byUser = !!(closeOpts && closeOpts.byUser);
         panelEl.classList.remove('open');
         // ④ close 時に最大化をリセット（md と同挙動 — 次回 open は非 expand から）
         panelEl.classList.remove('expanded');
         delete panelEl.dataset.prevWidth;
         const mount = panelEl.querySelector('.viewer-side-panel-mount');
         if (window.__fileViewer && mount) { window.__fileViewer.destroy(mount); }
+        // 閉じたことを面（outliner 等）へ通知。✗ / Esc のときは面が開いた元ノードへカーソルを戻し、
+        // 戻したら preventDefault する（下の汎用 focus 復帰はしない）。それ以外の close では面は何もしない
+        let handled = false;
+        try {
+            const ev = new CustomEvent('fractal:viewerPanelClosed', { detail: { byUser }, cancelable: true });
+            window.dispatchEvent(ev);
+            handled = ev.defaultPrevented;
+        } catch { /* noop */ }
         // focus を開いた時の場所へ戻す（第 8 ラウンド④）。現 focus がパネル内 or body の時だけ —
         // ユーザーが既に他所（md editor 等）をクリックしていたら奪い返さない
-        try {
+        if (!handled) try {
             const ae = document.activeElement;
             const stole = !ae || ae === document.body || (panelEl && panelEl.contains(ae));
             if (stole && prevFocusEl && prevFocusEl.isConnected) {
@@ -285,16 +297,23 @@
     // ADRL-0138: md sidepanel と重なっているとき、Esc 1 回で閉じるのは最前面の viewer だけ。
     //   - **window の capture 段階**で受ける: document の全 handler より先に走るので script の読み込み順に依存しない
     //     （Notes 面は md editor = editor.js の Esc handler が本ファイルより先に登録される — 再オープン② で実測）
-    //   - target が viewer パネル内か body のときだけ閉じる（メインペインのダイアログ・入力欄・md 側で押した Esc は奪わない）
+    //   - target が viewer パネル内・body・outliner のツリーのときだけ閉じる（メインペインのダイアログ・入力欄・md 側で押した Esc は奪わない）
     //   - viewer の find bar 内の Esc は find bar 自身の handler（bubble）に任せる（capture で先に奪わない）
     //   - 閉じたら stopImmediatePropagation（以降の全 handler — md の Esc を含む — に届かない = 1 回で 1 枚）
     window.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape' || !panelEl || !panelEl.classList.contains('open')) { return; }
         if (document.querySelector('.outliner-image-overlay')) { return; }
+        // action panel / command palette が Esc を処理中なら奪わない（md sidepanel の Esc と同じ除外）
+        const ap = document.querySelector('.action-panel');
+        const cp = document.querySelector('.command-palette');
+        if ((ap && ap.style.display !== 'none') || (cp && cp.style.display !== 'none')) { return; }
         const t = e.target;
-        if (!(t === document.body || (t && panelEl.contains(t)))) { return; }
+        // outliner のツリーにカーソルがあるときも閉じる（md sidepanel と同じ — 意図して閉じる操作。
+        // ✗ と同じく開いた元ノードへカーソルが戻る）
+        const inOutliner = !!(t && t.closest && t.closest('.outliner-tree'));
+        if (!(t === document.body || inOutliner || (t && panelEl.contains(t)))) { return; }
         if (t && t.closest && t.closest('.viewer-find-bar')) { return; }
-        close();
+        close({ byUser: true });
         e.preventDefault();
         e.stopImmediatePropagation();
     }, true);

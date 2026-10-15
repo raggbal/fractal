@@ -220,6 +220,64 @@ test.describe('viewer sidepanel の重ね表示（再オープン① / TASK-11�
         expect(await activeId(), '✗ では p へ戻る').toBe('p');
     });
 
+    test('TC-VSO-14: outliner のファイルノードから開いた viewer を ✗ / Esc で閉じるとそのノードへ戻る（md を開いて閉じたときは戻らない）', async ({ page }) => {
+        const nd = (id: string, text: string, extra: any = {}) => Object.assign({ id, parentId: null, children: [], text, collapsed: false,
+            subtext: '', images: [], isPage: false, pageId: null, checked: null, filePath: null, tags: [] }, extra);
+        await page.evaluate((d) => (window as any).__testApi.initOutliner(d), { version: 1, rootIds: ['f', 'g', 'q'],
+            nodes: { f: nd('f', 'deck', { filePath: 'files/a.pptx' }), g: nd('g', 'sheet', { filePath: 'files/b.xlsx' }), q: nd('q', 'Q') } });
+        const activeId = () => page.evaluate(() => document.activeElement?.closest('.outliner-node')?.getAttribute('data-id') || null);
+        const clickNode = async (id: string) => {
+            await page.evaluate(() => { const v = document.querySelector('.viewer-side-panel') as HTMLElement | null; if (v) { v.style.width = '240px'; } });
+            await page.locator(`.outliner-node[data-id="${id}"] .outliner-text`).click();
+        };
+        const openFileFrom = async (id: string, intoViewer = true) => {
+            await clickNode(id);
+            await page.keyboard.press('Meta+Enter'); // openAttachedFile（元ノード = id）
+            await openViewer(page, 'html', false);   // host の応答相当
+            if (intoViewer) {
+                await page.evaluate(() => { const v = document.querySelector('.viewer-side-panel') as HTMLElement; v.tabIndex = -1; v.focus(); }); // focus は viewer へ
+                expect(await activeId()).toBeNull();
+            }
+        };
+        // (a) viewer 内で Esc → f
+        await openFileFrom('f');
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(300);
+        expect(await count(page, '.viewer-side-panel.open')).toBe(0);
+        expect(await activeId(), 'Esc → f').toBe('f');
+        // (b) viewer 表示中に別ファイル g を開いたら戻り先は g（✗）
+        await openFileFrom('f');
+        await openFileFrom('g');
+        await page.locator('.viewer-side-panel .viewer-side-panel-close').click();
+        await page.waitForTimeout(300);
+        expect(await activeId(), '✗ → g').toBe('g');
+        // (c) outliner（q）にカーソルを置いて Esc → viewer が閉じて f へ
+        await openFileFrom('f', false);
+        await clickNode('q');
+        expect(await activeId()).toBe('q');
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(300);
+        expect(await count(page, '.viewer-side-panel.open'), 'outliner の Esc でも閉じる').toBe(0);
+        expect(await activeId(), 'outliner の Esc → f').toBe('f');
+        // (d) md の上に重なった viewer: outliner で Esc → viewer だけ閉じる
+        await openMd(page);
+        await page.evaluate(() => { (document.querySelector('.side-panel') as HTMLElement).style.width = '240px'; });
+        await openViewer(page, 'html', true);
+        await clickNode('q');
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(300);
+        expect(await count(page, '.viewer-side-panel.open')).toBe(0);
+        expect(await count(page, '.side-panel.open'), 'md は残る').toBe(1);
+        await page.locator('.side-panel.open .side-panel-close').click();
+        await page.waitForTimeout(400);
+        // (e) viewer 表示中に md を開いて viewer が閉じた → f へは戻らない
+        await openFileFrom('f');
+        await clickNode('q');
+        await openMd(page, 'm.md', '# M');
+        expect(await count(page, '.viewer-side-panel.open')).toBe(0);
+        expect(await page.evaluate(() => (window as any).Outliner.getFocusedNodeId())).not.toBe('f');
+    });
+
     test('TC-VSO-09: メインペインのモーダル（document capture で Esc を受ける）に focus があるときは奪わない', async ({ page }) => {
         await openMd(page);
         await openViewer(page);

@@ -4048,7 +4048,7 @@ var Outliner = (function() {
                         return;
                     }
                 }
-                host.openAttachedFile(node.id);
+                openAttachedFileFromNode(node.id);
             });
             // FR-TF-05b (§4e :96): file 添付 node の 📎 アイコン → Notes ツリーへ D&D（所有移し替え）。
             //   掴みは bullet（並べ替え/subtree 移動）と分離し、📎 は file 専用 MIME のみ載せる。
@@ -5767,7 +5767,7 @@ var Outliner = (function() {
                         openPage(nodeId);
                     } else if (pageNode.filePath) {
                         // FR-OL-CMDENTER-1: file 添付ノードを外部アプリで開く
-                        host.openAttachedFile(nodeId);
+                        openAttachedFileFromNode(nodeId);
                     } else {
                         // md もファイルも添付なし → @page 相当で md を作成+添付し sidepanel で開く。
                         // 画像だけの node でも md 化する（images は node に残る）。
@@ -6793,11 +6793,18 @@ var Outliner = (function() {
         scheduleSyncToHost();
     }
 
+    /** ファイル添付ノード → ホストに開くよう要求（viewer で開いたら ✗ / Esc の close でこのノードへ戻す） */
+    function openAttachedFileFromNode(nodeId) {
+        viewerOriginNodeId = nodeId;
+        host.openAttachedFile(nodeId);
+    }
+
     /** ページノードクリック → ホストにサイドパネルで開くよう要求 */
     function openPage(nodeId) {
         var node = model.getNode(nodeId);
         if (!node || !node.isPage || !node.pageId) { return; }
         sidePanelOriginNodeId = nodeId;
+        viewerOriginNodeId = null;
         host.openPageInSidePanel(nodeId, node.pageId);
     }
 
@@ -8379,7 +8386,7 @@ var Outliner = (function() {
         // --- ファイル操作 ---
         if (node.filePath) {
             addMenuItem(contextMenuEl, i18n.outlinerOpenFile || 'Open File', function() {
-                host.openAttachedFile(nodeId);
+                openAttachedFileFromNode(nodeId);
                 hideContextMenu();
             });
             // FR-ONT-02: 📎 file 添付を**新規タブ**で開く（FR-FTB の経路。nodeId のみ送る）。
@@ -8836,6 +8843,7 @@ var Outliner = (function() {
         }
     }
     var sidePanelOriginNodeId = null;  // サイドパネルを開いたノードID（閉じた時にフォーカスを戻す）
+    var viewerOriginNodeId = null;     // viewer sidepanel でファイルを開いたノードID（✗ / Esc で閉じた時にフォーカスを戻す）
     var sidePanelTocVisible = true;
     var sidePanelExpanded = false;
     var sidePanelImagePending = false;
@@ -9504,6 +9512,7 @@ var Outliner = (function() {
 
     function openSidePanel(markdown, filePath, fileName, toc, spDocumentBaseUri) {
         if (window.__viewerSidePanel) { window.__viewerSidePanel.close(); }   // viewer と排他（FR-FV-05 / sprint 20260815-075428）
+        viewerOriginNodeId = null; // md を開いた = 以前ファイルを開いたノードは viewer の戻り先ではない
         if (sidePanelInstance) {
             closeSidePanelImmediate(true /* isSwitch */);
         }
@@ -9802,24 +9811,7 @@ var Outliner = (function() {
             _syncActiveTabSidePanel({ open: false, filePath: null, scrollTop: 0 });
             host.notifySidePanelClosed();
             if (sidePanelOriginNodeId) {
-                if (VIEW_MODE === 'mindmap') {
-                    // mindmap は focusNode（.outliner-node 前提）が効かない。focusedNodeId + renderTree で
-                    // is-focused クラスを付けるだけでは keydown が届かない（treeEl 配線のキー処理は
-                    // .mindmap-node-text に real DOM focus が無いと発火しない）。renderTree 後に
-                    // origin node の text 要素へ実 focus を当て、↑↓/Enter を即受け付けられるようにする。
-                    if (model && model.getNode && model.getNode(sidePanelOriginNodeId)) {
-                        focusedNodeId = sidePanelOriginNodeId;
-                        renderTree();
-                        var mmText = treeEl.querySelector('.mindmap-node-text[data-node-id="' + sidePanelOriginNodeId + '"]');
-                        if (mmText) {
-                            mmText.setAttribute('contenteditable', 'true'); // committed active（編集開始はしない）
-                            mmText.classList.remove('is-editing');
-                            try { mmText.focus({ preventScroll: true }); } catch (e) { mmText.focus(); }
-                        }
-                    }
-                } else {
-                    focusNode(sidePanelOriginNodeId);
-                }
+                focusOriginNode(sidePanelOriginNodeId);
                 sidePanelOriginNodeId = null;
             }
         }
@@ -9827,6 +9819,38 @@ var Outliner = (function() {
         // 現在のフォーカスを保持する。先頭ノードへ戻すと検索結果からの
         // ジャンプ位置が失われるため。
     }
+
+    // sidepanel（md / viewer）を ✗ / Esc で閉じたとき、開いた元ノードへカーソルを戻す
+    function focusOriginNode(originId) {
+        if (VIEW_MODE === 'mindmap') {
+            // mindmap は focusNode（.outliner-node 前提）が効かない。focusedNodeId + renderTree で
+            // is-focused クラスを付けるだけでは keydown が届かない（treeEl 配線のキー処理は
+            // .mindmap-node-text に real DOM focus が無いと発火しない）。renderTree 後に
+            // origin node の text 要素へ実 focus を当て、↑↓/Enter を即受け付けられるようにする。
+            if (model && model.getNode && model.getNode(originId)) {
+                focusedNodeId = originId;
+                renderTree();
+                var mmText = treeEl.querySelector('.mindmap-node-text[data-node-id="' + originId + '"]');
+                if (mmText) {
+                    mmText.setAttribute('contenteditable', 'true'); // committed active（編集開始はしない）
+                    mmText.classList.remove('is-editing');
+                    try { mmText.focus({ preventScroll: true }); } catch (e) { mmText.focus(); }
+                }
+            }
+        } else {
+            focusNode(originId);
+        }
+    }
+
+    // viewer sidepanel の close 通知（viewer-side-panel.js）。✗ / Esc のときだけ元ノードへ戻す。
+    // md や別ファイルを開いたことによる close では何もしない（元ノードは忘れる）
+    window.addEventListener('fractal:viewerPanelClosed', function(e) {
+        var originId = viewerOriginNodeId;
+        viewerOriginNodeId = null;
+        if (!e.detail || !e.detail.byUser || !originId || !model || !model.getNode || !model.getNode(originId)) { return; }
+        focusOriginNode(originId);
+        e.preventDefault();
+    });
 
     function renderSidePanelToc(toc) {
         if (!sidePanelTocEl) { return; }
