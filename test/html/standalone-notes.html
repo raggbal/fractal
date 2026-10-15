@@ -17445,13 +17445,23 @@ class EditorInstance {
     drawioCopyPathBtn.style.display = 'none';
     document.body.appendChild(drawioCopyPathBtn);
 
+    // FR-DIO-08（sprint 20261009-130815）: file viewer（drawio kind）で開く。click = md 内 📎 リンクと同じ host.openLink 経路
+    // （host 側の isViewerTarget → notes 面は viewer sidepanel / 単体 md editor は viewer タブ）
+    var drawioOpenViewerBtn = document.createElement('button');
+    drawioOpenViewerBtn.className = 'drawio-open-btn'; // 同 style 流用
+    drawioOpenViewerBtn.textContent = i18n.drawioOpenInViewer || 'Open in Viewer';
+    drawioOpenViewerBtn.title = i18n.drawioOpenInViewer || 'Open in Viewer';
+    drawioOpenViewerBtn.setAttribute('contenteditable', 'false');
+    drawioOpenViewerBtn.style.display = 'none';
+    document.body.appendChild(drawioOpenViewerBtn);
+
     var drawioOpenBtnTargetImg = null;
     var drawioOpenBtnHideTimer = null;
 
     function isDrawioImg(el) {
         if (!el || el.tagName !== 'IMG') return false;
         var p = (el.dataset.markdownPath || el.getAttribute('src') || '').toLowerCase().split('?')[0].split('#')[0];
-        return p.endsWith('.drawio.svg') || p.endsWith('.drawio.png');
+        return p.endsWith('.drawio.svg') || p.endsWith('.drawio.png') || p.endsWith('.dio.svg') || p.endsWith('.dio.png');
     }
     function positionDrawioOpenBtn(img) {
         var rect = img.getBoundingClientRect();
@@ -17468,6 +17478,9 @@ class EditorInstance {
         var copyLeft = vscodeLeft - drawioCopyPathBtn.offsetWidth - 4;
         drawioCopyPathBtn.style.top = openTop + 'px';
         drawioCopyPathBtn.style.left = copyLeft + 'px';
+        // Open in Viewer を左端に gap 4px で
+        drawioOpenViewerBtn.style.top = openTop + 'px';
+        drawioOpenViewerBtn.style.left = (copyLeft - drawioOpenViewerBtn.offsetWidth - 4) + 'px';
     }
     function showDrawioOpenBtnFor(img) {
         if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
@@ -17475,6 +17488,7 @@ class EditorInstance {
         drawioOpenBtn.style.display = 'block';
         drawioOpenVscodeBtn.style.display = 'block';
         drawioCopyPathBtn.style.display = 'block';
+        drawioOpenViewerBtn.style.display = 'block';
         positionDrawioOpenBtn(img);
         // 幅確定後に再配置 (display:none → block 直後は offsetWidth が 0 のことがある)
         requestAnimationFrame(function() { positionDrawioOpenBtn(img); });
@@ -17485,6 +17499,7 @@ class EditorInstance {
             drawioOpenBtn.style.display = 'none';
             drawioOpenVscodeBtn.style.display = 'none';
             drawioCopyPathBtn.style.display = 'none';
+            drawioOpenViewerBtn.style.display = 'none';
             drawioOpenBtnTargetImg = null;
         }, 120);
     }
@@ -17497,6 +17512,23 @@ class EditorInstance {
             : rawSrc.replace(/^https:\/\/file(?:\+|%2B)\.vscode-resource\.vscode-cdn\.net/, '');
         return (cleaned || '').split('?')[0].split('#')[0];
     }
+
+    drawioOpenViewerBtn.addEventListener('mouseenter', function() {
+        if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
+    });
+    drawioOpenViewerBtn.addEventListener('mouseleave', hideDrawioOpenBtnSoon);
+    drawioOpenViewerBtn.addEventListener('mousedown', function(e) { e.preventDefault(); });
+    drawioOpenViewerBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!drawioOpenBtnTargetImg) return;
+        var mdPath = drawioOpenBtnTargetImg.dataset.markdownPath || drawioOpenBtnTargetImg.getAttribute('src') || '';
+        if (!mdPath) return;
+        var cleanPath = mdPath.split('?')[0].split('#')[0];
+        if (typeof host !== 'undefined' && host.openLink) {
+            host.openLink(cleanPath);
+        }
+    });
 
     drawioOpenBtn.addEventListener('mouseenter', function() {
         if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
@@ -17582,7 +17614,7 @@ class EditorInstance {
         if (isDrawioImg(t)) {
             // related target がボタン or 同じ img なら維持
             var rt = e.relatedTarget;
-            if (rt === drawioOpenBtn || rt === drawioOpenVscodeBtn || rt === drawioCopyPathBtn || rt === drawioOpenBtnTargetImg) return;
+            if (rt === drawioOpenBtn || rt === drawioOpenVscodeBtn || rt === drawioCopyPathBtn || rt === drawioOpenViewerBtn || rt === drawioOpenBtnTargetImg) return;
             hideDrawioOpenBtnSoon();
         }
     });
@@ -40286,7 +40318,7 @@ var Outliner = (function() {
                         return;
                     }
                 }
-                host.openAttachedFile(node.id);
+                openAttachedFileFromNode(node.id);
             });
             // FR-TF-05b (§4e :96): file 添付 node の 📎 アイコン → Notes ツリーへ D&D（所有移し替え）。
             //   掴みは bullet（並べ替え/subtree 移動）と分離し、📎 は file 専用 MIME のみ載せる。
@@ -42005,7 +42037,7 @@ var Outliner = (function() {
                         openPage(nodeId);
                     } else if (pageNode.filePath) {
                         // FR-OL-CMDENTER-1: file 添付ノードを外部アプリで開く
-                        host.openAttachedFile(nodeId);
+                        openAttachedFileFromNode(nodeId);
                     } else {
                         // md もファイルも添付なし → @page 相当で md を作成+添付し sidepanel で開く。
                         // 画像だけの node でも md 化する（images は node に残る）。
@@ -43031,11 +43063,18 @@ var Outliner = (function() {
         scheduleSyncToHost();
     }
 
+    /** ファイル添付ノード → ホストに開くよう要求（viewer で開いたら ✗ / Esc の close でこのノードへ戻す） */
+    function openAttachedFileFromNode(nodeId) {
+        viewerOriginNodeId = nodeId;
+        host.openAttachedFile(nodeId);
+    }
+
     /** ページノードクリック → ホストにサイドパネルで開くよう要求 */
     function openPage(nodeId) {
         var node = model.getNode(nodeId);
         if (!node || !node.isPage || !node.pageId) { return; }
         sidePanelOriginNodeId = nodeId;
+        viewerOriginNodeId = null;
         host.openPageInSidePanel(nodeId, node.pageId);
     }
 
@@ -44617,7 +44656,7 @@ var Outliner = (function() {
         // --- ファイル操作 ---
         if (node.filePath) {
             addMenuItem(contextMenuEl, i18n.outlinerOpenFile || 'Open File', function() {
-                host.openAttachedFile(nodeId);
+                openAttachedFileFromNode(nodeId);
                 hideContextMenu();
             });
             // FR-ONT-02: 📎 file 添付を**新規タブ**で開く（FR-FTB の経路。nodeId のみ送る）。
@@ -45074,6 +45113,7 @@ var Outliner = (function() {
         }
     }
     var sidePanelOriginNodeId = null;  // サイドパネルを開いたノードID（閉じた時にフォーカスを戻す）
+    var viewerOriginNodeId = null;     // viewer sidepanel でファイルを開いたノードID（✗ / Esc で閉じた時にフォーカスを戻す）
     var sidePanelTocVisible = true;
     var sidePanelExpanded = false;
     var sidePanelImagePending = false;
@@ -45742,6 +45782,7 @@ var Outliner = (function() {
 
     function openSidePanel(markdown, filePath, fileName, toc, spDocumentBaseUri) {
         if (window.__viewerSidePanel) { window.__viewerSidePanel.close(); }   // viewer と排他（FR-FV-05 / sprint 20260815-075428）
+        viewerOriginNodeId = null; // md を開いた = 以前ファイルを開いたノードは viewer の戻り先ではない
         if (sidePanelInstance) {
             closeSidePanelImmediate(true /* isSwitch */);
         }
@@ -45975,6 +46016,12 @@ var Outliner = (function() {
     function closeSidePanel() {
         restoreHeaderActionsFromTranslation();
         sidePanelPreTranslationState = null;
+        // viewer sidepanel との入れ替えで閉じた（outliner 側の操作で開いた）ときは元ノードへ戻さない。
+        // ✗ / Esc で閉じたときだけ戻す（viewer-side-panel.js が data-close-reason="replaced" を付ける）
+        if (sidePanelEl && sidePanelEl.dataset.closeReason === 'replaced') {
+            delete sidePanelEl.dataset.closeReason;
+            sidePanelOriginNodeId = null;
+        }
         if (sidePanelEl) { sidePanelEl.classList.remove('open'); }
         // sprint 20260724-042927: overlay 廃止（remove('open') 不要）。
         setTimeout(function() { closeSidePanelImmediate(); }, 200);
@@ -46034,24 +46081,7 @@ var Outliner = (function() {
             _syncActiveTabSidePanel({ open: false, filePath: null, scrollTop: 0 });
             host.notifySidePanelClosed();
             if (sidePanelOriginNodeId) {
-                if (VIEW_MODE === 'mindmap') {
-                    // mindmap は focusNode（.outliner-node 前提）が効かない。focusedNodeId + renderTree で
-                    // is-focused クラスを付けるだけでは keydown が届かない（treeEl 配線のキー処理は
-                    // .mindmap-node-text に real DOM focus が無いと発火しない）。renderTree 後に
-                    // origin node の text 要素へ実 focus を当て、↑↓/Enter を即受け付けられるようにする。
-                    if (model && model.getNode && model.getNode(sidePanelOriginNodeId)) {
-                        focusedNodeId = sidePanelOriginNodeId;
-                        renderTree();
-                        var mmText = treeEl.querySelector('.mindmap-node-text[data-node-id="' + sidePanelOriginNodeId + '"]');
-                        if (mmText) {
-                            mmText.setAttribute('contenteditable', 'true'); // committed active（編集開始はしない）
-                            mmText.classList.remove('is-editing');
-                            try { mmText.focus({ preventScroll: true }); } catch (e) { mmText.focus(); }
-                        }
-                    }
-                } else {
-                    focusNode(sidePanelOriginNodeId);
-                }
+                focusOriginNode(sidePanelOriginNodeId);
                 sidePanelOriginNodeId = null;
             }
         }
@@ -46059,6 +46089,38 @@ var Outliner = (function() {
         // 現在のフォーカスを保持する。先頭ノードへ戻すと検索結果からの
         // ジャンプ位置が失われるため。
     }
+
+    // sidepanel（md / viewer）を ✗ / Esc で閉じたとき、開いた元ノードへカーソルを戻す
+    function focusOriginNode(originId) {
+        if (VIEW_MODE === 'mindmap') {
+            // mindmap は focusNode（.outliner-node 前提）が効かない。focusedNodeId + renderTree で
+            // is-focused クラスを付けるだけでは keydown が届かない（treeEl 配線のキー処理は
+            // .mindmap-node-text に real DOM focus が無いと発火しない）。renderTree 後に
+            // origin node の text 要素へ実 focus を当て、↑↓/Enter を即受け付けられるようにする。
+            if (model && model.getNode && model.getNode(originId)) {
+                focusedNodeId = originId;
+                renderTree();
+                var mmText = treeEl.querySelector('.mindmap-node-text[data-node-id="' + originId + '"]');
+                if (mmText) {
+                    mmText.setAttribute('contenteditable', 'true'); // committed active（編集開始はしない）
+                    mmText.classList.remove('is-editing');
+                    try { mmText.focus({ preventScroll: true }); } catch (e) { mmText.focus(); }
+                }
+            }
+        } else {
+            focusNode(originId);
+        }
+    }
+
+    // viewer sidepanel の close 通知（viewer-side-panel.js）。✗ / Esc のときだけ元ノードへ戻す。
+    // md や別ファイルを開いたことによる close では何もしない（元ノードは忘れる）
+    window.addEventListener('fractal:viewerPanelClosed', function(e) {
+        var originId = viewerOriginNodeId;
+        viewerOriginNodeId = null;
+        if (!e.detail || !e.detail.byUser || !originId || !model || !model.getNode || !model.getNode(originId)) { return; }
+        focusOriginNode(originId);
+        e.preventDefault();
+    });
 
     function renderSidePanelToc(toc) {
         if (!sidePanelTocEl) { return; }
@@ -46161,7 +46223,7 @@ var Outliner = (function() {
             var curFirstLine = nlIdx >= 0 ? curText.slice(0, nlIdx) : curText;
             if (node && curFirstLine !== firstH1) {
                 var nextText = nlIdx >= 0 ? firstH1 + curText.slice(nlIdx) : firstH1;
-                _applyingH1ToNode = true; // FR-TH-07: \u3053\u306e\u9593 node\u2192md \u9001\u4fe1\u3092\u30b9\u30ad\u30c3\u30d7
+                _applyingH1ToNode = true; // FR-TH-07: この間 node→md 送信をスキップ
                 try {
                     model.updateText(node.id, nextText);
                     renderTree();
@@ -59462,7 +59524,8 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
     // ── 新 viewer kind（sprint 20260823-165314 / FR-FV-17 = ADRL-0092） ─────────────────
     // kind 別 ESM モジュールを初回 open 時に動的 import（pdfjs の import(config.pdfjsLibUri) precedent）。
     // Promise キャッシュで単一飛行（同 kind 連続 open で二重 import しない）。失敗はキャッシュしない。
-    const VIEWER_MODULE_KINDS = ['text', 'image', 'docx', 'xlsx', 'pptx'];
+    // drawio: sprint 20261009-130815（ADRL-0135 — 隔離 iframe 描画のモジュール）
+    const VIEWER_MODULE_KINDS = ['text', 'image', 'docx', 'xlsx', 'pptx', 'drawio'];
     const viewerModulePromises = new Map();
     function loadViewerModule(kind) {
         const cached = viewerModulePromises.get(kind);
@@ -59634,6 +59697,8 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         // image viewer 用（sprint 20260823-165314 / FR-FV-19。md analog 不在の新規最小 —
         // fit = lucide maximize / actualSize = 数字 1:1 の最小表現。TC-FV-61 が字面 pin）
         fit: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>',
+        // drawio viewer のレイヤー（sprint 20261009-130815 / ADRL-0137。md analog 不在の新規 — lucide layers）
+        layers: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>',
         actualSize: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8v8"/><path d="M5 10l2-2"/><path d="M17 8v8"/><path d="M15 10l2-2"/><line x1="11" y1="10" x2="11" y2="10.01"/><line x1="11" y1="14" x2="11" y2="14.01"/></svg>',
     };
 
@@ -59716,6 +59781,26 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 state.onToggleScripts();
             });
             bar.appendChild(scriptBtn);
+        }
+        // drawio（sprint 20261009-130815 / ADRL-0137）: ページ選択とレイヤーは [−][+] の直前。
+        // DOM 生成だけを行い（非表示で生成）、表示・中身・click 配線は viewer-drawio モジュールが行う
+        if (kind === 'drawio') {
+            const pageSel = document.createElement('select');
+            pageSel.className = 'viewer-drawio-page';
+            const pageLabel = label('viewerDrawioPage', 'Page');
+            pageSel.title = pageLabel;
+            pageSel.setAttribute('aria-label', pageLabel);
+            pageSel.style.display = 'none';
+            bar.appendChild(pageSel);
+            const layersBtn = document.createElement('button');
+            layersBtn.className = 'viewer-drawio-layers';
+            const layersLabel = label('viewerDrawioLayers', 'Layers');
+            layersBtn.title = layersLabel;
+            layersBtn.setAttribute('aria-label', layersLabel);
+            layersBtn.setAttribute('aria-haspopup', 'true');
+            layersBtn.innerHTML = VIEWER_ICONS.layers;
+            layersBtn.style.display = 'none';
+            bar.appendChild(layersBtn);
         }
         // FR-VZP-02（sprint 20260825-224210 / ADRL-0100 — FR-FV-19 の SYS-1 裁定を supersede）:
         // [−][+] は全 kind に生成する。click 配線は従来どおり kind 側（openPdf / 各 kind モジュール）
@@ -60015,7 +60100,8 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
      * preventDefault（VS Code ズーム抑止の穴を塞ぐ — 役割不変）+ ピンチ係数の親への転送
      * だけを行う。倍率の適用は親側 applyHtmlZoom（iframe width(100/z)% + scale(z)）が担い、
      * iframe 内 CSS zoom は使わない（100vh レイアウトで余白が出る v1 機構の廃止）。
-     * 係数は viewer-common/pinch-zoom.mjs と同一（exp(-deltaY*0.003) — 3 箇所同時変更の対象）。
+     * 係数は viewer-common/pinch-zoom.mjs と同一（exp(-deltaY*0.003) — 4 箇所同時変更の対象:
+     * pinch-zoom.mjs / 本注入ヘルパ / 本ファイルの openPdf 系 / viewer-drawio/frame-boot.js）。
      */
     function injectZoomHelper(html, nonce) {
         const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
@@ -60257,7 +60343,7 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         // FR-VZP-01 (ADRL-0100): (ctrl||meta)+wheel = トラックパッドピンチをカーソル不動点ズームに。
         // {passive:false}+preventDefault で viewer 上の VS Code 全体ズームを抑止。係数は
         // viewer-common/pinch-zoom.mjs と同一（exp(-deltaY*0.003) — file-viewer.js は非 ESM のため
-        // 直書き複製。変更時は 3 箇所同時 = pinch-zoom.mjs / ここ / html 注入ヘルパ）。
+        // 直書き複製。変更時は 4 箇所同時 = pinch-zoom.mjs / ここ / html 注入ヘルパ / viewer-drawio/frame-boot.js）。
         // updateScale は数値 scale 化するため refit（上の RO）は手動ズーム後に停止（FR-FV-23 整合）。
         // リスナーは mount 配下 DOM = destroy の DOM 破棄で消滅（NFR-VZP-04・cleanupRegistry 不使用）。
         container.addEventListener('wheel', (e) => {
@@ -60415,8 +60501,8 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             if (btn) { btn.setAttribute('aria-pressed', state.allowScripts ? 'true' : 'false'); }
         };
         buildToolbar(mount, fileUri, kind, filePath, state, opts);
-        // FR-VFB-03: ツールバー末尾に 🔍（find bar トグル）。image は find 対象外のため非表示（FR-FV-19/21）
-        const tb = kind === 'image' ? null : mount.querySelector('.viewer-toolbar');
+        // FR-VFB-03: ツールバー末尾に 🔍（find bar トグル）。image / drawio は find 対象外のため非表示（FR-FV-19/21・FR-FV-08/12）
+        const tb = (kind === 'image' || kind === 'drawio') ? null : mount.querySelector('.viewer-toolbar');
         if (tb) {
             const fbtn = document.createElement('button');
             fbtn.className = 'viewer-find-toggle';
@@ -60427,7 +60513,8 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             // 順序 contract（TC-FV-62 / FR-FV-12 改訂）: 表示系（script-toggle）の隣・アクション群（OS で開く〜）の前
             tb.insertBefore(fbtn, tb.querySelector('.viewer-open-external'));
         }
-        buildFindBar(mount, state);
+        // drawio は find 非対応（FR-FV-08/12）: find bar を作らない = state.findUi 無し → Cmd+F は先取りしない
+        if (kind !== 'drawio') { buildFindBar(mount, state); }
         buildBody(mount);
         // TASK-12（ユーザー報告 2026-08-23）: Cmd+F は window capture で一元先取り（下の
         // __fvFindKeyHook）— フォーカスが webview body にあっても外部 find（VS Code/ブラウザ）に

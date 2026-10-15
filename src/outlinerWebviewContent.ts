@@ -356,7 +356,13 @@ export function getOutlinerWebviewContent(
             image: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'viewer-image.mjs'))}',
             docx: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'viewer-docx.mjs'))}',
             xlsx: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'viewer-xlsx.mjs'))}',
-            pptx: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'viewer-pptx.mjs'))}'
+            pptx: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'viewer-pptx.mjs'))}',
+            drawio: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'viewer-drawio.mjs'))}'
+        },
+        // sprint 20261009-130815 / ADRL-0135: drawio の描画ライブラリ（viewer-drawio が fetch して隔離 iframe に埋め込む）
+        drawioAssetUris: {
+            viewerStatic: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'drawio-viewer', 'viewer-static.min.js'))}',
+            stencils: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'drawio-viewer', 'stencils.min.js'))}'
         }
     };${fileViewerScript}</script>
     <script nonce="${nonce}">${viewerSidePanelScript}</script>

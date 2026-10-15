@@ -37,9 +37,17 @@ copyDir(PDFJS_SRC, PDFJS_DEST);
 const VIEWER_MODULES_SRC = path.join(ROOT, 'out', 'webview');
 const VIEWER_MODULES_DEST = path.join(__dirname, 'html', 'viewer-modules');
 fs.mkdirSync(VIEWER_MODULES_DEST, { recursive: true });
-for (const kind of ['text', 'image', 'docx', 'xlsx', 'pptx']) {
+for (const kind of ['text', 'image', 'docx', 'xlsx', 'pptx', 'drawio']) {
     const f = path.join(VIEWER_MODULES_SRC, `viewer-${kind}.mjs`);
     if (fs.existsSync(f)) { fs.copyFileSync(f, path.join(VIEWER_MODULES_DEST, `viewer-${kind}.mjs`)); }
+}
+
+// drawio の描画ライブラリ（sprint 20261009-130815 / ADRL-0136）をテストサーバー配下へ
+const DRAWIO_SRC = path.join(ROOT, 'media', 'drawio-viewer');
+const DRAWIO_DEST = path.join(__dirname, 'html', 'drawio-viewer');
+fs.mkdirSync(DRAWIO_DEST, { recursive: true });
+for (const f of ['viewer-static.min.js', 'stencils.min.js']) {
+    fs.copyFileSync(path.join(DRAWIO_SRC, f), path.join(DRAWIO_DEST, f));
 }
 
 const viewerJsPath = path.join(ROOT, 'src', 'webview', 'file-viewer.js');
@@ -65,7 +73,8 @@ const csp = [
     `form-action 'none'`,
 ].join('; ');
 
-const html = `<!DOCTYPE html>
+function buildHtml(csp) {
+return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -114,6 +123,11 @@ window.__viewerConfig = {
         docx: './viewer-modules/viewer-docx.mjs',
         xlsx: './viewer-modules/viewer-xlsx.mjs',
         pptx: './viewer-modules/viewer-pptx.mjs',
+        drawio: './viewer-modules/viewer-drawio.mjs',
+    },
+    drawioAssetUris: {
+        viewerStatic: './drawio-viewer/viewer-static.min.js',
+        stencils: './drawio-viewer/stencils.min.js',
     },
     nonce: '${nonce}',
 };
@@ -121,7 +135,19 @@ ${viewerJs}
 </script>
 </body>
 </html>`;
+}
 
 fs.mkdirSync(path.dirname(OUT_HTML), { recursive: true });
-fs.writeFileSync(OUT_HTML, html);
+fs.writeFileSync(OUT_HTML, buildHtml(csp));
 console.log(`[build-standalone-viewer] ${path.relative(ROOT, OUT_HTML)} generated`);
+
+// notes / outliner 面と同じ CSP（img-src https: / font-src https: を許す）のハーネス
+// （sprint 20261009-130815 / TC-DIO-31: drawio の内側 meta CSP の効果は、外部画像を許す面でしか測れない）。
+// 本番 notesWebviewContent.ts の CSP 文字列を読んで cspSource → 'self' / nonce を置換する（手書き同期しない — TC-DIO-06 が番人）
+const notesSrc = fs.readFileSync(path.join(ROOT, 'src', 'notesWebviewContent.ts'), 'utf8');
+const notesCspMatch = /http-equiv="Content-Security-Policy" content="(default-src 'none'; style-src \$\{webview\.cspSource\}[^"]+)"/.exec(notesSrc);
+if (!notesCspMatch) { console.error('[build-standalone-viewer] notesWebviewContent.ts の CSP が見つかりません'); process.exit(1); }
+const notesCsp = notesCspMatch[1].replace(/\$\{webview\.cspSource\}/g, "'self'").replace(/\$\{nonce\}/g, nonce);
+const OUT_NOTES_HTML = path.join(__dirname, 'html', 'standalone-viewer-notescsp.html');
+fs.writeFileSync(OUT_NOTES_HTML, buildHtml(notesCsp));
+console.log(`[build-standalone-viewer] ${path.relative(ROOT, OUT_NOTES_HTML)} generated`);

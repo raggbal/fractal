@@ -641,6 +641,8 @@ test.describe('file-viewer: ツールバーのアイコン化（FR-FV-12）', ()
         //（md analog 不在の新規最小 2 個 — requirement が新規決定として pin。存在のみ確認）
         expect(viewerIcon('fit')).toContain('<svg');
         expect(viewerIcon('actualSize')).toContain('<svg');
+        // 【許可: test_update】sprint 20261009-130815（ADRL-0137）: drawio のレイヤー用 layers を追加（md analog 不在 — 存在のみ確認）
+        expect(viewerIcon('layers')).toContain('<svg');
     });
 
     test('TC-FV-62: アイコン化 + DOM 全順序 contract（OS で開く が左端・Open in new tab が最右端）', async ({ page }) => {

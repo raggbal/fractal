@@ -414,6 +414,11 @@ export const webviewMessages = {
   viewerUnsupportedMath: '[equation]',
   viewerSheetHidden: 'Hidden sheet',
   viewerVerticalTextApprox: 'Vertical text shown horizontally (approximation)',
+  viewerDrawioPage: 'Page',
+  viewerDrawioLayers: 'Layers',
+  viewerDrawioLoading: 'Preparing diagram…',
+  viewerDrawioRenderFailed: 'Could not display this diagram',
+  drawioOpenInViewer: 'Open in Viewer',
   viewerExpand: 'Expand',
   viewerClose: 'Close',
 };

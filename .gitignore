@@ -46,6 +46,9 @@ test/html/pdfjs-viewer/
 test/html/viewer-fixtures/
 # build-standalone-viewer.js が out/webview から複製する viewer kind モジュール（生成物）
 test/html/viewer-modules/
+# drawio viewer（sprint 20261009-130815）: vendor のコピーと notes 面 CSP 相当のハーネス（test/build-standalone-viewer.js が生成）
+test/html/drawio-viewer/
+test/html/standalone-viewer-notescsp.html
 # electron の esbuild バンドル出力（main.js / preload.js + .map）。ソースは electron/src/ が tracked
 electron/dist-src/
 # e2e-electron の生成 fixture（.fixture-note/ = scale-NNN のノート群。112 ファイル / 約 500K）

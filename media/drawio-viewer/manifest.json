@@ -1,0 +1,18 @@
+{
+  "name": "jgraph/drawio",
+  "license": "Apache-2.0",
+  "version": "32.3.0",
+  "commit": "96f8c7acb719aa93f0108eecedf20c3afdcbe431",
+  "files": {
+    "viewer-static.min.js": {
+      "size": 4418269,
+      "sha256": "1bd0bcf5fad22e258a35c5bc3683e025dfb8205e0797d97cdb4a452f702130c2",
+      "url": "https://raw.githubusercontent.com/jgraph/drawio/96f8c7acb719aa93f0108eecedf20c3afdcbe431/src/main/webapp/js/viewer-static.min.js"
+    },
+    "stencils.min.js": {
+      "size": 3870004,
+      "sha256": "f6ee4f7244ed74ba74b012ee621bc8d14f8492583a976e37f2b75328145c29b6",
+      "url": "https://raw.githubusercontent.com/jgraph/drawio/96f8c7acb719aa93f0108eecedf20c3afdcbe431/src/main/webapp/js/stencils.min.js"
+    }
+  }
+}

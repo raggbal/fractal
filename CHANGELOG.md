@@ -5,6 +5,17 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.19] - 2026-10-15
+
+### Added
+- **draw.io diagrams open in the file viewer** — `.drawio`, `.dio`, `.drawio.svg`, `.drawio.png`, `.dio.svg` and `.dio.png` are drawn as diagrams in the sidepanel, note and standalone viewers, including AWS and other shape libraries. The toolbar has page selection, layer show/hide, zoom in/out/fit, pinch zoom and drag to pan. Rendering never contacts the network; web images and fonts inside a diagram are left blank. Explorer double-click still opens your usual draw.io editor (the fractal viewer is offered under "Open With…")
+- **"Open in Viewer" on draw.io images in markdown** — hovering a draw.io image in an md file now shows an Open in Viewer button. How the image itself is shown in markdown is unchanged
+
+### Changed
+- **The file viewer opened from a link in a sidepanel md now stacks on top of the md** — closing the viewer shows the md again exactly where you left it. Opening a file from anywhere else (outliner file node, note tree, folder view) still replaces the md, and does not move the outliner cursor
+- **Esc closes only the top panel** — with the viewer over an md, the first Esc closes the viewer and the second closes the md. Esc pressed in the outliner also closes the viewer, like it does for the md
+- **Closing the file viewer with ✗ or Esc puts the cursor back on the outliner node the file was opened from**
+
 ## [1.3.18] - 2026-10-05
 
 ### Fixed

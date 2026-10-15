@@ -8,8 +8,8 @@
  * チューニング済み）。素の wheel は無視して return（スクロール温存）。
  *
  * 消費側: kind モジュール（pptx/docx/text/xlsx）。pdf（file-viewer.js — 非 ESM）と
- * html（iframe 注入ヘルパ — 文字列）は同係数を直書きで複製する（TASK-01 裁定 (b)。
- * 係数を変えるときは 3 箇所を同時に変えること）。
+ * html（iframe 注入ヘルパ — 文字列）と drawio（viewer-drawio/frame-boot.js — 隔離 iframe 内）は同係数を
+ * 直書きで複製する（TASK-01 裁定 (b)。係数を変えるときは 4 箇所を同時に変えること）。
  */
 export function attachPinchZoom(el, onZoom) {
     const handler = (e) => {

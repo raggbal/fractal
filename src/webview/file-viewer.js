@@ -42,7 +42,8 @@
     // ── 新 viewer kind（sprint 20260823-165314 / FR-FV-17 = ADRL-0092） ─────────────────
     // kind 別 ESM モジュールを初回 open 時に動的 import（pdfjs の import(config.pdfjsLibUri) precedent）。
     // Promise キャッシュで単一飛行（同 kind 連続 open で二重 import しない）。失敗はキャッシュしない。
-    const VIEWER_MODULE_KINDS = ['text', 'image', 'docx', 'xlsx', 'pptx'];
+    // drawio: sprint 20261009-130815（ADRL-0135 — 隔離 iframe 描画のモジュール）
+    const VIEWER_MODULE_KINDS = ['text', 'image', 'docx', 'xlsx', 'pptx', 'drawio'];
     const viewerModulePromises = new Map();
     function loadViewerModule(kind) {
         const cached = viewerModulePromises.get(kind);
@@ -214,6 +215,8 @@
         // image viewer 用（sprint 20260823-165314 / FR-FV-19。md analog 不在の新規最小 —
         // fit = lucide maximize / actualSize = 数字 1:1 の最小表現。TC-FV-61 が字面 pin）
         fit: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>',
+        // drawio viewer のレイヤー（sprint 20261009-130815 / ADRL-0137。md analog 不在の新規 — lucide layers）
+        layers: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>',
         actualSize: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8v8"/><path d="M5 10l2-2"/><path d="M17 8v8"/><path d="M15 10l2-2"/><line x1="11" y1="10" x2="11" y2="10.01"/><line x1="11" y1="14" x2="11" y2="14.01"/></svg>',
     };
 
@@ -296,6 +299,26 @@
                 state.onToggleScripts();
             });
             bar.appendChild(scriptBtn);
+        }
+        // drawio（sprint 20261009-130815 / ADRL-0137）: ページ選択とレイヤーは [−][+] の直前。
+        // DOM 生成だけを行い（非表示で生成）、表示・中身・click 配線は viewer-drawio モジュールが行う
+        if (kind === 'drawio') {
+            const pageSel = document.createElement('select');
+            pageSel.className = 'viewer-drawio-page';
+            const pageLabel = label('viewerDrawioPage', 'Page');
+            pageSel.title = pageLabel;
+            pageSel.setAttribute('aria-label', pageLabel);
+            pageSel.style.display = 'none';
+            bar.appendChild(pageSel);
+            const layersBtn = document.createElement('button');
+            layersBtn.className = 'viewer-drawio-layers';
+            const layersLabel = label('viewerDrawioLayers', 'Layers');
+            layersBtn.title = layersLabel;
+            layersBtn.setAttribute('aria-label', layersLabel);
+            layersBtn.setAttribute('aria-haspopup', 'true');
+            layersBtn.innerHTML = VIEWER_ICONS.layers;
+            layersBtn.style.display = 'none';
+            bar.appendChild(layersBtn);
         }
         // FR-VZP-02（sprint 20260825-224210 / ADRL-0100 — FR-FV-19 の SYS-1 裁定を supersede）:
         // [−][+] は全 kind に生成する。click 配線は従来どおり kind 側（openPdf / 各 kind モジュール）
@@ -595,7 +618,8 @@
      * preventDefault（VS Code ズーム抑止の穴を塞ぐ — 役割不変）+ ピンチ係数の親への転送
      * だけを行う。倍率の適用は親側 applyHtmlZoom（iframe width(100/z)% + scale(z)）が担い、
      * iframe 内 CSS zoom は使わない（100vh レイアウトで余白が出る v1 機構の廃止）。
-     * 係数は viewer-common/pinch-zoom.mjs と同一（exp(-deltaY*0.003) — 3 箇所同時変更の対象）。
+     * 係数は viewer-common/pinch-zoom.mjs と同一（exp(-deltaY*0.003) — 4 箇所同時変更の対象:
+     * pinch-zoom.mjs / 本注入ヘルパ / 本ファイルの openPdf 系 / viewer-drawio/frame-boot.js）。
      */
     function injectZoomHelper(html, nonce) {
         const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
@@ -837,7 +861,7 @@
         // FR-VZP-01 (ADRL-0100): (ctrl||meta)+wheel = トラックパッドピンチをカーソル不動点ズームに。
         // {passive:false}+preventDefault で viewer 上の VS Code 全体ズームを抑止。係数は
         // viewer-common/pinch-zoom.mjs と同一（exp(-deltaY*0.003) — file-viewer.js は非 ESM のため
-        // 直書き複製。変更時は 3 箇所同時 = pinch-zoom.mjs / ここ / html 注入ヘルパ）。
+        // 直書き複製。変更時は 4 箇所同時 = pinch-zoom.mjs / ここ / html 注入ヘルパ / viewer-drawio/frame-boot.js）。
         // updateScale は数値 scale 化するため refit（上の RO）は手動ズーム後に停止（FR-FV-23 整合）。
         // リスナーは mount 配下 DOM = destroy の DOM 破棄で消滅（NFR-VZP-04・cleanupRegistry 不使用）。
         container.addEventListener('wheel', (e) => {
@@ -995,8 +1019,8 @@
             if (btn) { btn.setAttribute('aria-pressed', state.allowScripts ? 'true' : 'false'); }
         };
         buildToolbar(mount, fileUri, kind, filePath, state, opts);
-        // FR-VFB-03: ツールバー末尾に 🔍（find bar トグル）。image は find 対象外のため非表示（FR-FV-19/21）
-        const tb = kind === 'image' ? null : mount.querySelector('.viewer-toolbar');
+        // FR-VFB-03: ツールバー末尾に 🔍（find bar トグル）。image / drawio は find 対象外のため非表示（FR-FV-19/21・FR-FV-08/12）
+        const tb = (kind === 'image' || kind === 'drawio') ? null : mount.querySelector('.viewer-toolbar');
         if (tb) {
             const fbtn = document.createElement('button');
             fbtn.className = 'viewer-find-toggle';
@@ -1007,7 +1031,8 @@
             // 順序 contract（TC-FV-62 / FR-FV-12 改訂）: 表示系（script-toggle）の隣・アクション群（OS で開く〜）の前
             tb.insertBefore(fbtn, tb.querySelector('.viewer-open-external'));
         }
-        buildFindBar(mount, state);
+        // drawio は find 非対応（FR-FV-08/12）: find bar を作らない = state.findUi 無し → Cmd+F は先取りしない
+        if (kind !== 'drawio') { buildFindBar(mount, state); }
         buildBody(mount);
         // TASK-12（ユーザー報告 2026-08-23）: Cmd+F は window capture で一元先取り（下の
         // __fvFindKeyHook）— フォーカスが webview body にあっても外部 find（VS Code/ブラウザ）に
