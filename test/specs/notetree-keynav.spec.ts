@@ -512,6 +512,9 @@ test.describe('note ツリー keynav — 見た目（FR-TKN-01 rev / FR-TKN-06 r
 
     test('TC-TKN-21 フォルダ行が focus のとき item と同じ選択色になる', async ({ page }) => {
         await setup(page);
+        // 補間途中の色（rgba(...,0.035) 等）を拾う flake を断つため transition を無効化する
+        //（「透明でない」待ちだけでは補間中の半透明値で通過してしまい、並列負荷下で偽陽性に落ちた）
+        await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; }' });
         await keydown(page, 'ArrowDown');   // o1（item）
         // ★ パネルは `transition: background-color 0.15s` を持つので、**着地を条件待ち**してから色を読む
         //   （即読みすると補間中の transparent を拾って偽陰性/偽陽性になる）
