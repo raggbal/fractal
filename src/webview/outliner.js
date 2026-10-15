@@ -9737,6 +9737,12 @@ var Outliner = (function() {
     function closeSidePanel() {
         restoreHeaderActionsFromTranslation();
         sidePanelPreTranslationState = null;
+        // viewer sidepanel との入れ替えで閉じた（outliner 側の操作で開いた）ときは元ノードへ戻さない。
+        // ✗ / Esc で閉じたときだけ戻す（viewer-side-panel.js が data-close-reason="replaced" を付ける）
+        if (sidePanelEl && sidePanelEl.dataset.closeReason === 'replaced') {
+            delete sidePanelEl.dataset.closeReason;
+            sidePanelOriginNodeId = null;
+        }
         if (sidePanelEl) { sidePanelEl.classList.remove('open'); }
         // sprint 20260724-042927: overlay 廃止（remove('open') 不要）。
         setTimeout(function() { closeSidePanelImmediate(); }, 200);
@@ -9923,7 +9929,7 @@ var Outliner = (function() {
             var curFirstLine = nlIdx >= 0 ? curText.slice(0, nlIdx) : curText;
             if (node && curFirstLine !== firstH1) {
                 var nextText = nlIdx >= 0 ? firstH1 + curText.slice(nlIdx) : firstH1;
-                _applyingH1ToNode = true; // FR-TH-07: \u3053\u306e\u9593 node\u2192md \u9001\u4fe1\u3092\u30b9\u30ad\u30c3\u30d7
+                _applyingH1ToNode = true; // FR-TH-07: この間 node→md 送信をスキップ
                 try {
                     model.updateText(node.id, nextText);
                     renderTree();

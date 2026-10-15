@@ -185,8 +185,13 @@
         // overlay でなければ従来の排他: md sidepanel を閉じて入れ替える（md の close ボタンの click 経由）
         if (!overlay) {
             try {
-                const mdCloseBtn = document.querySelector('.side-panel.open .side-panel-close');
-                if (mdCloseBtn) { mdCloseBtn.click(); }
+                const mdPanel = document.querySelector('.side-panel.open');
+                const mdCloseBtn = mdPanel && mdPanel.querySelector('.side-panel-close');
+                if (mdCloseBtn) {
+                    // 入れ替えで閉じたことを md 側に伝える（✗/Esc と違い、元ノードへカーソルを戻さない）
+                    mdPanel.dataset.closeReason = 'replaced';
+                    mdCloseBtn.click();
+                }
             } catch { /* md sidepanel 不在は正常 */ }
         }
         // ADRL-0138: overlay のときは md sidepanel を閉じずに上に重ね、幅を md に合わせる

@@ -192,6 +192,34 @@ test.describe('viewer sidepanel の重ね表示（再オープン① / TASK-11�
         expect(Math.abs(w - half)).toBeLessThanOrEqual(1);
     });
 
+    test('TC-VSO-13: 入れ替えで md が閉じてもカーソルは元の md ノードへ戻らない（✗ では戻る）', async ({ page }) => {
+        const nd = (id: string, text: string, extra: any = {}) => Object.assign({ id, parentId: null, children: [], text, collapsed: false,
+            subtext: '', images: [], isPage: false, pageId: null, checked: null, filePath: null, tags: [] }, extra);
+        await page.evaluate((d) => (window as any).__testApi.initOutliner(d), { version: 1, rootIds: ['p', 'q'],
+            nodes: { p: nd('p', 'PageNode', { isPage: true, pageId: 'uuid-p' }), q: nd('q', 'Q') } });
+        const activeId = () => page.evaluate(() => document.activeElement?.closest('.outliner-node')?.getAttribute('data-id') || null);
+        const openFromP = async () => {
+            await page.locator('.outliner-node[data-id="p"] .outliner-text').click();
+            await page.keyboard.press('Meta+Enter'); // openPage → 元ノード = p
+            await openMd(page, 'uuid-p.md', '# P');
+            await page.evaluate(() => { (document.querySelector('.side-panel') as HTMLElement).style.width = '240px'; }); // q を覆わない幅に
+            await page.locator('.outliner-node[data-id="q"] .outliner-text').click(); // outliner 側でカーソルを q へ
+            expect(await activeId()).toBe('q');
+        };
+        // (a) outliner 側の操作で viewer を開く（overlay 無し）→ md は閉じるがカーソルは q のまま
+        await openFromP();
+        await openViewer(page, 'html', false);
+        await page.waitForTimeout(400);
+        expect(await count(page, '.side-panel.open')).toBe(0);
+        expect(await page.evaluate(() => (window as any).Outliner.getFocusedNodeId()), 'p へ戻らない').not.toBe('p');
+        await page.evaluate(() => (window as any).__viewerSidePanel.close());
+        // (b) 対照: md の ✗ で閉じたときは従来どおり p へ戻る
+        await openFromP();
+        await page.locator('.side-panel.open .side-panel-close').click();
+        await page.waitForTimeout(400);
+        expect(await activeId(), '✗ では p へ戻る').toBe('p');
+    });
+
     test('TC-VSO-09: メインペインのモーダル（document capture で Esc を受ける）に focus があるときは奪わない', async ({ page }) => {
         await openMd(page);
         await openViewer(page);
