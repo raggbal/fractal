@@ -415,7 +415,8 @@ export class SidePanelManager {
                 // fractal 内 viewer で開く。判定・表示の例外は従来 openExternal に縮退（NFR-FV-01 防御）
                 let handled = false;
                 try {
-                    handled = await this.tryOpenViewerPanel(resolvedUri.fsPath);
+                    // ADRL-0138（2026-10-15 改訂）: sidepanel md の中のリンクから開いた viewer だけ md の上に重ねる
+                    handled = await this.tryOpenViewerPanel(resolvedUri.fsPath, { overlay: true });
                 } catch { handled = false; }
                 if (!handled) {
                     vscode.env.openExternal(resolvedUri);
@@ -428,9 +429,11 @@ export class SidePanelManager {
      * FR-FV-05 sink #9（sprint 20260815-075428）: viewer 対象（.html/.pdf）なら viewer サイドペインを
      * 開く message を送る。判定は shared isViewerTarget（唯一の判定点 — インライン複製禁止）。
      * 50MB 超はフォールバック（FR-FV-07）。viewer 実体は webview 側 viewer-side-panel.js。
+     * @param opts.overlay true = sidepanel md の中のリンクから開いた（md を閉じずに上に重ねる — ADRL-0138）。
+     *   省略時（outliner の file node・ノートツリー・フォルダビュー等）は従来どおり md を閉じて入れ替える
      * @returns true = viewer で開いた（openExternal 不要）/ false = 対象外 or フォールバック
      */
-    async tryOpenViewerPanel(filePath: string): Promise<boolean> {
+    async tryOpenViewerPanel(filePath: string, opts?: { overlay?: boolean }): Promise<boolean> {
         const kind = isViewerTarget(path.basename(filePath));
         if (!kind) { return false; }
         try {
@@ -443,6 +446,7 @@ export class SidePanelManager {
             kind,
             filePath,
             fileUri: fileWebviewUri,
+            ...(opts && opts.overlay ? { overlay: true } : {}),
         });
         return true;
     }

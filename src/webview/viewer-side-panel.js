@@ -2,10 +2,13 @@
  * viewer-side-panel.js — file viewer の sidepanel 面（.viewer-side-panel ペイン管理）
  *
  * sprint 20260815-075428-file-viewer-3panes / FR-FV-05 / ADRL-0066 決定 2。
- * 既存 md の .side-panel とは別 DOM。md sidepanel の**上に重ねる**（sprint 20261009-130815 再オープン① /
- * ADRL-0138 — ADRL-0066 決定 2「排他表示」の viewer open 側を supersede。全 kind 共通）:
- *   - viewer open 時: md sidepanel は閉じない。viewer を前面（z-index 150 > md 100）に置き、md が開いていれば
- *     幅を md の現在幅に合わせる（md が下からはみ出さない）。viewer を閉じれば md がそのまま見える
+ * 既存 md の .side-panel とは別 DOM。**sidepanel md の中のリンクから開いたときだけ** md の上に重ねる
+ * （sprint 20261009-130815 / ADRL-0138 — 2026-10-15 改訂。全 kind 共通）:
+ *   - overlay（host の openViewerPanel に overlay: true — sidePanelManager.handleOpenLink のみが付ける）:
+ *     md sidepanel は閉じない。viewer を前面（z-index 150 > md 100）に置き、幅を md の現在幅に合わせる。
+ *     viewer を閉じれば md がそのまま見える
+ *   - それ以外（outliner の file node・ノートツリー・フォルダビュー等）: 従来どおり md sidepanel を閉じて入れ替える
+ *     （DOM class の直接除去はせず md 側の close ボタンの click を経由 — md 側コードへの直接参照ゼロ = NFR-FV-02）
  *   - Esc: 最前面の 1 枚だけを閉じる（下の keydown handler — window capture + target スコープ検査 + stopImmediatePropagation。
  *     script の読み込み順に依存しない — Notes 面は md editor の handler が先に登録される: 再オープン②）
  *   - md open 時の viewer close: md 側 open 処理の冒頭に window.__viewerSidePanel?.close() の
@@ -158,7 +161,8 @@
     }
 
     /** viewer サイドペインを開く（md sidepanel が開いていても閉じずに前面へ重ね、幅を md に合わせる — ADRL-0138） */
-    function open(kind, fileUri, fileName, filePath) {
+    function open(kind, fileUri, fileName, filePath, openOpts) {
+        const overlay = !!(openOpts && openOpts.overlay);
         // focus 復帰用の退避（viewer が focus を奪う前に。パネル自身からの再 open では上書きしない）
         try {
             const ae = document.activeElement;
@@ -178,13 +182,20 @@
                 }
             }
         } catch { /* noop */ }
-        // ADRL-0138: md sidepanel は閉じずに上に重ねる。md が開いていれば幅を md に合わせる
+        // overlay でなければ従来の排他: md sidepanel を閉じて入れ替える（md の close ボタンの click 経由）
+        if (!overlay) {
+            try {
+                const mdCloseBtn = document.querySelector('.side-panel.open .side-panel-close');
+                if (mdCloseBtn) { mdCloseBtn.click(); }
+            } catch { /* md sidepanel 不在は正常 */ }
+        }
+        // ADRL-0138: overlay のときは md sidepanel を閉じずに上に重ね、幅を md に合わせる
         //（開いた後のリサイズ追従はしない — FR-VSO-03）。⤢ expanded は class が上書きする
         const panel = ensurePanel();
         // md に合わせた幅には印（dataset.autoWidth）を付け、md 不在で開くときは印付きの幅だけを既定（CSS 50%）へ戻す。
         // 手のリサイズ値は印が外れるので保持される（reviewer iter3 QUAL-3 / DC-2）
         try {
-            const md = document.querySelector('.side-panel.open');
+            const md = overlay ? document.querySelector('.side-panel.open') : null;
             const w = md ? md.getBoundingClientRect().width : 0;
             if (w > 0) {
                 panel.style.width = Math.round(w) + 'px';
@@ -289,7 +300,7 @@
     window.addEventListener('message', (event) => {
         const msg = event.data;
         if (msg && msg.type === 'openViewerPanel') {
-            open(msg.kind, msg.fileUri, msg.filePath ? msg.filePath.split('/').pop() : '', msg.filePath);
+            open(msg.kind, msg.fileUri, msg.filePath ? msg.filePath.split('/').pop() : '', msg.filePath, { overlay: !!msg.overlay });
         } else if (msg && msg.type === 'closeViewerPanel') {
             close();
         }

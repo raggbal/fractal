@@ -60,7 +60,20 @@ test.describe('drawio: md の openLink → viewer', () => {
         expect(v).toHaveLength(1);
         expect(v[0].kind).toBe('drawio');
         expect(v[0].filePath).toBe(path.join(dir, 'img', 'a.drawio.svg'));
+        expect(v[0].overlay, 'sidepanel md の中のリンク = 重ねる（ADRL-0138 改訂）').toBe(true);
         expect(rec.external).toHaveLength(0);
+    });
+
+    test('TC-VSO-12: sidepanel md 外からの tryOpenViewerPanel は overlay を付けない（md と入れ替え）', async () => {
+        const rec = { openWith: [] as any[], external: [] as any[] };
+        const { SidePanelManager } = requireWithVscodeStub('../../src/shared/sidePanelManager', rec);
+        const posted: any[] = [];
+        const host = { postMessage: (m: any) => { posted.push(m); }, asWebviewUri: (u: any) => ({ toString: () => 'vscode-resource://' + u.fsPath }) };
+        const mgr = new SidePanelManager(host as any, {} as any);
+        await mgr.tryOpenViewerPanel(path.join(dir, 'b.drawio'));
+        const v = posted.filter((m) => m.type === 'openViewerPanel');
+        expect(v).toHaveLength(1);
+        expect(v[0].overlay).toBeUndefined();
     });
 
     test('TC-DIO-41b: standalone md の openLocalLinkTarget は .drawio を fractal.fileViewerDrawio で開く', async () => {

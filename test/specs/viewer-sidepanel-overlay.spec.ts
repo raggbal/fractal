@@ -5,7 +5,7 @@
  * ハーネス: standalone-outliner.html（TC-FV-21 と同じ。viewer-side-panel.js は kind 非依存の 1 実装なので、
  * 重なり・Esc・幅はパネル単位で検証する。drawio はこのハーネスで本体が描画されなくても、パネルの挙動は同じ）。
  *
- * TC-VSO-01〜06
+ * TC-VSO-01〜11（重ねるのは sidepanel md の中のリンクから開いたときだけ。それ以外は md と入れ替え — TC-VSO-11）
  */
 import { test, expect, Page } from '@playwright/test';
 
@@ -18,11 +18,13 @@ async function openMd(page: Page, name = 'a.md', markdown = LONG_MD): Promise<vo
     await page.waitForSelector('.side-panel.open', { timeout: 5000 });
     await page.waitForTimeout(300); // open アニメーション
 }
-async function openViewer(page: Page, kind = 'html'): Promise<void> {
-    await page.evaluate((k) => {
+// overlay: true = sidepanel md の中のリンクから開いた（host の handleOpenLink が付ける — ADRL-0138 改訂）
+async function openViewer(page: Page, kind = 'html', overlay = true): Promise<void> {
+    await page.evaluate(([k, ov]) => {
         const uri = k === 'html' ? './viewer-fixtures/sample.html' : './viewer-fixtures/drawio/aws-plain.drawio';
-        window.postMessage({ type: 'openViewerPanel', kind: k, fileUri: uri, filePath: k === 'html' ? '/x/sample.html' : '/x/aws-plain.drawio' }, '*');
-    }, kind);
+        window.postMessage({ type: 'openViewerPanel', kind: k, fileUri: uri, filePath: k === 'html' ? '/x/sample.html' : '/x/aws-plain.drawio',
+            ...(ov ? { overlay: true } : {}) }, '*');
+    }, [kind, overlay] as const);
     await page.waitForSelector('.viewer-side-panel.open', { timeout: 5000 });
     await page.waitForTimeout(300);
 }
@@ -170,6 +172,26 @@ test.describe('viewer sidepanel の重ね表示（再オープン① / TASK-11�
         expect(Math.abs((await viewerW()) - resized), 'リサイズした幅は残る').toBeLessThanOrEqual(1);
     });
 
+    test('TC-VSO-11: sidepanel md の外（file node・ツリー・フォルダビュー）から開くと md を閉じて入れ替える', async ({ page }) => {
+        for (const kind of ['html', 'drawio']) {
+            await openMd(page);
+            await openViewer(page, kind, false);
+            await page.waitForTimeout(300); // md close アニメーション
+            expect(await count(page, '.side-panel.open'), `${kind}: md は閉じる`).toBe(0);
+            expect(await count(page, '.viewer-side-panel.open'), `${kind}: viewer が開く`).toBe(1);
+            await page.evaluate(() => (window as any).__viewerSidePanel.close());
+        }
+        // md の幅には合わせない（既定 50%）
+        await openMd(page);
+        await page.evaluate(() => { (document.querySelector('.side-panel') as HTMLElement).style.width = '600px'; });
+        await openViewer(page, 'html', false);
+        const [w, half] = await page.evaluate(() => {
+            const p = document.querySelector('.viewer-side-panel') as HTMLElement;
+            return [p.getBoundingClientRect().width, (p.parentElement as HTMLElement).getBoundingClientRect().width * 0.5];
+        });
+        expect(Math.abs(w - half)).toBeLessThanOrEqual(1);
+    });
+
     test('TC-VSO-09: メインペインのモーダル（document capture で Esc を受ける）に focus があるときは奪わない', async ({ page }) => {
         await openMd(page);
         await openViewer(page);
@@ -210,7 +232,7 @@ test.describe('viewer sidepanel の重ね表示 — Notes 面の登録順（再�
         await page.evaluate(() => (window as any).__hostMessageHandler({ type: 'openSidePanel', markdown: '# md', filePath: '/x/a.md', fileName: 'a.md', toc: [], documentBaseUri: '' }));
         await page.waitForSelector('.side-panel.open', { timeout: 5000 });
         await page.waitForTimeout(300);
-        await page.evaluate(() => (window as any).__viewerSidePanel.open('html', './viewer-fixtures/sample.html', 'sample.html', '/x/sample.html'));
+        await page.evaluate(() => (window as any).__viewerSidePanel.open('html', './viewer-fixtures/sample.html', 'sample.html', '/x/sample.html', { overlay: true }));
         await page.waitForSelector('.viewer-side-panel.open', { timeout: 5000 });
         await page.evaluate(() => { const p = document.querySelector('.viewer-side-panel') as HTMLElement; p.tabIndex = -1; p.focus(); });
         await page.keyboard.press('Escape');
