@@ -543,8 +543,6 @@ function generateNotesFilePanelHtml(options) {
         }
         .file-panel-search-box {
             flex: 1; min-width: 0; position: relative;
-            /* 狭いときに ⌘K ヒントを畳むための query container（下の @container） */
-            container-type: inline-size;
         }
         /* Notion 風の検索欄: 枠線なし + 薄い面。focus で通常の入力欄（白地 + primary 枠）に戻す */
         .file-panel-search-box .file-panel-search-input {
@@ -560,30 +558,6 @@ function generateNotesFilePanelHtml(options) {
         }
         .file-panel-search-box .file-panel-search-input::placeholder {
             color: var(--fr-color-text-tertiary, var(--outliner-placeholder, #999)); opacity: 1;
-        }
-        /* D10: 空欄のときだけ右端に ⌘K（非 mac は Ctrl+K — 文言は notes-file-panel.js の init が入れる）。
-         * placeholder がヒントの下に潜らないよう、空欄の間だけ右に余白を取る */
-        .file-panel-search-box .file-panel-search-input:placeholder-shown { padding-right: 32px; }
-        .file-panel-search-box--wide-kbd .file-panel-search-input:placeholder-shown { padding-right: 46px; }
-        .file-panel-search-kbd {
-            position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
-            pointer-events: none;
-            padding: 2px 4px;
-            font-family: var(--fr-font-sans, inherit); font-size: 10px; line-height: 1; white-space: nowrap;
-            color: var(--fr-color-text-tertiary, var(--outliner-subtext, #999));
-            border: 1px solid var(--fr-color-border, rgba(128, 128, 128, 0.3));
-            border-radius: var(--fr-radius-xs, 4px);
-            background: transparent;
-        }
-        .file-panel-search-input:not(:placeholder-shown) + .file-panel-search-kbd { display: none; }
-        /* BOX が狭い（パネル幅 ~175px 以下）ときはヒントを畳み、placeholder を読める幅に戻す */
-        @container (max-width: 92px) {
-            .file-panel-search-kbd { display: none; }
-            .file-panel-search-box .file-panel-search-input:placeholder-shown { padding-right: 7px; }
-        }
-        @container (max-width: 108px) {
-            .file-panel-search-box--wide-kbd .file-panel-search-kbd { display: none; }
-            .file-panel-search-box--wide-kbd .file-panel-search-input:placeholder-shown { padding-right: 7px; }
         }
         .file-panel-search-options { display: flex; align-items: center; gap: 1px; flex-shrink: 0; }
         .file-panel-search-opt-btn {
@@ -705,11 +679,10 @@ function generateNotesFilePanelHtml(options) {
                 <button class="file-panel-btn" id="filePanelCollapse" title="${m('notesCollapsePanel', 'Collapse panel')} (Cmd+\\)">&#9776;</button>
                 <span class="file-panel-title" id="notesTitleLabel" title="${m('notesRenameNoteTitle', 'Click to rename this note')}"></span>
             </div>
-            <!-- 20261016 (D1/D2/D10): 常設の検索行。Search タブは廃止し、検索すると Results タブが現れる -->
+            <!-- 20261016 (D1/D2): 常設の検索行（ショートカット表記は出さない — D10）。Search タブは廃止し、検索すると Results タブが現れる -->
             <div class="file-panel-search-bar" id="notesSearchBar">
                 <div class="file-panel-search-box">
                     <input type="text" class="file-panel-search-input" id="notesSearchInput" placeholder="${m('notesSearchPlaceholder', 'Search...')}" aria-label="${m('notesTabSearch', 'Search')}" />
-                    <kbd class="file-panel-search-kbd" id="notesSearchKbd">⌘K</kbd>
                 </div>
                 <div class="file-panel-search-options">
                     <button class="file-panel-search-opt-btn" id="notesSearchCase" title="${m('notesMatchCase', 'Match Case')}">Aa</button>

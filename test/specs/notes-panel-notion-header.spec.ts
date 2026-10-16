@@ -1,7 +1,7 @@
 /**
  * notes-panel-notion-header — Notes 左パネルを Notion 風に（spec 20261016-1411-notes-panel-notion-header）
  *
- *   ヘッダー行 [☰ 開閉][note 名] → 検索行 [検索 BOX ⌘K][Aa][W][.*] → タブ行 [Notes][Tools]([Results])
+ *   ヘッダー行 [☰ 開閉][note 名] → 検索行 [検索 BOX][Aa][W][.*] → タブ行 [Notes][Tools]([Results])
  *   Search タブは廃止（検索 BOX は常設）。検索すると Results タブが Tools の右に現れる。
  *   Cmd+K（非 mac は Ctrl+K）は Notes webview 内のどこからでも検索 BOX へ（window capture）。
  *   md エディタの Cmd+K = リンク挿入は廃止（単体 md では処理せず VS Code へ素通し）。
@@ -839,31 +839,15 @@ test.describe('Notes 左パネル — Notion 風ヘッダー / 常設検索 BOX 
         await expect(results.locator('.file-panel-tab-label')).toBeHidden();
     });
 
-    test('AC-15 the ⌘K hint (Ctrl+K off mac) sits at the right end inside the empty box, hides while text is entered, and returns when emptied', async ({ page }) => {
+    test('AC-15 the search box shows no shortcut hint (no ⌘K / Ctrl+K text or kbd element in the search row)', async ({ page }) => {
         await bootNotes(page);
-        const input = page.locator(SEARCH);
-        const kbd = page.locator('#notesSearchKbd');
-        const expected = (await isMacPage(page)) ? '⌘K' : 'Ctrl+K';
-
-        await expect(input).toHaveValue('');
-        await expect(kbd).toBeVisible();
-        await expect(kbd).toHaveText(expected);
-        const ib = (await input.boundingBox())!;
-        const kb = (await kbd.boundingBox())!;
-        expect(kb.x, 'ヒントが BOX の左外').toBeGreaterThanOrEqual(ib.x - 0.5);
-        expect(kb.x + kb.width, 'ヒントが BOX の右外').toBeLessThanOrEqual(ib.x + ib.width + 0.5);
-        expect(kb.y).toBeGreaterThanOrEqual(ib.y - 0.5);
-        expect(kb.y + kb.height).toBeLessThanOrEqual(ib.y + ib.height + 0.5);
-        expect((ib.x + ib.width) - (kb.x + kb.width), 'ヒントが BOX の右端に無い').toBeLessThanOrEqual(12);
-        // ヒントの上をクリックしても BOX に入れる（ヒントがクリックを奪わない）
-        await page.mouse.click(kb.x + kb.width / 2, kb.y + kb.height / 2);
-        await expect(input).toBeFocused();
-
-        await page.keyboard.type('q');
-        await expect(kbd).toBeHidden();
-        await page.keyboard.press('Backspace');
-        await expect(input).toHaveValue('');
-        await expect(kbd).toBeVisible();
+        const bar = page.locator('#notesSearchBar');
+        await expect(bar).toBeVisible();
+        await expect(page.locator('#notesSearchKbd')).toHaveCount(0);
+        await expect(bar.locator('kbd')).toHaveCount(0);
+        const text = (await bar.innerText()).replace(/\s+/g, ' ');
+        expect(text, '検索行にショートカット表記が出ている').not.toMatch(/⌘\s*K|Ctrl\s*\+\s*K/i);
+        await expect(page.locator(SEARCH)).not.toHaveAttribute('placeholder', /⌘|Ctrl\s*\+\s*K/i);
     });
 
     test('AC-16 Enter during IME composition neither calls bridge.search nor shows the Results tab', async ({ page }) => {

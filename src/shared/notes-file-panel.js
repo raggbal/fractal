@@ -141,7 +141,7 @@ var notesFilePanel = (function() {
     var resultsDismissed = false;
     // D8: Cmd+K 直前の focus 先 { el, range, offsets, inputSel }。検索 BOX の Esc で戻す / BOX の blur で捨てる
     var searchFocusOrigin = null;
-    // D4 / D10: Cmd+K（mac）/ Ctrl+K（非 mac）の判定とヒント表記の出し分け
+    // D4: Cmd+K（mac）/ Ctrl+K（非 mac）の判定に使う
     var IS_MAC_PLATFORM = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
 
     // SVG icons
@@ -3223,15 +3223,6 @@ var notesFilePanel = (function() {
         searchResultsEl = document.getElementById('notesSearchResults');
         searchCountEl = document.getElementById('notesSearchCount');
         resultsTabEl = document.getElementById('filePanelTabResults');
-
-        // D10: BOX 右端のショートカット表記（mac = ⌘K / 非 mac = Ctrl+K）。非 mac は表記が長いので余白を広げる
-        var kbdEl = document.getElementById('notesSearchKbd');
-        if (kbdEl) {
-            kbdEl.textContent = IS_MAC_PLATFORM ? '⌘K' : 'Ctrl+K';
-            if (kbdEl.parentElement) {
-                kbdEl.parentElement.classList.toggle('file-panel-search-box--wide-kbd', !IS_MAC_PLATFORM);
-            }
-        }
 
         // standalone harness は init が 2 回走る（build 時 + spec）。検索行の DOM listener は要素フラグで 1 回だけ張る
         //（2 重だと Enter 1 回で bridge.search が 2 回飛び、Aa/W/.* は 2 回 toggle されて効かない）
