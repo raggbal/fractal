@@ -281,7 +281,8 @@ export interface WebviewMessages {
   resourceAccessOpenSettings: string;
   // Notes left panel
   notesTabNotes: string;
-  notesTabSearch: string;
+  notesTabSearch: string;   // 20261016: Search タブ廃止後は検索 BOX の aria-label
+  notesTabResults: string;  // 20261016 (D11): 検索すると現れる Results タブ
   notesNewFolder: string;
   notesOpenInNewTab: string;
   // FR-ONT-01/02/03 (sprint 20260906-024639): outliner node の右クリック「新規タブで開く」。

@@ -17871,14 +17871,10 @@ class EditorInstance {
             return;
         }
         
-        // Link (Ctrl+K)
-        if (isMod && !e.shiftKey && keyIs('k')) {
-            e.preventDefault();
-            e.stopPropagation();
-            insertLink();
-            return;
-        }
-        
+        // 20261016 (D5): Cmd/Ctrl+K = リンク挿入は廃止。md では処理も preventDefault もしない —
+        // Notes では notes-file-panel.js が window capture で拾って検索 BOX へ、単体 md / Notes 外の sidepanel md では
+        // VS Code へ素通し（chord の先頭キー）。リンク挿入はツールバー / Cmd+/ パレットから（Cmd+Shift+K = code block は上で処理）。
+
         // Image (Ctrl+Shift+I)
         if (isMod && e.shiftKey && keyIs('i')) {
             e.preventDefault();
@@ -18560,30 +18556,6 @@ class EditorInstance {
             range.insertNode(code);
             setCursorToEnd(code);
         }
-        syncMarkdown();
-    }
-    
-    function insertLink() {
-        const sel = window.getSelection();
-        if (!sel || !sel.rangeCount) return;
-        
-        const range = sel.getRangeAt(0);
-        const selectedText = range.toString() || 'link';
-        
-        const a = document.createElement('a');
-        a.href = '#';
-        a.textContent = selectedText;
-        
-        range.deleteContents();
-        range.insertNode(a);
-        
-        // Move cursor after the link
-        const newRange = document.createRange();
-        newRange.setStartAfter(a);
-        newRange.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(newRange);
-        
         syncMarkdown();
     }
 

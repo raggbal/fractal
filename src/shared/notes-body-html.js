@@ -71,14 +71,27 @@ function generateNotesFilePanelHtml(options) {
             left: -2px; right: 0;
         }
         .notes-file-panel.collapsed + .notes-resize-handle { display: none; }
+        /* 20261016 Notion 風ヘッダー（D1）: [☰ 開閉][note 名] の 1 行。☰ を先頭に固定し、名前は残り幅で ellipsis
+         * （旧: [名前 … ☰] — 長い名前が ☰ を押し出して見えなくなっていた）。
+         * 区切り線は持たない — ヘッダー / 検索行 / タブ行は 1 塊で、線はタブ行の下 1 本だけ（Notion のサイドバーと同じ）。 */
         .file-panel-header {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 7px 11px; /* layout 維持 */
-            border-bottom: 1px solid var(--fr-color-divider, var(--outliner-border, #e0e0e0));
+            display: flex; align-items: center; gap: 2px;
+            min-height: 36px;
+            padding: 4px 8px 2px 6px;
             box-sizing: border-box;
+            flex-shrink: 0;
         }
-        .file-panel-title { font-weight: 600; font-size: 12px; white-space: nowrap; }
-        .file-panel-actions { display: flex; gap: 4px; align-items: center; }
+        .file-panel-title {
+            flex: 1; min-width: 0;
+            font-weight: 600; font-size: 12px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            padding: 3px 5px;
+            border-radius: var(--fr-radius-xs, 4px);
+            cursor: pointer;
+        }
+        /* クリックで rename できることを hover の面で示す（編集中は出さない） */
+        .file-panel-title:not(.editing):hover { background: rgba(128, 128, 128, 0.12); }
+        .file-panel-title.editing { text-overflow: clip; cursor: text; }
         .file-panel-btn {
             background: transparent;
             border: 1px solid var(--fr-color-border, var(--outliner-border, #e0e0e0));
@@ -99,13 +112,15 @@ function generateNotesFilePanelHtml(options) {
             box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
             border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
         }
-        /* notes file panel の ≡ (collapse) ボタン: 枠線なし、アイコン 15px、hover 水色 */
+        /* notes file panel の ≡ (collapse) ボタン: 枠線なし、アイコン 15px、hover 水色
+         *（D9: main pane の再表示ボタン 3 個と同じ ☰ / 同じ hover のまま。ヘッダーの先頭で縮ませない） */
         #filePanelCollapse.file-panel-btn {
             border: none;
             border-radius: 4px;
             background: transparent;
             padding: 4px 5px;
             font-size: 15px;
+            flex-shrink: 0;
         }
         #filePanelCollapse.file-panel-btn:hover {
             background: var(--selection-bg);
@@ -440,20 +455,39 @@ function generateNotesFilePanelHtml(options) {
         .file-panel-context-item.danger { color: var(--fr-color-danger, #e55); }
         .file-panel-context-item.danger:hover { background: var(--fr-color-danger-soft, rgba(217,74,74,0.1)); }
 
-        /* ── Tabs ── */
+        /* ── Tabs（D3: 選択中だけ「アイコン + ラベル」の pill、非選択はアイコンのみの四角ボタン。左寄せで伸ばさない）── */
         .file-panel-tabs {
-            display: flex; border-bottom: 1px solid var(--outliner-border, #e0e0e0);
-            padding: 0; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: flex-start; gap: 2px;
+            padding: 2px 6px 6px;
+            border-bottom: 1px solid var(--fr-color-divider, var(--outliner-border, #e0e0e0));
+            flex-shrink: 0; min-width: 0;
         }
         .file-panel-tab {
-            flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
-            padding: 7px 4px; border: none; background: none; cursor: pointer;
-            font-size: 11px; opacity: 0.6; color: inherit;
-            border-bottom: 1px solid transparent; transition: opacity 0.15s;
+            flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 5px;
+            height: 26px; min-width: 26px; padding: 0 6px;
+            border: none; border-radius: var(--fr-radius-sm, 6px);
+            background: transparent; cursor: pointer;
+            font-family: inherit; font-size: 12px; font-weight: 500; line-height: 1;
+            color: var(--fr-color-text-secondary, inherit);
+            /* fr-base の色 transition は当てない（従来どおり。active の切替を即時に見せる） */
+            transition: none;
         }
-        .file-panel-tab:hover { opacity: 0.85; }
-        .file-panel-tab.active { opacity: 1; border-bottom-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc)); }
+        /* Results タブ（D2）は検索するまで hidden 属性で隠す。display:flex が UA の [hidden] に勝つので明示 */
+        .file-panel-tab[hidden] { display: none; }
+        .file-panel-tab:hover {
+            background: rgba(128, 128, 128, 0.12);
+            color: var(--fr-color-text-primary, inherit);
+        }
+        /* 選択中 = 薄いグレーの pill。狭い幅（PANEL_MIN_WIDTH 140px）ではラベルだけ ellipsis で縮む */
+        .file-panel-tab.active {
+            flex: 0 1 auto; min-width: 0;
+            padding: 0 8px 0 7px;
+            background: rgba(128, 128, 128, 0.16);
+            color: var(--fr-color-text-primary, inherit);
+        }
         .file-panel-tab svg { flex-shrink: 0; }
+        .file-panel-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .file-panel-tab:not(.active) .file-panel-tab-label { display: none; }
         .file-panel-content { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
         .file-panel-content-actions {
             display: flex; gap: 4px; padding: 5px 7px;
@@ -486,10 +520,7 @@ function generateNotesFilePanelHtml(options) {
         }
 
         /* ── Search ── */
-        .file-panel-search-input-wrap {
-            padding: 7px; display: flex; flex-direction: column; gap: 4px;
-            border-bottom: 1px solid var(--outliner-border, #e0e0e0);
-        }
+        /* 共通の入力欄（Tools の S3 bucket 欄も使う） */
         .file-panel-search-input {
             width: 100%; padding: 4px 7px; font-size: 12px;
             border: 1px solid var(--fr-color-border, var(--outliner-border, #e0e0e0));
@@ -502,14 +533,73 @@ function generateNotesFilePanelHtml(options) {
             border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
             box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
         }
-        .file-panel-search-options { display: flex; gap: 2px; }
-        .file-panel-search-opt-btn {
-            padding: 2px 5px; font-size: 10px; border: 1px solid transparent;
-            border-radius: 3px; cursor: pointer; opacity: 0.6; background: transparent; color: inherit;
+        /* 20261016 常設の検索行（D1/D2）: ヘッダー直下に [検索 BOX][Aa][W][.*] を 1 行で並べる（旧: Search タブの中で縦積み）。
+         * BOX が縮み、Aa/W/.* は縮まない — 140px（PANEL_MIN_WIDTH）でも横に溢れない */
+        .file-panel-search-bar {
+            display: flex; align-items: center; gap: 4px;
+            padding: 2px 8px 4px;
+            box-sizing: border-box;
+            flex-shrink: 0; min-width: 0;
         }
-        .file-panel-search-opt-btn:hover { opacity: 0.8; }
+        .file-panel-search-box {
+            flex: 1; min-width: 0; position: relative;
+            /* 狭いときに ⌘K ヒントを畳むための query container（下の @container） */
+            container-type: inline-size;
+        }
+        /* Notion 風の検索欄: 枠線なし + 薄い面。focus で通常の入力欄（白地 + primary 枠）に戻す */
+        .file-panel-search-box .file-panel-search-input {
+            display: block; height: 26px; padding: 0 7px;
+            border-color: transparent;
+            background: rgba(128, 128, 128, 0.1);
+            font-family: inherit;
+        }
+        .file-panel-search-box .file-panel-search-input:hover { background: rgba(128, 128, 128, 0.14); }
+        .file-panel-search-box .file-panel-search-input:focus {
+            background: var(--fr-color-bg-elevated, var(--outliner-bg, #fff));
+            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+        }
+        .file-panel-search-box .file-panel-search-input::placeholder {
+            color: var(--fr-color-text-tertiary, var(--outliner-placeholder, #999)); opacity: 1;
+        }
+        /* D10: 空欄のときだけ右端に ⌘K（非 mac は Ctrl+K — 文言は notes-file-panel.js の init が入れる）。
+         * placeholder がヒントの下に潜らないよう、空欄の間だけ右に余白を取る */
+        .file-panel-search-box .file-panel-search-input:placeholder-shown { padding-right: 32px; }
+        .file-panel-search-box--wide-kbd .file-panel-search-input:placeholder-shown { padding-right: 46px; }
+        .file-panel-search-kbd {
+            position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+            pointer-events: none;
+            padding: 2px 4px;
+            font-family: var(--fr-font-sans, inherit); font-size: 10px; line-height: 1; white-space: nowrap;
+            color: var(--fr-color-text-tertiary, var(--outliner-subtext, #999));
+            border: 1px solid var(--fr-color-border, rgba(128, 128, 128, 0.3));
+            border-radius: var(--fr-radius-xs, 4px);
+            background: transparent;
+        }
+        .file-panel-search-input:not(:placeholder-shown) + .file-panel-search-kbd { display: none; }
+        /* BOX が狭い（パネル幅 ~175px 以下）ときはヒントを畳み、placeholder を読める幅に戻す */
+        @container (max-width: 92px) {
+            .file-panel-search-kbd { display: none; }
+            .file-panel-search-box .file-panel-search-input:placeholder-shown { padding-right: 7px; }
+        }
+        @container (max-width: 108px) {
+            .file-panel-search-box--wide-kbd .file-panel-search-kbd { display: none; }
+            .file-panel-search-box--wide-kbd .file-panel-search-input:placeholder-shown { padding-right: 7px; }
+        }
+        .file-panel-search-options { display: flex; align-items: center; gap: 1px; flex-shrink: 0; }
+        .file-panel-search-opt-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 20px; height: 22px; padding: 0 3px;
+            font-family: inherit; font-size: 10px; line-height: 1;
+            border: 1px solid transparent;
+            border-radius: var(--fr-radius-xs, 4px);
+            cursor: pointer; opacity: 0.75; background: transparent;
+            color: var(--fr-color-text-secondary, inherit);
+        }
+        .file-panel-search-opt-btn:hover { opacity: 1; background: rgba(128, 128, 128, 0.12); }
         .file-panel-search-opt-btn.active {
             border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc)); opacity: 1;
+            color: var(--fr-color-text-primary, inherit);
+            background: var(--fr-color-primary-soft, transparent);
         }
         .file-panel-search-results { flex: 1; overflow-y: auto; padding: 4px 0; }
         .file-panel-search-section { margin-bottom: 5px; }
@@ -612,23 +702,35 @@ function generateNotesFilePanelHtml(options) {
 
     var html = `<aside class="notes-file-panel${panelClass}" id="notesFilePanel">
             <div class="file-panel-header">
+                <button class="file-panel-btn" id="filePanelCollapse" title="${m('notesCollapsePanel', 'Collapse panel')} (Cmd+\\)">&#9776;</button>
                 <span class="file-panel-title" id="notesTitleLabel" title="${m('notesRenameNoteTitle', 'Click to rename this note')}"></span>
-                <div class="file-panel-actions">
-                    <button class="file-panel-btn" id="filePanelCollapse" title="${m('notesCollapsePanel', 'Collapse panel')} (Cmd+\\)">&#9776;</button>
+            </div>
+            <!-- 20261016 (D1/D2/D10): 常設の検索行。Search タブは廃止し、検索すると Results タブが現れる -->
+            <div class="file-panel-search-bar" id="notesSearchBar">
+                <div class="file-panel-search-box">
+                    <input type="text" class="file-panel-search-input" id="notesSearchInput" placeholder="${m('notesSearchPlaceholder', 'Search...')}" aria-label="${m('notesTabSearch', 'Search')}" />
+                    <kbd class="file-panel-search-kbd" id="notesSearchKbd">⌘K</kbd>
+                </div>
+                <div class="file-panel-search-options">
+                    <button class="file-panel-search-opt-btn" id="notesSearchCase" title="${m('notesMatchCase', 'Match Case')}">Aa</button>
+                    <button class="file-panel-search-opt-btn" id="notesSearchWord" title="${m('notesWholeWord', 'Whole Word')}">W</button>
+                    <button class="file-panel-search-opt-btn" id="notesSearchRegex" title="${m('notesUseRegex', 'Use Regex')}">.*</button>
                 </div>
             </div>
-            <div class="file-panel-tabs">
-                <button class="file-panel-tab active" data-tab="notes">
+            <!-- D3: 選択中のタブだけラベルを出す（非選択はアイコンのみ。ラベルは title / aria-label に残す） -->
+            <div class="file-panel-tabs" role="tablist">
+                <button class="file-panel-tab active" data-tab="notes" title="${m('notesTabNotes', 'Notes')}" aria-label="${m('notesTabNotes', 'Notes')}">
                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 13H8"/><path d="M16 13h-2"/><path d="M10 17H8"/><path d="M16 17h-2"/></svg>
-                    ${m('notesTabNotes', 'Notes')}
+                    <span class="file-panel-tab-label">${m('notesTabNotes', 'Notes')}</span>
                 </button>
-                <button class="file-panel-tab" data-tab="search">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                    ${m('notesTabSearch', 'Search')}
-                </button>
-                <button class="file-panel-tab" data-tab="tools">
+                <button class="file-panel-tab" data-tab="tools" title="${m('notesTabTools', 'Tools')}" aria-label="${m('notesTabTools', 'Tools')}">
                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></svg>
-                    ${m('notesTabTools', 'Tools')}
+                    <span class="file-panel-tab-label">${m('notesTabTools', 'Tools')}</span>
+                </button>
+                <!-- D2/D7/D11: 検索を走らせると現れる（BOX を空にすると消える）。中身は #filePanelContentSearch -->
+                <button class="file-panel-tab" data-tab="results" id="filePanelTabResults" title="${m('notesTabResults', 'Results')}" aria-label="${m('notesTabResults', 'Results')}" hidden>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    <span class="file-panel-tab-label">${m('notesTabResults', 'Results')}</span>
                 </button>
             </div>
             <div class="file-panel-content" id="filePanelContentNotes">
@@ -646,15 +748,8 @@ function generateNotesFilePanelHtml(options) {
                 <!-- FR-TKN-01: キーボードナビ（↑↓ + Enter）の受け口。要素ローカル keydown を張るため tabindex を持たせる -->
                 <div class="file-panel-list" id="notesFileList" tabindex="0"></div>
             </div>
+            <!-- Results タブの中身（D11: id は旧 Search タブのまま維持。入力欄は上の検索行へ移した） -->
             <div class="file-panel-content" id="filePanelContentSearch" style="display:none">
-                <div class="file-panel-search-input-wrap">
-                    <input type="text" class="file-panel-search-input" id="notesSearchInput" placeholder="${m('notesSearchPlaceholder', 'Search...')}" />
-                    <div class="file-panel-search-options">
-                        <button class="file-panel-search-opt-btn" id="notesSearchCase" title="${m('notesMatchCase', 'Match Case')}">Aa</button>
-                        <button class="file-panel-search-opt-btn" id="notesSearchWord" title="${m('notesWholeWord', 'Whole Word')}">W</button>
-                        <button class="file-panel-search-opt-btn" id="notesSearchRegex" title="${m('notesUseRegex', 'Use Regex')}">.*</button>
-                    </div>
-                </div>
                 <div class="file-panel-search-count" id="notesSearchCount"></div>
                 <div class="file-panel-search-results" id="notesSearchResults"></div>
             </div>

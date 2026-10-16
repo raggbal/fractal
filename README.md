@@ -312,7 +312,7 @@ Everything is created from the file tree on the left — right-click it (or a fo
 From an outliner, type `@page` at the end of a node (or press `Cmd+Enter`) to hang a markdown page off that node — this is the core Fractal Note workflow: **outline the structure, write the details in pages**.
 
 ### 3. Find it again
-- `Cmd+P`-style cross-note search lives at the top of the file tree — it matches node text, markdown bodies, and the contents of attached PDF / Word / Excel / PowerPoint files
+- `Cmd+P`-style cross-note search lives at the top of the file tree — press `Cmd+K` from anywhere in Notes to jump into it; results open in a **Results** tab. It matches node text, markdown bodies, and the contents of attached PDF / Word / Excel / PowerPoint files
 - Click any `#tag` to filter; pin frequent tags for one-click filtering
 - Tabs and navigation history (`Opt+←/→`) work like a browser
 
@@ -341,10 +341,11 @@ A quick reference. (Mac notation; almost every shortcut also works with `Ctrl` i
 | `Cmd+\` | Toggle sidebar (outline / file panel) |
 | `Cmd+L` | Send selected text to the AI chat |
 | `Cmd+B` / `Cmd+I` / `Cmd+Shift+S` | Bold / italic / strikethrough |
-| ``` Cmd+`  ``` / `Cmd+K` | Inline code / insert link |
+| ``` Cmd+`  ``` | Inline code |
 | `Cmd+1`…`Cmd+6` / `Cmd+0` | Heading 1–6 / back to paragraph |
 | `Cmd+T` / `Cmd+Shift+I` | Insert table / insert image |
 | `Cmd+F` / `Cmd+H` | Find / replace |
+| `Cmd+K` | Notes only: focus the note search box at the top of the file tree (`Esc` returns to where you were) |
 | `Cmd+S` / `Cmd+Z` / `Cmd+Shift+Z` | Save / undo / redo |
 | `Tab` / `Shift+Tab` | Tables: move between cells (Tab on the last cell adds a row); lists: indent / outdent |
 | `Shift+Enter` | Lists: line break within the item (continuation line) |
@@ -381,6 +382,7 @@ Tables have an Excel-like **select mode** (click a cell to enter it):
 | `Cmd+A` | 1st press: select the text of the current node / 2nd press: select every node (an empty node selects all nodes right away; Mindmap selects all in one press) |
 | `Esc` | Leave selection mode (clears the node selection and puts the caret back) |
 | `Cmd+F` / `Cmd+H` / `Cmd+Shift+F` | Text search / replace / filter |
+| `Cmd+K` | Notes only: focus the note search box at the top of the file tree (`Esc` returns to the node) |
 | `Cmd+N` | New node at the end |
 | `Cmd+Z` / `Cmd+Shift+Z` | Undo / redo |
 | `Opt+←` / `Opt+→` | Navigation history back / forward |
@@ -452,7 +454,7 @@ Type a markdown pattern and it converts in place: `# ` for headings, `- ` for li
 | Italic | `*text*` + Space | `Cmd+I` |
 | Strikethrough | `~~text~~` + Space | `Cmd+Shift+S` |
 | Inline code | ``` `text` ``` + Space | ``` Cmd+`  ``` |
-| Link | `[text](url)` | `Cmd+K` |
+| Link | `[text](url)` | Toolbar / `Cmd+/` palette |
 | Image | `![text](url)` | `Cmd+Shift+I` |
 
 </details>

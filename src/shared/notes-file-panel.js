@@ -125,7 +125,8 @@ var notesFilePanel = (function() {
     var lastSavedPanelWidth = null;
 
     // Tab state
-    var currentTab = 'notes'; // 'notes' | 'search' | 'tools'
+    // 20261016 (D2): Search タブは廃止。検索 BOX はタブの外に常設し、検索すると 'results' タブが現れる
+    var currentTab = 'notes'; // 'notes' | 'tools' | 'results'
 
     // Search state
     var searchInputEl = null;
@@ -134,6 +135,14 @@ var notesFilePanel = (function() {
     var searchOptions = { caseSensitive: false, wholeWord: false, useRegex: false };
     var currentSearchId = 0;
     var searchTotalCount = 0;
+    var resultsTabEl = null;            // #filePanelTabResults（検索するまで hidden）
+    // D7: BOX を空にして Results を畳んだ後は、後着の検索開始通知（onSearchStart）で勝手に再表示しない。
+    // 次に Enter で検索を投げた時点で解除する
+    var resultsDismissed = false;
+    // D8: Cmd+K 直前の focus 先 { el, range, offsets, inputSel }。検索 BOX の Esc で戻す / BOX の blur で捨てる
+    var searchFocusOrigin = null;
+    // D4 / D10: Cmd+K（mac）/ Ctrl+K（非 mac）の判定とヒント表記の出し分け
+    var IS_MAC_PLATFORM = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
 
     // SVG icons
     var ICON_FILE = '<svg class="file-panel-item-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>';
@@ -2839,15 +2848,26 @@ var notesFilePanel = (function() {
                 }
             }
         }
-        // コンテンツ表示切替
+        // コンテンツ表示切替（D11: Results タブの中身は旧 Search タブの #filePanelContentSearch = 件数 + 結果）
         var notesContent = document.getElementById('filePanelContentNotes');
         var searchContent = document.getElementById('filePanelContentSearch');
         var toolsContent = document.getElementById('filePanelContentTools');
         if (notesContent) notesContent.style.display = tabName === 'notes' ? '' : 'none';
-        if (searchContent) searchContent.style.display = tabName === 'search' ? '' : 'none';
+        if (searchContent) searchContent.style.display = tabName === 'results' ? '' : 'none';
         if (toolsContent) toolsContent.style.display = tabName === 'tools' ? '' : 'none';
-        if (tabName === 'search' && searchInputEl) searchInputEl.focus();
         if (tabName === 'tools' && bridge.s3GetStatus) bridge.s3GetStatus();
+    }
+
+    /** D2: 検索を投げたら Results タブを出してアクティブにする（Enter と onSearchStart の両方から呼ぶ = 冪等）。 */
+    function showResultsTab() {
+        if (resultsTabEl) resultsTabEl.hidden = false;
+        switchTab('results');
+    }
+
+    /** D7: 検索 BOX が空になったら Results タブを消す（表示中だったなら Notes へ戻す）。 */
+    function hideResultsTab() {
+        if (resultsTabEl) resultsTabEl.hidden = true;
+        if (currentTab === 'results') switchTab('notes');
     }
 
     /**
@@ -2868,6 +2888,9 @@ var notesFilePanel = (function() {
         var q = currentSearch();
         if (!q.body) return;   // ext: 単独（本文空）も既存の空クエリ挙動 = 検索非実行（FR-SEF-01）
         bridge.search(q.body, Object.assign({}, searchOptions, { exts: q.exts }));
+        // D2: 実際に検索を投げたときだけ Results タブを出す（0 件でも出る — 件数 0 は onSearchEnd が表示）
+        resultsDismissed = false;
+        showResultsTab();
     }
 
     var searchSectionOut = null;
@@ -2936,6 +2959,8 @@ var notesFilePanel = (function() {
             renderExploreResults();
         }
         if (searchCountEl) searchCountEl.textContent = i18n.notesSearching || 'Searching...';
+        // D2: host の検索開始でも Results を出す（Enter 経路と冪等）。BOX を空にして畳んだ後の後着分では出さない
+        if (!resultsDismissed) showResultsTab();
     }
 
     /** Collect file/folder name matches against searchInputEl.value, render into
@@ -3197,15 +3222,43 @@ var notesFilePanel = (function() {
         searchInputEl = document.getElementById('notesSearchInput');
         searchResultsEl = document.getElementById('notesSearchResults');
         searchCountEl = document.getElementById('notesSearchCount');
+        resultsTabEl = document.getElementById('filePanelTabResults');
 
-        if (searchInputEl) {
+        // D10: BOX 右端のショートカット表記（mac = ⌘K / 非 mac = Ctrl+K）。非 mac は表記が長いので余白を広げる
+        var kbdEl = document.getElementById('notesSearchKbd');
+        if (kbdEl) {
+            kbdEl.textContent = IS_MAC_PLATFORM ? '⌘K' : 'Ctrl+K';
+            if (kbdEl.parentElement) {
+                kbdEl.parentElement.classList.toggle('file-panel-search-box--wide-kbd', !IS_MAC_PLATFORM);
+            }
+        }
+
+        // standalone harness は init が 2 回走る（build 時 + spec）。検索行の DOM listener は要素フラグで 1 回だけ張る
+        //（2 重だと Enter 1 回で bridge.search が 2 回飛び、Aa/W/.* は 2 回 toggle されて効かない）
+        if (searchInputEl && !searchInputEl.__searchWired) {
+            searchInputEl.__searchWired = true;
             searchInputEl.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
+                // IME 変換中の Enter / Esc は変換の確定・取消（検索も focus 移動もしない）
+                if (e.isComposing || e.keyCode === 229) return;
+                if (e.key === 'Enter') {
                     executeSearch();
                 } else if (e.key === 'Escape') {
-                    switchTab('notes');
+                    // D8: タブは切り替えない（BOX がタブの外に出たため）。Cmd+K で来たなら元の focus へ戻し、それ以外は blur。
+                    // 伝播は止める — document の Esc（sidepanel md を閉じる等）まで同時に走らせない
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!restoreSearchFocusOrigin()) searchInputEl.blur();
                 }
             });
+            // D7: BOX が空になったら Results タブを畳む。後着の結果は currentSearchId の既存判定に従い
+            // 非表示のコンテナへ描かれるだけ（Results タブは resultsDismissed で再表示しない）
+            searchInputEl.addEventListener('input', function() {
+                if (String(searchInputEl.value || '').trim() !== '') return;
+                resultsDismissed = true;
+                hideResultsTab();
+            });
+            // D8: Cmd+K の戻り先は BOX に居る間だけ有効（クリックで他所へ出たら捨てる）
+            searchInputEl.addEventListener('blur', function() { searchFocusOrigin = null; });
         }
 
         // Option toggles
@@ -3214,7 +3267,8 @@ var notesFilePanel = (function() {
         var regexBtn = document.getElementById('notesSearchRegex');
 
         function toggleOpt(btn, key) {
-            if (!btn) return;
+            if (!btn || btn.__optWired) return;
+            btn.__optWired = true;
             btn.addEventListener('click', function() {
                 searchOptions[key] = !searchOptions[key];
                 btn.classList.toggle('active', searchOptions[key]);
@@ -3274,6 +3328,116 @@ var notesFilePanel = (function() {
         groupEl.appendChild(refsEl);
     }
 
+    // ── Cmd+K: Notes webview のどこからでも検索 BOX へ（D4）/ Esc で元の場所へ戻る（D8） ──
+
+    /** root 内の選択範囲を「root の text 先頭からの文字 offset」で返す（root 外なら null）。 */
+    function selectionOffsetsIn(root, range) {
+        if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+        var pre = document.createRange();
+        pre.selectNodeContents(root);
+        pre.setEnd(range.startContainer, range.startOffset);
+        var start = pre.toString().length;
+        pre.setEnd(range.endContainer, range.endOffset);
+        return { start: start, end: pre.toString().length };
+    }
+
+    /** selectionOffsetsIn の逆写像。範囲外の offset は root の末尾に丸める。 */
+    function setSelectionOffsetsIn(root, start, end) {
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+        var range = document.createRange();
+        range.selectNodeContents(root);
+        range.collapse(false);
+        var pos = 0;
+        var startSet = false;
+        var node;
+        while ((node = walker.nextNode())) {
+            var len = node.data.length;
+            if (!startSet && start <= pos + len) { range.setStart(node, start - pos); startSet = true; }
+            if (startSet && end <= pos + len) { range.setEnd(node, end - pos); break; }
+            pos += len;
+        }
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    /**
+     * Cmd+K 直前の focus 先を覚える（BOX / Aa W .* に居る間の再押下では上書きしない）。
+     * 選択範囲は contenteditable なら「文字 offset」で持つ — outliner の node は blur / focus のたびに innerHTML を
+     * 描き直すため、DOM Range（live）は戻る頃には (node, 0) へ潰れている（切り離されずに残るので検出もできない）。
+     */
+    function saveSearchFocusOrigin() {
+        var bar = document.getElementById('notesSearchBar');
+        var active = document.activeElement;
+        if (active && bar && bar.contains(active)) return;
+        searchFocusOrigin = null;
+        if (!active || active === document.body || active === document.documentElement) return;
+        var origin = { el: active, range: null, offsets: null, inputSel: null };
+        var tag = active.tagName ? String(active.tagName).toUpperCase() : '';
+        try {
+            if (tag === 'INPUT' || tag === 'TEXTAREA') {
+                origin.inputSel = { start: active.selectionStart, end: active.selectionEnd, dir: active.selectionDirection };
+            } else {
+                var sel = window.getSelection();
+                var r = (sel && sel.rangeCount > 0) ? sel.getRangeAt(0) : null;
+                if (r && active.contains(r.commonAncestorContainer)) {
+                    if (active.isContentEditable) { origin.offsets = selectionOffsetsIn(active, r); }
+                    else { origin.range = r.cloneRange(); }
+                }
+            }
+        } catch (e) { /* 選択を持たない input type 等 — focus だけ戻す */ }
+        searchFocusOrigin = origin;
+    }
+
+    /** D8: Cmd+K の戻り先へ focus（と選択範囲）を戻す。戻せなければ false（呼び出し側が blur する）。 */
+    function restoreSearchFocusOrigin() {
+        var o = searchFocusOrigin;
+        searchFocusOrigin = null;
+        if (!o || !o.el || !o.el.isConnected || typeof o.el.focus !== 'function') return false;
+        try { o.el.focus({ preventScroll: true }); } catch (e) { return false; }
+        if (document.activeElement !== o.el) return false;
+        try {
+            if (o.inputSel && typeof o.el.setSelectionRange === 'function' && o.inputSel.start !== null) {
+                o.el.setSelectionRange(o.inputSel.start, o.inputSel.end, o.inputSel.dir || 'none');
+            } else if (o.offsets) {
+                setSelectionOffsetsIn(o.el, o.offsets.start, o.offsets.end);
+            } else if (o.range && o.range.startContainer.isConnected && o.range.endContainer.isConnected) {
+                var sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(o.range);
+            }
+        } catch (e2) { /* 選択の復元は best-effort（focus は戻っている） */ }
+        return true;
+    }
+
+    /**
+     * mac = Cmd+K / 非 mac = Ctrl+K（mac の Ctrl+K・Shift / Alt 付き・IME 変換中は対象外）。
+     * 物理キー（code）は e.key が非ラテン文字の配列（ロシア語等）でだけ使う — Dvorak の Cmd+T 等を奪わない。
+     */
+    function isSearchFocusShortcut(e) {
+        if (!e || e.isComposing || e.keyCode === 229) return false;
+        if (e.shiftKey || e.altKey) return false;
+        if (IS_MAC_PLATFORM ? !(e.metaKey && !e.ctrlKey) : !(e.ctrlKey && !e.metaKey)) return false;
+        if (e.key === 'k' || e.key === 'K') return true;
+        return e.code === 'KeyK' && !/^[a-zA-Z]$/.test(String(e.key || ''));
+    }
+
+    /**
+     * window の capture で拾う（init で 1 回だけ登録）: md / outliner の keydown にも、VS Code の chord 転送
+     *（「(⌘K) was pressed. Waiting for second key...」）にも届かせない。単体 md / outliner には本ファイルが載らない。
+     */
+    function onSearchFocusShortcut(e) {
+        if (!isSearchFocusShortcut(e)) return;
+        var input = document.getElementById('notesSearchInput');
+        if (!input) return;
+        e.preventDefault();
+        e.stopPropagation();
+        saveSearchFocusOrigin();
+        if (panelEl && panelEl.classList.contains('collapsed')) expandPanel();
+        input.focus();
+        input.select();
+    }
+
     // ── 初期化 ──
 
     // ── Panel Resize ──
@@ -3331,6 +3495,20 @@ var notesFilePanel = (function() {
                 bridge.savePanelWidth(finalWidth);
             }
         }
+    }
+
+    /**
+     * 閉じたパネルを開く単一の口（main pane の ☰ 再表示ボタン 3 個の delegated click と Cmd+K で共用）。
+     * collapsed を外し、最後に保存した幅を戻し、host に開いたことを伝える。
+     */
+    function expandPanel() {
+        if (panelEl) {
+            panelEl.classList.remove('collapsed');
+            if (lastSavedPanelWidth) {
+                panelEl.style.width = lastSavedPanelWidth + 'px';
+            }
+        }
+        bridge.togglePanel(false);
     }
 
     function init(noteBridge, initialFileList, initialCurrentFile, initialStructure, initialPanelWidth, initialNoteFolderName) {
@@ -3470,14 +3648,15 @@ var notesFilePanel = (function() {
             if (!t) return;
             var btn = t.closest ? t.closest('.notes-panel-toggle-btn') : null;
             if (!btn) return;
-            if (panelEl) {
-                panelEl.classList.remove('collapsed');
-                if (lastSavedPanelWidth) {
-                    panelEl.style.width = lastSavedPanelWidth + 'px';
-                }
-            }
-            bridge.togglePanel(false);
+            expandPanel();
         });
+
+        // D4: Cmd+K（非 mac は Ctrl+K）で Notes のどこからでも検索 BOX へ。window の capture に 1 回だけ張る
+        //（standalone harness は init が 2 回走る。handler は module 状態を参照するので再登録は不要）
+        if (!window.__notesSearchShortcutWired) {
+            window.__notesSearchShortcutWired = true;
+            window.addEventListener('keydown', onSearchFocusShortcut, true);
+        }
 
         // FR-NT-01/02: note タイトル見出しの初期化 + inline 編集バインド
         titleLabelEl = document.getElementById('notesTitleLabel');

@@ -35,7 +35,6 @@ var SHORTCUTS_MD = [
         { keys: 'Cmd+I', desc: 'Italic' },
         { keys: 'Cmd+Shift+S', desc: 'Strikethrough' },
         { keys: 'Cmd+`', desc: 'Inline code' },
-        { keys: 'Cmd+K', desc: 'Insert link' },
         { keys: 'Cmd+1…6', desc: 'Heading 1–6' },
         { keys: 'Cmd+0', desc: 'Paragraph' },
         { keys: 'Cmd+Shift+U', desc: 'Bullet list' },
@@ -62,6 +61,8 @@ var SHORTCUTS_MD = [
     { category: 'search', items: [
         { keys: 'Cmd+F', desc: 'Find' },
         { keys: 'Cmd+H', desc: 'Replace' },
+        // 20261016 (D4/D5): Cmd+K は Notes の検索 BOX へ（Notes 内だけ。md の「リンク挿入」は廃止 — ツールバー / Cmd+/ から）
+        { keys: 'Cmd+K', desc: 'Search notes (Notes)' },
     ] },
     { category: 'task', items: [
         { keys: 'Cmd+Shift+X', desc: 'Task list / toggle checkbox' },
@@ -107,6 +108,8 @@ var SHORTCUTS_OUTLINER = [
         { keys: 'Cmd+F', desc: 'Text search' },
         { keys: 'Cmd+H', desc: 'Replace' },
         { keys: 'Cmd+Shift+F', desc: 'Filter' },
+        // 20261016 (D4): Notes 内なら outliner 編集中でも Cmd+K で検索 BOX へ
+        { keys: 'Cmd+K', desc: 'Search notes (Notes)' },
     ] },
     { category: 'task', items: [
         { keys: 'Cmd+Shift+X', desc: 'Toggle checkbox' },

@@ -328,42 +328,57 @@ test.describe('Notes ファイルパネル', () => {
     });
 
     // ===== タブナビゲーション =====
+    // spec 20261016-1411-notes-panel-notion-header（D2/D7）: Search タブは廃止。検索 BOX はタブの外に常設し、
+    // BOX で Enter すると Results タブ（data-tab="results"、中身は #filePanelContentSearch）が現れてアクティブになる。
 
-    test('17. Searchタブクリックで検索パネル表示、Notesパネル非表示', async ({ page }) => {
-        const searchTab = page.locator('.file-panel-tab[data-tab="search"]');
-        await searchTab.click();
-        await page.waitForTimeout(200);
+    test('17. 検索 BOX で Enter → Results タブが出てアクティブ、検索結果表示・Notesパネル非表示', async ({ page }) => {
+        // 旧 Search タブは無い（完全一致セレクタの count）。Results タブは検索するまで出ない
+        await expect(page.locator('.file-panel-tab[data-tab="search"]')).toHaveCount(0);
+        const resultsTab = page.locator('.file-panel-tab[data-tab="results"]');
+        await expect(resultsTab).toBeHidden();
 
-        // 検索タブがアクティブ
-        expect(await searchTab.evaluate(el => el.classList.contains('active'))).toBe(true);
+        const searchInput = page.locator('#notesSearchInput');
+        await searchInput.click();
+        await page.keyboard.type('File');
+        await page.keyboard.press('Enter');
+
+        // Results タブがアクティブ
+        await expect(resultsTab).toBeVisible();
+        await expect(resultsTab).toHaveClass(/(^|\s)active(\s|$)/);
 
         // 検索コンテンツが表示される
         const searchContent = page.locator('#filePanelContentSearch');
-        const isSearchVisible = await searchContent.evaluate(el => el.style.display !== 'none');
+        const isSearchVisible = await searchContent.evaluate(el => (el as HTMLElement).style.display !== 'none');
         expect(isSearchVisible).toBe(true);
 
         // Notesコンテンツが非表示
         const notesContent = page.locator('#filePanelContentNotes');
-        const isNotesHidden = await notesContent.evaluate(el => el.style.display === 'none');
+        const isNotesHidden = await notesContent.evaluate(el => (el as HTMLElement).style.display === 'none');
         expect(isNotesHidden).toBe(true);
     });
 
-    test('18. Notesタブクリックでファイルリスト表示', async ({ page }) => {
-        // まず Search タブに切替
-        const searchTab = page.locator('.file-panel-tab[data-tab="search"]');
-        await searchTab.click();
-        await page.waitForTimeout(200);
+    test('18. Notesタブクリックでファイルリスト表示（Results タブは非選択のまま残る）', async ({ page }) => {
+        // まず検索して Results タブに切替
+        const searchInput = page.locator('#notesSearchInput');
+        await searchInput.click();
+        await page.keyboard.type('File');
+        await page.keyboard.press('Enter');
+        const resultsTab = page.locator('.file-panel-tab[data-tab="results"]');
+        await expect(resultsTab).toHaveClass(/(^|\s)active(\s|$)/);
 
         // Notes タブに戻る
         const notesTab = page.locator('.file-panel-tab[data-tab="notes"]');
         await notesTab.click();
-        await page.waitForTimeout(200);
 
-        expect(await notesTab.evaluate(el => el.classList.contains('active'))).toBe(true);
+        await expect(notesTab).toHaveClass(/(^|\s)active(\s|$)/);
 
         const notesContent = page.locator('#filePanelContentNotes');
-        const isVisible = await notesContent.evaluate(el => el.style.display !== 'none');
+        const isVisible = await notesContent.evaluate(el => (el as HTMLElement).style.display !== 'none');
         expect(isVisible).toBe(true);
+
+        // Results タブは消えずに非選択（クリックで結果へ戻れる）
+        await expect(resultsTab).toBeVisible();
+        await expect(resultsTab).not.toHaveClass(/(^|\s)active(\s|$)/);
     });
 
     // ===== パネル折りたたみ/展開 =====
