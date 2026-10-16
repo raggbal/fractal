@@ -3248,6 +3248,18 @@ var notesFilePanel = (function() {
                 resultsDismissed = true;
                 hideResultsTab();
             });
+            // D12: ✕ = BOX を空にする（空にしたときの扱いは手入力で消したのと同じ — D7 で Results タブを消す）。
+            // mousedown を止めて BOX の focus を保つ（outliner の clear ボタンと同じ）
+            var clearBtn = document.getElementById('notesSearchClear');
+            if (clearBtn) {
+                clearBtn.addEventListener('mousedown', function(e) { e.preventDefault(); });
+                clearBtn.addEventListener('click', function() {
+                    searchInputEl.value = '';
+                    resultsDismissed = true;
+                    hideResultsTab();
+                    searchInputEl.focus();
+                });
+            }
             // D8: Cmd+K の戻り先は BOX に居る間だけ有効（クリックで他所へ出たら捨てる）
             searchInputEl.addEventListener('blur', function() { searchFocusOrigin = null; });
         }

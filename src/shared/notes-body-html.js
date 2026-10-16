@@ -556,6 +556,17 @@ function generateNotesFilePanelHtml(options) {
         .file-panel-search-box .file-panel-search-input:focus {
             border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
         }
+        /* D12: 入力があるときだけ右端に ✕（outliner の .outliner-search-clear-btn と同じ見た目）。空欄 = placeholder 表示中は隠す */
+        .file-panel-search-box .file-panel-search-input:not(:placeholder-shown) { padding-right: 22px; }
+        .file-panel-search-clear-btn {
+            position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+            display: flex; align-items: center; justify-content: center;
+            background: none; border: none; cursor: pointer;
+            padding: 2px; opacity: 0.5; line-height: 0;
+            color: var(--outliner-search-fg, var(--vscode-input-foreground, inherit));
+        }
+        .file-panel-search-clear-btn:hover { opacity: 1; }
+        .file-panel-search-input:placeholder-shown + .file-panel-search-clear-btn { display: none; }
         .file-panel-search-box .file-panel-search-input::placeholder {
             color: var(--fr-color-text-tertiary, var(--outliner-placeholder, #999)); opacity: 1;
         }
@@ -683,6 +694,7 @@ function generateNotesFilePanelHtml(options) {
             <div class="file-panel-search-bar" id="notesSearchBar">
                 <div class="file-panel-search-box">
                     <input type="text" class="file-panel-search-input" id="notesSearchInput" placeholder="${m('notesSearchPlaceholder', 'Search...')}" aria-label="${m('notesTabSearch', 'Search')}" />
+                    <button class="file-panel-search-clear-btn" id="notesSearchClear" type="button" title="Clear search" aria-label="Clear search"><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
                 </div>
                 <div class="file-panel-search-options">
                     <button class="file-panel-search-opt-btn" id="notesSearchCase" title="${m('notesMatchCase', 'Match Case')}">Aa</button>

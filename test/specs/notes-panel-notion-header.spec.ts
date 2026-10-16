@@ -850,6 +850,45 @@ test.describe('Notes 左パネル — Notion 風ヘッダー / 常設検索 BOX 
         await expect(page.locator(SEARCH)).not.toHaveAttribute('placeholder', /⌘|Ctrl\s*\+\s*K/i);
     });
 
+    test('AC-21 typing shows a clear (✕) button at the right end of the box; clicking it empties the box, hides the Results tab and keeps focus in the box', async ({ page }) => {
+        await bootNotes(page);
+        const input = page.locator(SEARCH);
+        const clear = page.locator('#notesSearchClear');
+        await expect(input).toHaveValue('');
+        await expect(clear).toBeHidden();
+
+        await input.click();
+        await page.keyboard.type('File');
+        await expect(clear).toBeVisible();
+        const ib = (await input.boundingBox())!;
+        const cb = (await clear.boundingBox())!;
+        expect(cb.x + cb.width, '✕ が BOX の右外').toBeLessThanOrEqual(ib.x + ib.width + 0.5);
+        expect((ib.x + ib.width) - (cb.x + cb.width), '✕ が BOX の右端に無い').toBeLessThanOrEqual(10);
+
+        await page.keyboard.press('Enter');
+        const results = page.locator('.file-panel-tab[data-tab="results"]');
+        await expect(results).toBeVisible();
+
+        // 140px でも ✕ 表示中の検索行がはみ出さない
+        const overflow = await page.evaluate(() => {
+            const panel = document.getElementById('notesFilePanel') as HTMLElement;
+            panel.style.width = '140px';
+            const bar = document.getElementById('notesSearchBar') as HTMLElement;
+            const pb = panel.getBoundingClientRect();
+            const xb = (document.getElementById('notesSearchClear') as HTMLElement).getBoundingClientRect();
+            return { over: bar.scrollWidth - bar.clientWidth, clearInside: xb.right <= pb.right + 0.5 && xb.width > 0 };
+        });
+        expect(overflow.over, '140px で検索行がはみ出した').toBeLessThanOrEqual(0);
+        expect(overflow.clearInside, '140px で ✕ がパネル外').toBe(true);
+
+        await clear.click();
+        await expect(input).toHaveValue('');
+        await expect(input).toBeFocused();
+        await expect(clear).toBeHidden();
+        await expect(results).toBeHidden();
+        await expect(page.locator('.file-panel-tab[data-tab="notes"]')).toHaveClass(/(^|\s)active(\s|$)/);
+    });
+
     test('AC-16 Enter during IME composition neither calls bridge.search nor shows the Results tab', async ({ page }) => {
         await bootPanelUnit(page);
         const input = page.locator(SEARCH);
