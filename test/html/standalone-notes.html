@@ -5603,14 +5603,14 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         /* Results タブ（D2）は検索するまで hidden 属性で隠す。display:flex が UA の [hidden] に勝つので明示 */
         .file-panel-tab[hidden] { display: none; }
         .file-panel-tab:hover {
-            background: rgba(128, 128, 128, 0.12);
+            background: rgba(128, 128, 128, 0.07);
             color: var(--fr-color-text-primary, inherit);
         }
         /* 選択中 = 薄いグレーの pill。狭い幅（PANEL_MIN_WIDTH 140px）ではラベルだけ ellipsis で縮む */
         .file-panel-tab.active {
             flex: 0 1 auto; min-width: 0;
             padding: 0 8px 0 7px;
-            background: rgba(128, 128, 128, 0.16);
+            background: rgba(128, 128, 128, 0.09);
             color: var(--fr-color-text-primary, inherit);
         }
         .file-panel-tab svg { flex-shrink: 0; }
@@ -5672,16 +5672,16 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         .file-panel-search-box {
             flex: 1; min-width: 0; position: relative;
         }
-        /* Notion 風の検索欄: 枠線なし + 薄い面。focus で通常の入力欄（白地 + primary 枠）に戻す */
+        /* 検索欄: 枠線なし + outliner の検索 BOX と同じ面。focus で primary 枠 */
         .file-panel-search-box .file-panel-search-input {
             display: block; height: 26px; padding: 0 7px;
             border-color: transparent;
-            background: rgba(128, 128, 128, 0.1);
+            /* outliner の検索 BOX（.outliner-search-input）と同じ面の色（ライトでは白） */
+            background: var(--outliner-search-bg, var(--vscode-input-background, #fff));
+            color: var(--outliner-search-fg, var(--vscode-input-foreground, inherit));
             font-family: inherit;
         }
-        .file-panel-search-box .file-panel-search-input:hover { background: rgba(128, 128, 128, 0.14); }
         .file-panel-search-box .file-panel-search-input:focus {
-            background: var(--fr-color-bg-elevated, var(--outliner-bg, #fff));
             border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
         }
         .file-panel-search-box .file-panel-search-input::placeholder {
