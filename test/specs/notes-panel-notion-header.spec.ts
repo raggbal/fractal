@@ -220,7 +220,7 @@ function measurePanelRows(page: Page) {
                 searchBar: row('#notesSearchBar'),
                 tabs: row('#notesFilePanel .file-panel-tabs'),
             },
-            buttons: ['#filePanelCollapse', '#notesSearchCase', '#notesSearchWord', '#notesSearchRegex']
+            buttons: ['#filePanelCollapse', '#notesSearchClear', '#notesSearchCase', '#notesSearchWord', '#notesSearchRegex']
                 .map((s) => Object.assign({ sel: s }, box(q(s)))),
             input: box(q('#notesSearchInput')),
             title: Object.assign({ sw: title.scrollWidth, cw: title.clientWidth, textOverflow: getComputedStyle(title).textOverflow }, box(title)),
@@ -349,7 +349,7 @@ test.describe('Notes 左パネル — Notion 風ヘッダー / 常設検索 BOX 
         await expect(title).toHaveText('Research Notes');
     });
 
-    test('AC-2 search row: the box is between the header and the tabs, Aa / W / .* sit to its right on the same row, visible on the Notes tab', async ({ page }) => {
+    test('AC-2 search row: the box is between the header and the tabs; Aa / W / .* live inside the box, hidden until focus, then at its right end on one row', async ({ page }) => {
         await bootNotes(page);
         const input = page.locator(SEARCH);
 
@@ -357,13 +357,16 @@ test.describe('Notes 左パネル — Notion 風ヘッダー / 常設検索 BOX 
         await expect(page.locator(tabSel('notes'))).toHaveClass(ACTIVE);
         await expect(input).toBeVisible();
         await expect(page.locator('#notesSearchBar #notesSearchInput')).toHaveCount(1);
-        // 旧位置（結果コンテナの中）には無い
         await expect(page.locator('#filePanelContentSearch #notesSearchInput')).toHaveCount(0);
-        for (const id of ['#notesSearchCase', '#notesSearchWord', '#notesSearchRegex']) {
-            await expect(page.locator('#notesSearchBar ' + id)).toHaveCount(1);
-            await expect(page.locator(id)).toBeVisible();
+        const OPTS = ['#notesSearchCase', '#notesSearchWord', '#notesSearchRegex'];
+        for (const id of OPTS) {
+            // D13: BOX の中（入力欄と同じ .file-panel-search-box の子孫）
+            await expect(page.locator('#notesSearchBar .file-panel-search-box ' + id)).toHaveCount(1);
+            await expect(page.locator(id), `非 focus で ${id} が見えている`).toBeHidden();
         }
 
+        await input.click();
+        for (const id of OPTS) await expect(page.locator(id)).toBeVisible();
         const r = await page.evaluate(() => {
             const box = (sel: string) => {
                 const b = (document.querySelector(sel) as HTMLElement).getBoundingClientRect();
@@ -373,28 +376,64 @@ test.describe('Notes 左パネル — Notion 風ヘッダー / 常設検索 BOX 
                 header: box('#notesFilePanel .file-panel-header'),
                 tabs: box('#notesFilePanel .file-panel-tabs'),
                 input: box('#notesSearchInput'),
-                aa: box('#notesSearchCase'),
-                w: box('#notesSearchWord'),
-                re: box('#notesSearchRegex'),
+                aa: box('#notesSearchCase'), w: box('#notesSearchWord'), re: box('#notesSearchRegex'),
             };
         });
-        // 縦: ヘッダーの下・タブ行の上
         expect(r.input.top, '検索 BOX がヘッダーより上').toBeGreaterThanOrEqual(r.header.bottom - 0.5);
         expect(r.input.bottom, '検索 BOX がタブ行より下').toBeLessThanOrEqual(r.tabs.top + 0.5);
-        // 横: Aa / W / .* は BOX の右横・同じ行（下に積まない）
         for (const [name, b] of [['Aa', r.aa], ['W', r.w], ['.*', r.re]] as const) {
             const cy = (b.top + b.bottom) / 2;
             expect(cy, `${name} が BOX と同じ行に無い`).toBeGreaterThan(r.input.top);
             expect(cy, `${name} が BOX と同じ行に無い`).toBeLessThan(r.input.bottom);
-            expect(b.left, `${name} が BOX の右に無い`).toBeGreaterThanOrEqual(r.input.right - 0.5);
+            expect(b.left, `${name} が BOX の左外`).toBeGreaterThanOrEqual(r.input.left - 0.5);
+            expect(b.right, `${name} が BOX の右外`).toBeLessThanOrEqual(r.input.right + 0.5);
         }
         expect(r.aa.right).toBeLessThanOrEqual(r.w.left + 0.5);
         expect(r.w.right).toBeLessThanOrEqual(r.re.left + 0.5);
+        expect(r.input.right - r.re.right, '.* が BOX の右端に無い').toBeLessThanOrEqual(8);
 
         // 常設: Tools タブに切り替えても BOX は見えたまま
         await page.locator(tabSel('tools')).click();
         await expect(page.locator(tabSel('tools'))).toHaveClass(ACTIVE);
         await expect(input).toBeVisible();
+    });
+
+    test('AC-22 the box is narrower than the row until focused, then fills the row; Aa toggles without stealing focus; blur hides every in-box button but keeps the option state', async ({ page }) => {
+        await bootNotes(page);
+        const input = page.locator(SEARCH);
+        const width = () => page.evaluate(() => {
+            const bar = document.getElementById('notesSearchBar') as HTMLElement;
+            const cs = getComputedStyle(bar);
+            const inner = bar.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+            return { box: (document.querySelector('#notesSearchBar .file-panel-search-box') as HTMLElement).getBoundingClientRect().width, inner };
+        });
+        const before = await width();
+        expect(before.inner - before.box, '非 focus の BOX が行いっぱい（狭くなっていない）').toBeGreaterThanOrEqual(50);
+
+        await input.click();
+        await expect.poll(async () => { const w = await width(); return Math.abs(w.inner - w.box); }, { message: 'focus で BOX が行いっぱいに伸びない' }).toBeLessThanOrEqual(1);
+
+        const aa = page.locator('#notesSearchCase');
+        await aa.click();
+        await expect(aa).toHaveClass(/(^|\s)active(\s|$)/);
+        await expect(input, 'Aa を押したら BOX の focus が外れた').toBeFocused();
+
+        await page.keyboard.type('File');
+        await expect(page.locator('#notesSearchClear')).toBeVisible();
+        // Tab で BOX の中のボタンへ移っても隠れない（:focus-within）
+        await page.keyboard.press('Tab');
+        await expect(page.locator('#notesSearchInline :focus')).toHaveCount(1);
+        await expect(aa).toBeVisible();
+        // focus を外す（ツリーへ）: 文字が残っていても BOX 内のボタンは全部隠れ、BOX は元の幅へ
+        await page.locator('#notesFileList').focus();
+        for (const id of ['#notesSearchClear', '#notesSearchCase', '#notesSearchWord', '#notesSearchRegex']) {
+            await expect(page.locator(id), `非 focus で ${id} が見えている`).toBeHidden();
+        }
+        await expect(input).toHaveValue('File');
+        await expect.poll(async () => { const w = await width(); return w.inner - w.box; }, { message: 'blur で BOX が元の幅に戻らない' }).toBeGreaterThanOrEqual(50);
+        // ON の設定は保たれる
+        await input.click();
+        await expect(aa).toHaveClass(/(^|\s)active(\s|$)/);
     });
 
     test('AC-3 tabs: only Notes and Tools at start (no data-tab="search"); only the active tab shows its label, others are icon-only', async ({ page }) => {
@@ -737,6 +776,13 @@ test.describe('Notes 左パネル — Notion 風ヘッダー / 常設検索 BOX 
         await bootNotes(page);
         await initPanel(page, { width: 140, noteName: 'A rather long note folder name that has to be ellipsized' });
         await page.locator(SEARCH).fill('a search query that is much wider than the box');
+        // D15: focus で BOX が行いっぱいに伸びきるのを待ってから測る
+        await expect.poll(() => page.evaluate(() => {
+            const bar = document.getElementById('notesSearchBar') as HTMLElement;
+            const cs = getComputedStyle(bar);
+            const inner = bar.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+            return Math.abs(inner - (document.querySelector('#notesSearchBar .file-panel-search-box') as HTMLElement).getBoundingClientRect().width);
+        })).toBeLessThanOrEqual(1);
 
         const m = await measurePanelRows(page);
         expect(m.inlineWidth, '前提: パネル幅 140px').toBe('140px');
@@ -748,10 +794,12 @@ test.describe('Notes 左パネル — Notion 風ヘッダー / 常設検索 BOX 
             expect(b.left, `${b.sel} がパネルの左外`).toBeGreaterThanOrEqual(m.inner.left - 0.5);
             expect(b.right, `${b.sel} がパネルの右外（切れている）`).toBeLessThanOrEqual(m.inner.right + 0.5);
         }
-        // BOX が縮んで Aa に重ならない / 名前は ellipsis で収まる
-        const aa = m.buttons.find((b) => b.sel === '#notesSearchCase')!;
+        // D13: focus 中の ✕ / Aa / W / .* は BOX の中に収まる / 名前は ellipsis で収まる
         expect(m.input.width).toBeGreaterThan(0);
-        expect(m.input.right, '検索 BOX が Aa に重なっている').toBeLessThanOrEqual(aa.left + 0.5);
+        for (const b of m.buttons.filter((x) => x.sel !== '#filePanelCollapse')) {
+            expect(b.left, `${b.sel} が BOX の左外`).toBeGreaterThanOrEqual(m.input.left - 0.5);
+            expect(b.right, `${b.sel} が BOX の右外`).toBeLessThanOrEqual(m.input.right + 0.5);
+        }
         expect(m.title.textOverflow).toBe('ellipsis');
         expect(m.title.sw, '前提: 長い note 名が切り詰められている').toBeGreaterThan(m.title.cw);
         expect(m.title.right).toBeLessThanOrEqual(m.inner.right + 0.5);
@@ -860,10 +908,15 @@ test.describe('Notes 左パネル — Notion 風ヘッダー / 常設検索 BOX 
         await input.click();
         await page.keyboard.type('File');
         await expect(clear).toBeVisible();
-        const ib = (await input.boundingBox())!;
-        const cb = (await clear.boundingBox())!;
-        expect(cb.x + cb.width, '✕ が BOX の右外').toBeLessThanOrEqual(ib.x + ib.width + 0.5);
-        expect((ib.x + ib.width) - (cb.x + cb.width), '✕ が BOX の右端に無い').toBeLessThanOrEqual(10);
+        // D14: ✕ は Aa の左（BOX の中）。BOX の伸長（D15 の transition）中に測らないよう、1 回の evaluate で同時に測る
+        await page.waitForTimeout(250);
+        const g = await page.evaluate(() => {
+            const r = (sel: string) => (document.querySelector(sel) as HTMLElement).getBoundingClientRect();
+            return { ib: r('#notesSearchInput'), cb: r('#notesSearchClear'), ab: r('#notesSearchCase') };
+        });
+        expect(g.cb.left, '✕ が BOX の左外').toBeGreaterThanOrEqual(g.ib.left - 0.5);
+        expect(g.cb.right, '✕ が Aa の左に無い').toBeLessThanOrEqual(g.ab.left + 0.5);
+        expect(g.ab.left - g.cb.right, '✕ と Aa が離れすぎ').toBeLessThanOrEqual(6);
 
         await page.keyboard.press('Enter');
         const results = page.locator('.file-panel-tab[data-tab="results"]');

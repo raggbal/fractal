@@ -3272,6 +3272,8 @@ var notesFilePanel = (function() {
         function toggleOpt(btn, key) {
             if (!btn || btn.__optWired) return;
             btn.__optWired = true;
+            // D13: BOX の中のボタン — 押しても BOX の focus を保つ（外れるとボタンごと隠れる）
+            btn.addEventListener('mousedown', function(e) { e.preventDefault(); });
             btn.addEventListener('click', function() {
                 searchOptions[key] = !searchOptions[key];
                 btn.classList.toggle('active', searchOptions[key]);

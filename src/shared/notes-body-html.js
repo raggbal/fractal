@@ -533,8 +533,9 @@ function generateNotesFilePanelHtml(options) {
             border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
             box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
         }
-        /* 20261016 常設の検索行（D1/D2）: ヘッダー直下に [検索 BOX][Aa][W][.*] を 1 行で並べる（旧: Search タブの中で縦積み）。
-         * BOX が縮み、Aa/W/.* は縮まない — 140px（PANEL_MIN_WIDTH）でも横に溢れない */
+        /* 20261016 常設の検索行（D1/D2）: ヘッダー直下に検索 BOX（旧: Search タブの中）。
+         * D13/D15: Aa/W/.* と ✕ は BOX の中の右端に置き、BOX に focus がある間だけ出す。
+         * 非 focus の BOX は従来の幅（行 − 旧 Aa/W/.* 3 つ分）、focus で行いっぱいに伸びる */
         .file-panel-search-bar {
             display: flex; align-items: center; gap: 4px;
             padding: 2px 8px 4px;
@@ -542,8 +543,11 @@ function generateNotesFilePanelHtml(options) {
             flex-shrink: 0; min-width: 0;
         }
         .file-panel-search-box {
-            flex: 1; min-width: 0; position: relative;
+            flex: 0 1 auto; min-width: 0; position: relative;
+            width: calc(100% - 66px);
+            transition: width 0.15s ease;
         }
+        .file-panel-search-box:focus-within { width: 100%; }
         /* 検索欄: 枠線なし + outliner の検索 BOX と同じ面。focus で primary 枠 */
         .file-panel-search-box .file-panel-search-input {
             display: block; height: 26px; padding: 0 7px;
@@ -556,24 +560,33 @@ function generateNotesFilePanelHtml(options) {
         .file-panel-search-box .file-panel-search-input:focus {
             border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
         }
-        /* D12: 入力があるときだけ右端に ✕（outliner の .outliner-search-clear-btn と同じ見た目）。空欄 = placeholder 表示中は隠す */
-        .file-panel-search-box .file-panel-search-input:not(:placeholder-shown) { padding-right: 22px; }
+        /* D13: BOX 内右端の [✕][Aa][W][.*]。focus 中だけ出し、その分だけ入力欄の右に余白を取る */
+        .file-panel-search-inline {
+            position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
+            display: flex; align-items: center; gap: 1px;
+        }
+        .file-panel-search-box:not(:focus-within) .file-panel-search-inline { display: none; }
+        /* 幅が伸びきってから出す（狭いパネルで伸びる途中のボタンが BOX の左へはみ出して見えないように） */
+        .file-panel-search-box:focus-within .file-panel-search-inline { animation: fp-search-inline-in 0.1s ease 0.15s both; }
+        @keyframes fp-search-inline-in { from { opacity: 0; } to { opacity: 1; } }
+        .file-panel-search-box:focus-within .file-panel-search-input { padding-right: 62px; }
+        .file-panel-search-box:focus-within .file-panel-search-input:not(:placeholder-shown) { padding-right: 79px; }
+        /* D12/D14: 入力があるときだけ Aa の左に ✕（outliner の .outliner-search-clear-btn と同じ見た目）。空欄 = placeholder 表示中は隠す */
         .file-panel-search-clear-btn {
-            position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
             display: flex; align-items: center; justify-content: center;
             background: none; border: none; cursor: pointer;
             padding: 2px; opacity: 0.5; line-height: 0;
             color: var(--outliner-search-fg, var(--vscode-input-foreground, inherit));
         }
         .file-panel-search-clear-btn:hover { opacity: 1; }
-        .file-panel-search-input:placeholder-shown + .file-panel-search-clear-btn { display: none; }
+        .file-panel-search-input:placeholder-shown + .file-panel-search-inline .file-panel-search-clear-btn { display: none; }
         .file-panel-search-box .file-panel-search-input::placeholder {
             color: var(--fr-color-text-tertiary, var(--outliner-placeholder, #999)); opacity: 1;
         }
         .file-panel-search-options { display: flex; align-items: center; gap: 1px; flex-shrink: 0; }
         .file-panel-search-opt-btn {
             display: inline-flex; align-items: center; justify-content: center;
-            min-width: 20px; height: 22px; padding: 0 3px;
+            min-width: 18px; height: 20px; padding: 0 3px;
             font-family: inherit; font-size: 10px; line-height: 1;
             border: 1px solid transparent;
             border-radius: var(--fr-radius-xs, 4px);
@@ -694,12 +707,14 @@ function generateNotesFilePanelHtml(options) {
             <div class="file-panel-search-bar" id="notesSearchBar">
                 <div class="file-panel-search-box">
                     <input type="text" class="file-panel-search-input" id="notesSearchInput" placeholder="${m('notesSearchPlaceholder', 'Search...')}" aria-label="${m('notesTabSearch', 'Search')}" />
-                    <button class="file-panel-search-clear-btn" id="notesSearchClear" type="button" title="Clear search" aria-label="Clear search"><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-                </div>
-                <div class="file-panel-search-options">
-                    <button class="file-panel-search-opt-btn" id="notesSearchCase" title="${m('notesMatchCase', 'Match Case')}">Aa</button>
-                    <button class="file-panel-search-opt-btn" id="notesSearchWord" title="${m('notesWholeWord', 'Whole Word')}">W</button>
-                    <button class="file-panel-search-opt-btn" id="notesSearchRegex" title="${m('notesUseRegex', 'Use Regex')}">.*</button>
+                    <div class="file-panel-search-inline" id="notesSearchInline">
+                        <button class="file-panel-search-clear-btn" id="notesSearchClear" type="button" title="Clear search" aria-label="Clear search"><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                        <div class="file-panel-search-options">
+                            <button class="file-panel-search-opt-btn" id="notesSearchCase" type="button" title="${m('notesMatchCase', 'Match Case')}">Aa</button>
+                            <button class="file-panel-search-opt-btn" id="notesSearchWord" type="button" title="${m('notesWholeWord', 'Whole Word')}">W</button>
+                            <button class="file-panel-search-opt-btn" id="notesSearchRegex" type="button" title="${m('notesUseRegex', 'Use Regex')}">.*</button>
+                        </div>
+                    </div>
                 </div>
             </div>
             <!-- D3: 選択中のタブだけラベルを出す（非選択はアイコンのみ。ラベルは title / aria-label に残す） -->
