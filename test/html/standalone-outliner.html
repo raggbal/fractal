@@ -3739,6 +3739,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-node.outliner-scope-header > .outliner-node-indent {
     width: 0px !important;
 }
+/* table mode の scope 先頭行 (20261018-1512 D1): grid の 1 セルなので枠線・余白は付けない（他列とずれる） */
+[data-view-mode="table"] .outliner-node.outliner-scope-header {
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-bottom: 0;
+    font-weight: 600;
+}
 
 /* --- Page Icon --- 📄 emoji */
 .outliner-page-icon {
@@ -35601,7 +35608,7 @@ var MindmapLayout = (function() {
     // 予約 ID: title 中心ノード (実 node ID は 'n' 始まりなので衝突しない)
     var TITLE_ID = '__title__';
 
-    function compute(model, settings, measure, titleText, hideNode, groups) {
+    function compute(model, settings, measure, titleText, hideNode, groups, scopeRootId) {
         var d3 = resolveD3();
         var positions = {};
         var links = [];
@@ -35618,7 +35625,18 @@ var MindmapLayout = (function() {
         // 無ければ groupIdx=null で全経路 no-op = 後方互換。
         var groupIdx = buildGroupIndex(model, groups);
 
-        var rootIds = (model.rootIds || []).filter(function(id) { return !!model.nodes[id] && !hidden(id); });
+        // 20261018-1512 D2: 第 7 引数 scopeRootId（省略可）。指定されたらそのノードを唯一の root にし、
+        // title 中心ノードと Floating Topic は出さない（layout は「どれを根にするか」だけを知る — ADRL-0018 の方針）
+        // scope ノード自身には hideNode / collapsed を効かせない（outliner / table の scope ヘッダーと同じく常に出し、
+        // 子も出す）。子孫には従来どおり効く
+        var scoped = !!(scopeRootId && model.nodes[scopeRootId]);
+        if (scoped) {
+            model = makeScopeWrapModel(model, scopeRootId);
+            var baseHidden = hidden;
+            hidden = function(id) { return id === scopeRootId ? false : baseHidden(id); };
+        }
+        var rootIds = scoped ? [scopeRootId]
+            : (model.rootIds || []).filter(function(id) { return !!model.nodes[id] && !hidden(id); });
 
         // title 中心ノード (FR-021-B6): title が非空なら __title__ を中心に、rootIds をその子として
         // 左右両側に展開する。model を汚さない一時ラッパで children accessor を拡張。
@@ -35633,7 +35651,7 @@ var MindmapLayout = (function() {
         //   title が空かどうかは**表示上の差** (render 側が placeholder を薄く出す) に留め、
         //   構造 (中心 1 個 + rootIds が子) は常に同じにする。
         //   null / undefined は「title という概念を持たない呼び出し」(unit test 等) なので従来どおり縦積み。
-        var hasTitle = titleText != null;
+        var hasTitle = !scoped && titleText != null;
         if (d3 && hasTitle && rootIds.length) {
             // title 中心ノードでも settings.layout を尊重 (#3)。両側固定を廃止。
             var wrapModel = makeTitleWrapModel(model, rootIds, titleText);
@@ -35700,7 +35718,7 @@ var MindmapLayout = (function() {
             }
         }
 
-        addFloatingTopics(model, rootIds, positions, hidden);
+        if (!scoped) { addFloatingTopics(model, rootIds, positions, hidden); }
 
         return { positions: positions, links: links, bounds: computeBounds(positions, measure) };
     }
@@ -35716,6 +35734,23 @@ var MindmapLayout = (function() {
                 positions[id] = { x: n.mindmap.x, y: n.mindmap.y };
             }
         }
+    }
+
+    /**
+     * scope ノードだけ collapsed=false に見せる「読み取り専用ラッパ model」（20261018-1512 D2）。元 model は汚さない。
+     */
+    function makeScopeWrapModel(model, scopeRootId) {
+        var orig = model.nodes[scopeRootId];
+        var shown = Object.create(orig);
+        shown.collapsed = false;
+        var nodes = Object.create(model.nodes);
+        nodes[scopeRootId] = shown;
+        return {
+            rootIds: model.rootIds,
+            nodes: nodes,
+            getNode: function(id) { return id === scopeRootId ? shown : model.getNode(id); },
+            getDescendantIds: model.getDescendantIds ? model.getDescendantIds.bind(model) : null
+        };
     }
 
     /**
@@ -36681,7 +36716,8 @@ var MindmapRender = (function() {
         // (outliner.js renderTree の ctx.isHiddenByTaskFilter。未注入なら undefined = 隠さない)。
         var hideNode = (ctx && typeof ctx.isHiddenByTaskFilter === 'function') ? ctx.isHiddenByTaskFilter : undefined;
         var layout = (typeof MindmapLayout !== 'undefined')
-            ? MindmapLayout.compute(model, settings, measure, titleText, hideNode, (settings && settings.groups) || [])
+            ? MindmapLayout.compute(model, settings, measure, titleText, hideNode, (settings && settings.groups) || [],
+                (ctx && ctx.scopeRootId) || null)
             : { positions: {}, links: [], bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 } };
         var positions = layout.positions;
 
@@ -37849,6 +37885,9 @@ var MindmapInteractions = (function() {
             var mod = e.metaKey || e.ctrlKey;
             var node = isTitle ? null : model.getNode(nodeId);
             if (!isTitle && !node) { return; }
+            // 20261018-1512 D5: scope ノード（中心）は outliner の scope ヘッダーと同じく兄弟追加・削除の対象外
+            var isScopeRoot = !!(ctx.scopeRootId && nodeId === ctx.scopeRootId);
+
 
             // ===== カーソルあり (編集中) =====
             if (isEditing) {
@@ -37885,7 +37924,7 @@ var MindmapInteractions = (function() {
                 }
                 return;
             }
-            if (mod && !e.shiftKey && (e.key === 'x' || e.key === 'X') && !isTitle) {
+            if (mod && !e.shiftKey && (e.key === 'x' || e.key === 'X') && !isTitle && !isScopeRoot) { // scope ノードは cut 不可 (D5)
                 var selTextX = window.getSelection();
                 if (selTextX && !selTextX.isCollapsed) { return; }
                 if (ctx.copySubtreeToClipboard && ctx.removeSubtree) {
@@ -37991,7 +38030,7 @@ var MindmapInteractions = (function() {
                     return;
                 case 'Enter': { // 非カーソル Enter → 弟(次の兄弟)追加、非編集 (C1)
                     e.preventDefault();
-                    if (isTitle) { return; } // title は構造編集不可
+                    if (isTitle || isScopeRoot) { return; } // title / scope ノードは兄弟追加不可 (D5)
                     if (e.shiftKey) {
                         // Shift+Enter → 兄(現ノードの直前=上)追加 (C2)。
                         // addNode(parent, prev) は末尾/位置ズレの原因になるため addNodeBefore を使う (#4)。
@@ -38022,7 +38061,7 @@ var MindmapInteractions = (function() {
                 case 'Delete':
                 case 'Backspace':
                     e.preventDefault();
-                    if (isTitle) { return; } // title は削除不可
+                    if (isTitle || isScopeRoot) { return; } // title / scope ノードは削除不可 (D5)
                     // グループ選択中はグループ削除を優先 (G6) — group click ハンドラが設定
                     if (_selectedGroupId) {
                         pushUndo();
@@ -39247,6 +39286,11 @@ var MindmapInteractions = (function() {
             //   右クリックが空白 (nodeId なし) かつ selected も空なら対象なし。
             //   1 ノードグループも許可 (groupTargets.length >= 1 で「Create Group (N)」)。
             var groupTargets = selectedIds.length ? selectedIds : (nodeId ? [nodeId] : []);
+            function addClearScopeItem() {
+                if (ctx.scopeRootId && typeof ctx.setScope === 'function') {
+                    item((ctx.i18n && ctx.i18n.outlinerClearScope) || 'Clear Scope', function() { ctx.setScope(null); });
+                }
+            }
             function addGroupItem() {
                 if (groupTargets.length >= _groupMinSelection) {
                     item('Create Group (' + groupTargets.length + ')', function() {
@@ -39316,6 +39360,11 @@ var MindmapInteractions = (function() {
                         }
                     }
                 }
+                // 20261018-1512 D3: Scope / Clear Scope（outliner の右クリックメニューと同じ文言・同じ setScope）
+                if (nodeId !== '__title__' && typeof ctx.setScope === 'function') {
+                    item((ctx.i18n && ctx.i18n.outlinerScope) || 'Scope', function() { ctx.setScope(nodeId); });
+                }
+                addClearScopeItem();
                 // グループ作成 (単一ノード or 複数選択、#3 TASK-57)。
                 //   groupTargets = selected があれば selected、無ければ右クリックノード 1 個。
                 addGroupItem();
@@ -39332,6 +39381,7 @@ var MindmapInteractions = (function() {
                 //   groupTargets は selectedIds (空白では nodeId 無しなので nodeId 分岐に落ちない)。
                 //   選択が空なら対象が無いため group は出さない。
                 addGroupItem();
+                addClearScopeItem();
                 // フィット。
                 item('Fit to screen', function() { fitToScreen(); });
             }
@@ -39393,8 +39443,9 @@ var MindmapInteractions = (function() {
             _needsOpenCenter = false;
             var b0 = runtime.layout && runtime.layout.bounds;
             var positions0 = (runtime.layout && runtime.layout.positions) || {};
-            var tp = positions0['__title__'];
-            // title 中心ノードがあるマップのみ centering (無ければ既定フレーム維持 = 既存挙動)。
+            // 20261018-1512 D6: scope 中は scope ノードが中心（title は描かれない）
+            var tp = positions0['__title__'] || (ctx.scopeRootId ? positions0[ctx.scopeRootId] : null);
+            // title 中心ノード（scope 中は scope ノード）があるマップのみ centering (無ければ既定フレーム維持 = 既存挙動)。
             if (b0 && tp) {
                 var tx0 = tp.x, ty0 = tp.y;
                 var vis0 = visibleFrame();
@@ -39512,6 +39563,9 @@ var MindmapInteractions = (function() {
     return {
         attach: attach,
         detach: detach,
+        // 20261018-1512 D6: 次の attach で中心ノード（title / scope ノード）を画面中央へ置く
+        //（outliner の setScope が scope 変更時に呼ぶ。renderTree 経由の attach は中心化しないため）
+        requestOpenCenter: function() { _needsOpenCenter = true; },
         search: search,
         searchNext: searchNext,
         clearSearch: clearSearch,
@@ -41514,6 +41568,10 @@ var Outliner = (function() {
             // 非空の場合、最初のノードにフォーカス
             // webviewが完全にレンダリングされるまで待つ
             setTimeout(function() {
+                // 待つ 100ms の間にユーザーが node へ focus していたら奪わない（click した直後に先頭 node へ
+                // カーソルが飛ぶ競走 — lesson L-20260829-g20。旧 DOM の node は renderTree で外れるので対象外）
+                var ae = document.activeElement;
+                if (ae && ae.closest && ae.closest('.outliner-node') && treeEl.contains(ae)) { return; }
                 focusFirstVisibleNode();
             }, 100);
         }
@@ -42222,6 +42280,16 @@ var Outliner = (function() {
         treeEl.innerHTML = '';
         // Phase F2.1: data-view-mode 属性を treeEl に反映 (CSS / 列ヘッダー描画判定で使用)
         treeEl.dataset.viewMode = VIEW_MODE;
+        // 20261018-1512 D7: scope ノードが消えていたら document に戻す（全モード共通。outliner の各削除経路と同じ扱い）
+        if (currentScope.type === 'subtree' && model && !model.getNode(currentScope.rootId)) {
+            currentScope = { type: 'document' };
+            updateBreadcrumb();
+            updateScopeSearchIndicator();
+            // D6: mindmap は中心が変わるので title を画面中央へ
+            if (VIEW_MODE === 'mindmap' && typeof MindmapInteractions !== 'undefined' && MindmapInteractions.requestOpenCenter) {
+                MindmapInteractions.requestOpenCenter();
+            }
+        }
         // table mode は F2.2 以降で列ヘッダー + grid layout を追加。F2.1 は stub。
         if (VIEW_MODE === 'table') {
             renderTableMode();
@@ -42238,6 +42306,14 @@ var Outliner = (function() {
                     selectedNodeIds: selectedNodeIds,
                     // title 中心ノード (FR-021-B6)
                     titleText: model.title || '',
+                    // 20261018-1512 D2/D3/D4: scope 中は scope ノードを唯一の root として描く（layout の第 7 引数へ）。
+                    // 右クリックメニューは outliner の setScope（正典）を呼ぶ。Cmd+] / Cmd+Shift+] は document の
+                    // グローバル keydown（focusedNodeId = mindmap の選択ノード）がそのまま効く
+                    scopeRootId: (currentScope.type === 'subtree' && currentScope.rootId && model.getNode(currentScope.rootId))
+                        ? currentScope.rootId : null,
+                    setScope: function (rootId) {
+                        setScope(rootId ? { type: 'subtree', rootId: rootId } : { type: 'document' });
+                    },
                     setTitle: function (t) {
                         model.title = t;
                         if (pageTitleInput) { pageTitleInput.value = t; }
@@ -42552,6 +42628,17 @@ var Outliner = (function() {
             var rootIds;
             if (currentScope.type === 'subtree' && currentScope.rootId) {
                 var scopeNode = model.getNode(currentScope.rootId);
+                // 20261018-1512 D1: outliner mode（renderTree のスコープヘッダー）と同じく、scope ノード自身を
+                // 先頭行（depth 0・バレットなし）に出し、その子を depth 0 から並べる（旧: 子だけ = 頂点が消えていた）
+                if (scopeNode) {
+                    var headerStart = rowFragment.childNodes.length;
+                    renderTableRowSingle(scopeNode, 0, searchQuery, cols, rowFragment);
+                    // 先頭列が outliner 列とは限らないので、この行のセルから outliner 列のセルを選ぶ
+                    for (var hi = headerStart; hi < rowFragment.childNodes.length; hi++) {
+                        var hc = rowFragment.childNodes[hi];
+                        if (hc.classList && hc.classList.contains('outliner-cell-outliner')) { hc.classList.add('outliner-scope-header'); break; }
+                    }
+                }
                 rootIds = (scopeNode && scopeNode.children) ? scopeNode.children : [];
             } else {
                 rootIds = model.rootIds;
@@ -47731,6 +47818,10 @@ var Outliner = (function() {
         currentScope = scope;
         updateBreadcrumb();
         updateScopeSearchIndicator();
+        // 20261018-1512 D6: mindmap は scope を変えたら新しい中心（scope ノード / title）を画面中央へ
+        if (VIEW_MODE === 'mindmap' && typeof MindmapInteractions !== 'undefined' && MindmapInteractions.requestOpenCenter) {
+            MindmapInteractions.requestOpenCenter();
+        }
         if (searchInput.value.trim()) { executeSearch(); }
         renderTree();
         // scope out時は直前のscopeノードにカーソルを移動
@@ -49888,9 +49979,9 @@ var Outliner = (function() {
         });
     }
 
-    // FR-TH-04: page node \u306e text \u78ba\u5b9a \u2192 \u6dfb\u4ed8 page md \u306e\u5148\u982d H1 \u3092 text \u306b\u540c\u671f\u3002
-    // page node\uff08isPage + pageId\uff09\u306e\u3068\u304d\u3060\u3051 host \u3078\u9001\u308b\u3002\u51aa\u7b49: text \u672a\u5909\u5316\u306a\u3089\u9001\u3089\u306a\u3044\u3002
-    // md\u2192node \u53cd\u6620\u4e2d\uff08_applyingH1ToNode\uff09\u306f\u9001\u3089\u306a\u3044\uff08\u53cc\u65b9\u5411\u9023\u9396\u30ac\u30fc\u30c9, FR-TH-07\uff09\u3002
+    // FR-TH-04: page node の text 確定 → 添付 page md の先頭 H1 を text に同期。
+    // page node（isPage + pageId）のときだけ host へ送る。冪等: text 未変化なら送らない。
+    // md→node 反映中（_applyingH1ToNode）は送らない（双方向連鎖ガード, FR-TH-07）。
     function syncPageH1FromNodeText(nodeId) {
         if (_applyingH1ToNode) { return; }
         var node = model.getNode(nodeId);
@@ -49904,9 +49995,9 @@ var Outliner = (function() {
         }
     }
 
-    // FR-TH-05 (\u2605review it.2): H1 \u30c6\u30ad\u30b9\u30c8\u62bd\u51fa\u3092 md-h1-utils.parseAtxH1Text \u3068\u540c\u4e00\u30dd\u30ea\u30b7\u30fc\u306b\u3059\u308b\u3002
-    // \u672b\u5c3e\u306e\u9589\u3058 `#` \u5217\u306f\u300c\u76f4\u524d\u306b\u7a7a\u767d\u304c\u3042\u308b\u6642\u3060\u3051\u300d\u5265\u304c\u3059\uff08`# C#`\u2192`C#` \u4fdd\u6301 / `# Title #`\u2192`Title` \u5265\u304c\u3057\uff09\u3002
-    // host\uff08md-h1-utils\uff09\u3068 webview \u3067\u540c\u4e00\u5165\u529b\u2192\u540c\u4e00\u7d50\u679c\u306b\u3057\u3001\u53cc\u65b9\u5411\u540c\u671f\u3067\u5024\u304c\u30d6\u30ec\u306a\u3044\u3088\u3046\u306b\u3059\u308b\u3002
+    // FR-TH-05 (★review it.2): H1 テキスト抽出を md-h1-utils.parseAtxH1Text と同一ポリシーにする。
+    // 末尾の閉じ `#` 列は「直前に空白がある時だけ」剥がす（`# C#`→`C#` 保持 / `# Title #`→`Title` 剥がし）。
+    // host（md-h1-utils）と webview で同一入力→同一結果にし、双方向同期で値がブレないようにする。
     function parseH1TextCommonMark(headingBody) {
         var text = String(headingBody).replace(/\r$/, '').replace(/[ \t]+$/, '');
         var closing = text.match(/^(.*?)[ \t]+#+$/);
@@ -49925,7 +50016,7 @@ var Outliner = (function() {
             if (inCodeBlock) { continue; }
             var match = line.match(/^(#{1,6})\s+(.+)$/);
             if (match) {
-                // TOC \u8868\u793a\u306f\u5f93\u6765\u3069\u304a\u308a trim\uff08\u8868\u793a\u5c02\u7528\uff09\u3002firstH1\uff08node \u540c\u671f\u7528\uff09\u306f CommonMark \u30dd\u30ea\u30b7\u30fc\u3067\u62bd\u51fa\u3002
+                // TOC 表示は従来どおり trim（表示専用）。firstH1（node 同期用）は CommonMark ポリシーで抽出。
                 var text = match[2].trim();
                 if (firstH1 === null && match[1].length === 1) { firstH1 = parseH1TextCommonMark(match[2]); }
                 var anchor = text.toLowerCase()
@@ -49935,15 +50026,15 @@ var Outliner = (function() {
                 toc.push({ level: match[1].length, text: text, anchor: anchor });
             }
         }
-        // FR-TH-05/06: sidepanel md\uff08outliner node \u7531\u6765\uff09\u306e\u5148\u982d H1 \u2192 \u547c\u3073\u51fa\u3057\u5143 node \u306e text \u306b\u53cd\u6620\u3002
-        // origin=\u69cb\u9020\u9006\u5f15\u304d\uff08ADRL-0001\uff09: \u4eca\u958b\u3044\u3066\u3044\u308b md \u306e basename=pageId \u304c\u73fe .out \u306e node \u306b\u4e00\u81f4\u3059\u308b\u6642\u3060\u3051\u3002
-        // \u30ea\u30f3\u30af/\u5c65\u6b74/\u691c\u7d22/\u5916\u90e8 md \u306f findNodeByPageId \u304c null \u3067\u81ea\u7136\u306b\u5f3e\u304b\u308c\u308b\uff08FR-TH-06\uff09\u3002
+        // FR-TH-05/06: sidepanel md（outliner node 由来）の先頭 H1 → 呼び出し元 node の text に反映。
+        // origin=構造逆引き（ADRL-0001）: 今開いている md の basename=pageId が現 .out の node に一致する時だけ。
+        // リンク/履歴/検索/外部 md は findNodeByPageId が null で自然に弾かれる（FR-TH-06）。
         if (firstH1 !== null && sidePanelFilePath && firstH1 !== _lastSidePanelH1) {
             _lastSidePanelH1 = firstH1;
             var pageId = basenameNoExt(sidePanelFilePath);
             var node = model.findNodeByPageId(pageId);
-            // FR-SE-04: \u5148\u982d\u884c\u540c\u671f \u2014 H1 \u306f node.text \u306e\u5148\u982d\u884c\u3060\u3051\u3092\u7f6e\u63db\u3057\u3001
-            // 2 \u884c\u76ee\u4ee5\u964d\uff08Shift+Enter \u306e\u7d99\u7d9a\u884c\uff09\u306f\u4fdd\u6301\u3059\u308b\u3002\u6bd4\u8f03\u3082\u5148\u982d\u884c\u540c\u58eb\u3067\u884c\u3046\u3002
+            // FR-SE-04: 先頭行同期 — H1 は node.text の先頭行だけを置換し、
+            // 2 行目以降（Shift+Enter の継続行）は保持する。比較も先頭行同士で行う。
             var curText = node ? String(node.text || '') : '';
             var nlIdx = curText.indexOf('\n');
             var curFirstLine = nlIdx >= 0 ? curText.slice(0, nlIdx) : curText;
@@ -49963,7 +50054,7 @@ var Outliner = (function() {
         renderSidePanelToc(toc);
     }
 
-    // sidePanelFilePath \u306e basename \u304b\u3089\u62e1\u5f35\u5b50\u3092\u9664\u3044\u305f pageId \u3092\u8fd4\u3059\u3002
+    // sidePanelFilePath の basename から拡張子を除いた pageId を返す。
     function basenameNoExt(filePath) {
         if (!filePath) { return ''; }
         var base = String(filePath).replace(/\\/g, '/').split('/').pop() || '';

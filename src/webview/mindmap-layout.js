@@ -190,7 +190,7 @@ var MindmapLayout = (function() {
     // 予約 ID: title 中心ノード (実 node ID は 'n' 始まりなので衝突しない)
     var TITLE_ID = '__title__';
 
-    function compute(model, settings, measure, titleText, hideNode, groups) {
+    function compute(model, settings, measure, titleText, hideNode, groups, scopeRootId) {
         var d3 = resolveD3();
         var positions = {};
         var links = [];
@@ -207,7 +207,18 @@ var MindmapLayout = (function() {
         // 無ければ groupIdx=null で全経路 no-op = 後方互換。
         var groupIdx = buildGroupIndex(model, groups);
 
-        var rootIds = (model.rootIds || []).filter(function(id) { return !!model.nodes[id] && !hidden(id); });
+        // 20261018-1512 D2: 第 7 引数 scopeRootId（省略可）。指定されたらそのノードを唯一の root にし、
+        // title 中心ノードと Floating Topic は出さない（layout は「どれを根にするか」だけを知る — ADRL-0018 の方針）
+        // scope ノード自身には hideNode / collapsed を効かせない（outliner / table の scope ヘッダーと同じく常に出し、
+        // 子も出す）。子孫には従来どおり効く
+        var scoped = !!(scopeRootId && model.nodes[scopeRootId]);
+        if (scoped) {
+            model = makeScopeWrapModel(model, scopeRootId);
+            var baseHidden = hidden;
+            hidden = function(id) { return id === scopeRootId ? false : baseHidden(id); };
+        }
+        var rootIds = scoped ? [scopeRootId]
+            : (model.rootIds || []).filter(function(id) { return !!model.nodes[id] && !hidden(id); });
 
         // title 中心ノード (FR-021-B6): title が非空なら __title__ を中心に、rootIds をその子として
         // 左右両側に展開する。model を汚さない一時ラッパで children accessor を拡張。
@@ -222,7 +233,7 @@ var MindmapLayout = (function() {
         //   title が空かどうかは**表示上の差** (render 側が placeholder を薄く出す) に留め、
         //   構造 (中心 1 個 + rootIds が子) は常に同じにする。
         //   null / undefined は「title という概念を持たない呼び出し」(unit test 等) なので従来どおり縦積み。
-        var hasTitle = titleText != null;
+        var hasTitle = !scoped && titleText != null;
         if (d3 && hasTitle && rootIds.length) {
             // title 中心ノードでも settings.layout を尊重 (#3)。両側固定を廃止。
             var wrapModel = makeTitleWrapModel(model, rootIds, titleText);
@@ -289,7 +300,7 @@ var MindmapLayout = (function() {
             }
         }
 
-        addFloatingTopics(model, rootIds, positions, hidden);
+        if (!scoped) { addFloatingTopics(model, rootIds, positions, hidden); }
 
         return { positions: positions, links: links, bounds: computeBounds(positions, measure) };
     }
@@ -305,6 +316,23 @@ var MindmapLayout = (function() {
                 positions[id] = { x: n.mindmap.x, y: n.mindmap.y };
             }
         }
+    }
+
+    /**
+     * scope ノードだけ collapsed=false に見せる「読み取り専用ラッパ model」（20261018-1512 D2）。元 model は汚さない。
+     */
+    function makeScopeWrapModel(model, scopeRootId) {
+        var orig = model.nodes[scopeRootId];
+        var shown = Object.create(orig);
+        shown.collapsed = false;
+        var nodes = Object.create(model.nodes);
+        nodes[scopeRootId] = shown;
+        return {
+            rootIds: model.rootIds,
+            nodes: nodes,
+            getNode: function(id) { return id === scopeRootId ? shown : model.getNode(id); },
+            getDescendantIds: model.getDescendantIds ? model.getDescendantIds.bind(model) : null
+        };
     }
 
     /**

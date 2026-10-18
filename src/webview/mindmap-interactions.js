@@ -506,6 +506,9 @@ var MindmapInteractions = (function() {
             var mod = e.metaKey || e.ctrlKey;
             var node = isTitle ? null : model.getNode(nodeId);
             if (!isTitle && !node) { return; }
+            // 20261018-1512 D5: scope ノード（中心）は outliner の scope ヘッダーと同じく兄弟追加・削除の対象外
+            var isScopeRoot = !!(ctx.scopeRootId && nodeId === ctx.scopeRootId);
+
 
             // ===== カーソルあり (編集中) =====
             if (isEditing) {
@@ -542,7 +545,7 @@ var MindmapInteractions = (function() {
                 }
                 return;
             }
-            if (mod && !e.shiftKey && (e.key === 'x' || e.key === 'X') && !isTitle) {
+            if (mod && !e.shiftKey && (e.key === 'x' || e.key === 'X') && !isTitle && !isScopeRoot) { // scope ノードは cut 不可 (D5)
                 var selTextX = window.getSelection();
                 if (selTextX && !selTextX.isCollapsed) { return; }
                 if (ctx.copySubtreeToClipboard && ctx.removeSubtree) {
@@ -648,7 +651,7 @@ var MindmapInteractions = (function() {
                     return;
                 case 'Enter': { // 非カーソル Enter → 弟(次の兄弟)追加、非編集 (C1)
                     e.preventDefault();
-                    if (isTitle) { return; } // title は構造編集不可
+                    if (isTitle || isScopeRoot) { return; } // title / scope ノードは兄弟追加不可 (D5)
                     if (e.shiftKey) {
                         // Shift+Enter → 兄(現ノードの直前=上)追加 (C2)。
                         // addNode(parent, prev) は末尾/位置ズレの原因になるため addNodeBefore を使う (#4)。
@@ -679,7 +682,7 @@ var MindmapInteractions = (function() {
                 case 'Delete':
                 case 'Backspace':
                     e.preventDefault();
-                    if (isTitle) { return; } // title は削除不可
+                    if (isTitle || isScopeRoot) { return; } // title / scope ノードは削除不可 (D5)
                     // グループ選択中はグループ削除を優先 (G6) — group click ハンドラが設定
                     if (_selectedGroupId) {
                         pushUndo();
@@ -1904,6 +1907,11 @@ var MindmapInteractions = (function() {
             //   右クリックが空白 (nodeId なし) かつ selected も空なら対象なし。
             //   1 ノードグループも許可 (groupTargets.length >= 1 で「Create Group (N)」)。
             var groupTargets = selectedIds.length ? selectedIds : (nodeId ? [nodeId] : []);
+            function addClearScopeItem() {
+                if (ctx.scopeRootId && typeof ctx.setScope === 'function') {
+                    item((ctx.i18n && ctx.i18n.outlinerClearScope) || 'Clear Scope', function() { ctx.setScope(null); });
+                }
+            }
             function addGroupItem() {
                 if (groupTargets.length >= _groupMinSelection) {
                     item('Create Group (' + groupTargets.length + ')', function() {
@@ -1973,6 +1981,11 @@ var MindmapInteractions = (function() {
                         }
                     }
                 }
+                // 20261018-1512 D3: Scope / Clear Scope（outliner の右クリックメニューと同じ文言・同じ setScope）
+                if (nodeId !== '__title__' && typeof ctx.setScope === 'function') {
+                    item((ctx.i18n && ctx.i18n.outlinerScope) || 'Scope', function() { ctx.setScope(nodeId); });
+                }
+                addClearScopeItem();
                 // グループ作成 (単一ノード or 複数選択、#3 TASK-57)。
                 //   groupTargets = selected があれば selected、無ければ右クリックノード 1 個。
                 addGroupItem();
@@ -1989,6 +2002,7 @@ var MindmapInteractions = (function() {
                 //   groupTargets は selectedIds (空白では nodeId 無しなので nodeId 分岐に落ちない)。
                 //   選択が空なら対象が無いため group は出さない。
                 addGroupItem();
+                addClearScopeItem();
                 // フィット。
                 item('Fit to screen', function() { fitToScreen(); });
             }
@@ -2050,8 +2064,9 @@ var MindmapInteractions = (function() {
             _needsOpenCenter = false;
             var b0 = runtime.layout && runtime.layout.bounds;
             var positions0 = (runtime.layout && runtime.layout.positions) || {};
-            var tp = positions0['__title__'];
-            // title 中心ノードがあるマップのみ centering (無ければ既定フレーム維持 = 既存挙動)。
+            // 20261018-1512 D6: scope 中は scope ノードが中心（title は描かれない）
+            var tp = positions0['__title__'] || (ctx.scopeRootId ? positions0[ctx.scopeRootId] : null);
+            // title 中心ノード（scope 中は scope ノード）があるマップのみ centering (無ければ既定フレーム維持 = 既存挙動)。
             if (b0 && tp) {
                 var tx0 = tp.x, ty0 = tp.y;
                 var vis0 = visibleFrame();
@@ -2169,6 +2184,9 @@ var MindmapInteractions = (function() {
     return {
         attach: attach,
         detach: detach,
+        // 20261018-1512 D6: 次の attach で中心ノード（title / scope ノード）を画面中央へ置く
+        //（outliner の setScope が scope 変更時に呼ぶ。renderTree 経由の attach は中心化しないため）
+        requestOpenCenter: function() { _needsOpenCenter = true; },
         search: search,
         searchNext: searchNext,
         clearSearch: clearSearch,

@@ -607,6 +607,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-node.outliner-scope-header > .outliner-node-indent {
     width: 0px !important;
 }
+/* table mode の scope 先頭行 (20261018-1512 D1): grid の 1 セルなので枠線・余白は付けない（他列とずれる） */
+[data-view-mode="table"] .outliner-node.outliner-scope-header {
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-bottom: 0;
+    font-weight: 600;
+}
 
 /* --- Page Icon --- 📄 emoji */
 .outliner-page-icon {
