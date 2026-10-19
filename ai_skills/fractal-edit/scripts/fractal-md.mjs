@@ -650,11 +650,11 @@ function createOutliner(title, notesDir) {
     console.log(`   Registered in ${notePath}`);
 }
 
-// --- md \u3078\u306e subpage \u8ffd\u52a0\uff08--target-md\uff09 ---
+// --- md への subpage 追加（--target-md） ---
 
 /**
- * subpage \u30ea\u30f3\u30af\u306e\u30e9\u30d9\u30eb\u30b5\u30cb\u30bf\u30a4\u30ba\uff08\u6b63\u5178: chrome-extension/lib/clipper-core.js sanitizeSubpageTitle \u306e 1:1 \u30df\u30e9\u30fc\uff09\u3002
- * \u672c\u4f53\u30d1\u30fc\u30b5 markdown-link-parser.js:74 \u306f\u30e9\u30d9\u30eb\u5185\u306e `]` \u3067 label \u304c\u5207\u308c\u308b\u305f\u3081\u3001`]`/`[` \u3092\u5168\u6570\u5168\u89d2\u5316\u3059\u308b\u3002
+ * subpage リンクのラベルサニタイズ（正典: chrome-extension/lib/clipper-core.js sanitizeSubpageTitle の 1:1 ミラー）。
+ * 本体パーサ markdown-link-parser.js:74 はラベル内の `]` で label が切れるため、`]`/`[` を全数全角化する。
  */
 export function sanitizeSubpageTitle(title) {
     const t = String(title || '').replace(/[\r\n]+/g, ' ').trim();
@@ -663,11 +663,11 @@ export function sanitizeSubpageTitle(title) {
 }
 
 /**
- * \u65e2\u5b58 md \u306e subpage \u3068\u3057\u3066 source md \u3092\u53d6\u308a\u8fbc\u3080\uff08clipper clipToMd \u306e skill \u30df\u30e9\u30fc\uff09:
- *   1. source md \u3092\u6b63\u898f\u5316\u30fb\u753b\u50cf/\u30d5\u30a1\u30a4\u30eb\u53c2\u7167\u3092 targetMd \u96a3\u306e images/ files/ \u306b\u30b3\u30d4\u30fc\u3057\u3066\u66f8\u63db
- *   2. <targetMdDir>/<uuid>.md \u3068\u3057\u3066\u4fdd\u5b58
- *   3. targetMd \u672b\u5c3e\u306b `[[title]](<uuid>.md)` \u3092\u8ffd\u8a18\uff08\u76f8\u5bfe\u30ea\u30f3\u30af\u306f dirname(targetMd) \u57fa\u6e96 = notesEditorProvider.ts:1278\uff09
- * text \u3092\u6e21\u3059\u3068 source md \u306a\u3057\u3067\u30ea\u30f3\u30af\u5148\u306e\u7a7a md\uff08`# text\n`\uff09\u3092\u4f5c\u308b\u3002
+ * 既存 md の subpage として source md を取り込む（clipper clipToMd の skill ミラー）:
+ *   1. source md を正規化・画像/ファイル参照を targetMd 隣の images/ files/ にコピーして書換
+ *   2. <targetMdDir>/<uuid>.md として保存
+ *   3. targetMd 末尾に `[[title]](<uuid>.md)` を追記（相対リンクは dirname(targetMd) 基準 = notesEditorProvider.ts:1278）
+ * text を渡すと source md なしでリンク先の空 md（`# text\n`）を作る。
  */
 export function addSubpageToMd(targetMdPath, { sourceMdPath = null, text = null } = {}) {
     const targetAbs = path.resolve(targetMdPath);
@@ -696,7 +696,7 @@ export function addSubpageToMd(targetMdPath, { sourceMdPath = null, text = null 
     const newMdName = `${uuid}.md`;
     fs.writeFileSync(path.join(targetDir, newMdName), content, 'utf-8');
 
-    // \u672b\u5c3e\u306b subpage \u30ea\u30f3\u30af\u8ffd\u8a18\uff08clipper buildMdClipResult \u3068\u540c\u5f62\u5f0f\uff09
+    // 末尾に subpage リンク追記（clipper buildMdClipResult と同形式）
     const base = fs.readFileSync(targetAbs, 'utf-8').replace(/\s+$/, '');
     const link = `[[${sanitizeSubpageTitle(title)}]](${newMdName})`;
     fs.writeFileSync(targetAbs, (base ? base + '\n\n' : '') + link + '\n', 'utf-8');
@@ -705,11 +705,11 @@ export function addSubpageToMd(targetMdPath, { sourceMdPath = null, text = null 
 }
 
 /**
- * \u65b0\u898f standalone md item \u3092\u4f5c\u6210\u3057\u3066 outline.note \u306b\u767b\u9332\u3059\u308b\uff08FR-CMD-01/02\uff09\u3002
- * \u6b63\u5178: src/shared/notes-file-manager.ts createMarkdownFile(:1469) \u306e\u30d5\u30e9\u30c3\u30c8\u30df\u30e9\u30fc \u2014
- *   <notesDir>/<id>.md \u3092 `# Title\n` \u3067\u4f5c\u6210\u3057\u3001items \u306b { type:'file', id, title, ext:'md' }\u3001
- *   rootIds \u5148\u982d\u306b\u633f\u5165\u3002id \u63a1\u756a\u3082\u540c\u898f\u7d04\uff08Date36 + rand4 = generateOutlineId\uff09\u3002
- * pure-ish\uff08fs read/write \u306e\u307f\u30fbunit \u5bfe\u8c61\uff09\u3002
+ * 新規 standalone md item を作成して outline.note に登録する（FR-CMD-01/02）。
+ * 正典: src/shared/notes-file-manager.ts createMarkdownFile(:1469) のフラットミラー —
+ *   <notesDir>/<id>.md を `# Title\n` で作成し、items に { type:'file', id, title, ext:'md' }、
+ *   rootIds 先頭に挿入。id 採番も同規約（Date36 + rand4 = generateOutlineId）。
+ * pure-ish（fs read/write のみ・unit 対象）。
  */
 export function createMdItem(notesDir, title) {
     const mainFolder = path.resolve(notesDir || process.cwd());
