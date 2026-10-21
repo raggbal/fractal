@@ -311,8 +311,10 @@ export function renderDoc(container, model, ctx) {
     }
     // 狭幅 mount では scale（FR-DXV-07 — 調査 v2 §6）。
     // FR-VZP-01/02 (ADRL-0100): ユーザー倍率 userScale を乗算（実効 = autoScale × userScale）。
-    // s>1（拡大）は transform-origin を top left にして container スクロールで全域可視
-    //（既定 origin のままだと左右へはみ出して左端に届かない）。s<1 の既存見た目（中央縮小）は不変。
+    // transform は layout 箱を縮めないので、origin を top left に固定し、左右 margin で
+    // 箱の幅を見た目の幅（width × s）に合わせて中央へ置く。中央 origin のまま縮小すると
+    // 紙面幅の箱の中央へ縮み、狭い mount ほど右へずれて左に大きな余白が出ていた。
+    // s>1（拡大）は右 margin が正になり container スクロールで全域に届く。
     let userScale = 1;
     const fit = () => {
         const avail = container.clientWidth - 24;
@@ -320,12 +322,17 @@ export function renderDoc(container, model, ctx) {
             const auto = (avail > 0 && avail < width) ? avail / width : 1;
             const s = auto * userScale;
             if (s !== 1) {
+                const scaled = width * s;
                 el.style.transform = `scale(${s})`;
-                el.style.transformOrigin = s > 1 ? 'top left' : '';
+                el.style.transformOrigin = 'top left';
+                el.style.marginLeft = Math.max(0, (root.clientWidth - scaled) / 2) + 'px';
+                el.style.marginRight = (scaled - width) + 'px';
                 el.style.marginBottom = (16 - (1 - s) * el.offsetHeight) + 'px';
             } else {
                 el.style.transform = '';
                 el.style.transformOrigin = '';
+                el.style.marginLeft = '';
+                el.style.marginRight = '';
                 el.style.marginBottom = '';
             }
         }

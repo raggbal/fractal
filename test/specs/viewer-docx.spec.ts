@@ -1,5 +1,5 @@
 /**
- * viewer-docx.spec.ts — docx viewer レンダラ（TC-DXV-01/05/09/10/12/14）
+ * viewer-docx.spec.ts — docx viewer レンダラ（TC-DXV-01/05/09/10/12/14/15）
  *
  * sprint 20260823-165314-viewer-office-text-image TASK-15。
  * fixture = spec 内合成の最小 docx（表結合・page break・ルビ・画像・EMF・XSS 文字 —
@@ -183,6 +183,32 @@ test('TC-DXV-10: 紙面幅カード — pgSz 幅一致・明示 page break で 2
     });
     await page.waitForFunction(() =>
         ((document.querySelector('.dxv-page') as HTMLElement).style.transform || '').includes('scale'));
+});
+
+test('TC-DXV-15: 狭幅・縮小で紙面が中央に収まる（左に余白が出て右へはみ出さない）', async ({ page }) => {
+    await openDocx(page);
+    await page.evaluate(() => { (document.getElementById('viewer-root') as HTMLElement).style.width = '400px'; });
+    await page.waitForFunction(() =>
+        ((document.querySelector('.dxv-page') as HTMLElement).style.transform || '').includes('scale'));
+    const measure = () => page.evaluate(() => {
+        const root = document.querySelector('.dxv-root') as HTMLElement;
+        const r = root.getBoundingClientRect();
+        const p = (document.querySelector('.dxv-page') as HTMLElement).getBoundingClientRect();
+        const sc = root.parentElement as HTMLElement;
+        return { left: p.left - r.left, right: r.right - p.right, overflowX: sc.scrollWidth - sc.clientWidth };
+    });
+    // 自動の縮小: 左右の余白が等しく、横にはみ出さない
+    let m = await measure();
+    expect(Math.abs(m.left - m.right)).toBeLessThan(2);
+    expect(m.right).toBeGreaterThanOrEqual(0);
+    expect(m.overflowX).toBeLessThanOrEqual(1);
+    // [−] で更に縮小しても中央のまま（中央 origin だと右へずれて左に大きな余白が出ていた）
+    for (let i = 0; i < 3; i++) {
+        await page.evaluate(() => (document.querySelector('.viewer-zoom-out') as HTMLElement).click());
+    }
+    m = await measure();
+    expect(Math.abs(m.left - m.right)).toBeLessThan(2);
+    expect(m.overflowX).toBeLessThanOrEqual(1);
 });
 
 test('TC-DXV-12: find — n/total・↑↓・原状復帰・findQuery one-shot（再 find で再ジャンプしない）', async ({ page }) => {
