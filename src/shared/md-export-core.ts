@@ -57,11 +57,14 @@ export function collectExportClosure(
     opts: ExportOptions,
     readBody: ReadBody = defaultReadBody,
     fileExists: FileExists = defaultFileExists,
+    rootIsSelection = false,
 ): string[] {
     const root = path.resolve(rootMdAbs);
     const visited = new Set<string>([root]);
     const ordered: string[] = [root];
-    const queue: { abs: string; depth: number }[] = [{ abs: root, depth: 0 }];
+    // rootIsSelection: root は md エディタの選択範囲（仮の md）。選んだリンク先は種別を問わず全部入れ、
+    // それぞれを通常の root（depth 0）として扱う = root の 1 段上（depth -1）から始める
+    const queue: { abs: string; depth: number }[] = [{ abs: root, depth: rootIsSelection ? -1 : 0 }];
 
     while (queue.length > 0) {
         const cur = queue.shift()!;
@@ -70,7 +73,7 @@ export function collectExportClosure(
         const curDir = path.dirname(cur.abs);
         for (const ref of extractAllAssetRefs(body).mdLinkRefs) {
             const isChild = ref.isSubpage;
-            const kindOn = isChild ? opts.includeChildren : opts.includeLinks;
+            const kindOn = cur.depth < 0 || (isChild ? opts.includeChildren : opts.includeLinks);
             if (!kindOn) continue;
             const recurse = isChild ? opts.recurseChildren : opts.recurseLinks;
             // depth>=1 の md から follow してよいのは recurse=on のときだけ
@@ -158,10 +161,18 @@ export function exportBundle(args: {
     options: ExportOptions;
     readBody?: ReadBody;
     fileExists?: FileExists;
+    /**
+     * md エディタの選択範囲を root にする（rootMdAbs は実在しない仮のパス = 相対リンクの基準と bundle 名）。
+     * 選択範囲のリンク先は種別を問わず入れ、options はその先（リンク先 md の子・リンク）に効く。
+     */
+    rootBody?: string;
 }): ExportResult {
-    const readBody = args.readBody ?? defaultReadBody;
-    const fileExists = args.fileExists ?? defaultFileExists;
     const root = path.resolve(args.rootMdAbs);
+    const baseRead = args.readBody ?? defaultReadBody;
+    const readBody: ReadBody = args.rootBody == null
+        ? baseRead
+        : (p) => (path.resolve(p) === root ? args.rootBody! : baseRead(p));
+    const fileExists = args.fileExists ?? defaultFileExists;
     const rootBase = path.basename(root).replace(/\.md$/i, '');
 
     try {
@@ -173,7 +184,7 @@ export function exportBundle(args: {
         fs.mkdirSync(filesDir, { recursive: true });
 
         // 1) closure 収集
-        const closure = collectExportClosure(root, args.options, readBody, fileExists);
+        const closure = collectExportClosure(root, args.options, readBody, fileExists, args.rootBody != null);
 
         // 2) md 名の一意化マップ（srcAbs → bundle 内 flat md 名）。2 パス（先に全 md 名確定 → 本文書換）
         const nameMap = new Map<string, string>();   // srcAbs → "foo-1.md"

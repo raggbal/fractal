@@ -26,6 +26,7 @@ import {
     detectStandaloneOutlinerPage,
 } from './shared/save-dir-directive';
 import { runExportBundle } from './shared/export-bundle-host';
+import { revealMdLinkTarget, runExportMdSelectionBundle, runExportMdSelectionFolder } from './shared/md-link-actions-host';
 import { resolveResourceRoots, findOutOfRangeImages } from './shared/resource-roots';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
@@ -1410,6 +1411,28 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     } catch (err) {
                         console.error('[duplicateLinkEntity] failed:', err);
                         vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                    }
+                    break;
+                }
+
+                // md リンクの Reveal in Finder / 選択範囲の Export bundle・Export folder。clamp root = md の dir（copyLinkPath と同じ）
+                case 'revealLinkTarget':
+                case 'exportMdSelectionBundle':
+                case 'exportMdSelectionFolder': {
+                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    const { resolveLinkTargetUnder } = require('./shared/path-safety');
+                    const targetMd: string = message.sidePanelFilePath || document.uri.fsPath;
+                    const rootDir = path.dirname(targetMd);
+                    const resolvers = {
+                        resolveMd: (url: string) => resolveLinkTargetUnder(rootDir, targetMd, url),
+                        resolveFile: (url: string) => resolveLinkTargetUnder(rootDir, targetMd, url),
+                    };
+                    if (message.type === 'revealLinkTarget') {
+                        if (message.href) await revealMdLinkTarget(message.href, message.kind || 'md', resolvers);
+                    } else if (message.type === 'exportMdSelectionBundle') {
+                        if (message.markdown && message.options) await runExportMdSelectionBundle(targetMd, message.markdown, message.options);
+                    } else if (message.markdown) {
+                        await runExportMdSelectionFolder(message.markdown, resolvers);
                     }
                     break;
                 }

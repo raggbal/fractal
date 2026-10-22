@@ -252,6 +252,11 @@ export interface NotesPlatformActions {
     copyMdWithFullPaths?(markdown: string, mdFilePath: string, sender: NotesSender): void;
     /** FR-MDM-02 (sprint 20260818-183407): subpage/file リンクの実体複製（DuplicationCore）。結果は duplicateLinkEntityResult（destination echo back） */
     duplicateLinkEntity?(href: string, kind: string, mdFilePath: string, destination: string | undefined, sender: NotesSender): void;
+    /** md / subpage / file リンクのリンク先を Reveal in Finder（clamp は copyLinkPath と同じ） */
+    revealLinkTarget?(href: string, kind: string, mdFilePath: string): void;
+    /** md の選択範囲（リンクを含む）を Export bundle（選択範囲を 1 本の md に）/ Export folder（入れ子 = フォルダ木） */
+    exportMdSelectionBundle?(markdown: string, mdFilePath: string, options: ExportOptions): void;
+    exportMdSelectionFolder?(markdown: string, mdFilePath: string): void;
     /** llms.txt 風 subtree コピー (MD pages) — tree.children を再帰し pageId→絶対パスを解決 */
     copyLlmsTxtMdTree?(tree: unknown, outFilePath: string, sender: NotesSender): void;
     /** llms.txt 風 subtree コピー (file attachments) — tree.children を再帰し filePath→絶対パスを解決 */
@@ -782,6 +787,26 @@ export async function handleNotesMessage(
         case 'duplicateLinkEntity': {
             if (message.sidePanelFilePath && message.href) {
                 platform.duplicateLinkEntity?.(message.href, message.kind || 'md', message.sidePanelFilePath, message.destination, sender);
+            }
+            break;
+        }
+
+        // md リンクの Reveal in Finder / 選択範囲の Export bundle・Export folder（宛先 md は copyLinkPath と同じ畳み方）
+        case 'revealLinkTarget': {
+            if (message.sidePanelFilePath && message.href) {
+                platform.revealLinkTarget?.(message.href, message.kind || 'md', message.sidePanelFilePath);
+            }
+            break;
+        }
+        case 'exportMdSelectionBundle': {
+            if (message.sidePanelFilePath && message.markdown && message.options) {
+                platform.exportMdSelectionBundle?.(message.markdown, message.sidePanelFilePath, message.options as ExportOptions);
+            }
+            break;
+        }
+        case 'exportMdSelectionFolder': {
+            if (message.sidePanelFilePath && message.markdown) {
+                platform.exportMdSelectionFolder?.(message.markdown, message.sidePanelFilePath);
             }
             break;
         }

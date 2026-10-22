@@ -174,6 +174,17 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         copyMdWithFullPaths: function(markdown, sidePanelFilePath) {
             postFn({ type: 'copyMdWithFullPaths', markdown: markdown, sidePanelFilePath: sidePanelFilePath });
         },
+        // md / subpage / file リンクの Reveal in Finder（host が copyLinkPath と同じ clamp で解決）
+        revealLinkTarget: function(href, kind, sidePanelFilePath) {
+            postFn({ type: 'revealLinkTarget', href: href, kind: kind, sidePanelFilePath: sidePanelFilePath });
+        },
+        // 選択範囲（md/file リンクを含む）の Export bundle / Export folder（outliner の同名メニューと同じ出力）
+        exportMdSelectionBundle: function(markdown, options, sidePanelFilePath) {
+            postFn({ type: 'exportMdSelectionBundle', markdown: markdown, options: options, sidePanelFilePath: sidePanelFilePath });
+        },
+        exportMdSelectionFolder: function(markdown, sidePanelFilePath) {
+            postFn({ type: 'exportMdSelectionFolder', markdown: markdown, sidePanelFilePath: sidePanelFilePath });
+        },
         // FR-MDM-02 (sprint 20260818-183407): subpage/file リンクの Duplicate（実体複製）。
         // 結果 duplicateLinkEntityResult の宛先札は pasteWithAssetCopy と同型。
         duplicateLinkEntity: function(href, kind, sidePanelFilePath) {

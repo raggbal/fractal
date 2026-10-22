@@ -46,6 +46,8 @@ import { openFileExternalOrDownload } from './shared/open-external-or-download';
 
 import { runNotesCleanup } from './notesCleanupCommand';
 import { runExportBundle, runExportOutlinerNodesBundle } from './shared/export-bundle-host';
+import { revealMdLinkTarget, runExportMdSelectionBundle, runExportMdSelectionFolder } from './shared/md-link-actions-host';
+import { MdLinkResolvers } from './shared/md-selection-export';
 // FR-PDF-08 / TASK-11: md → PDF export の VS Code 依存 deps 生成は outlinerProvider に集約済み。
 // editorProvider が既に同 import を使う先例に倣う（outlinerProvider は notes/editor を import し返さないため新規循環なし）。
 import { buildPdfExportDeps } from './outlinerProvider';
@@ -854,6 +856,15 @@ export class NotesEditorProvider {
         };
 
         // Platform Actions (全てローカル変数 panel / fileManager / folderPath をキャプチャ)
+        // md 本文リンクの解決（clamp）: md = mainFolder 配下 / file = その md の files dir 配下（copyLinkPath と同じ）
+        const notesMdLinkResolvers = (mdFilePath: string): MdLinkResolvers => {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { resolveLinkTargetUnder } = require('./shared/path-safety');
+            return {
+                resolveMd: (url: string) => resolveLinkTargetUnder(fileManager.getMainFolderPath(), mdFilePath, url),
+                resolveFile: (url: string) => resolveLinkTargetUnder(resolveFilesDirForMd(mdFilePath), mdFilePath, url),
+            };
+        };
         const platform: NotesPlatformActions = {
             openExternalLink: (href: string) => {
                 vscode.env.openExternal(vscode.Uri.parse(href));
@@ -1424,6 +1435,18 @@ export class NotesEditorProvider {
                     console.error('[notes duplicateLinkEntity] failed:', err);
                     vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
                 }
+            },
+            // md リンクの Reveal in Finder / 選択範囲の Export bundle・Export folder。clamp は copyLinkPath と同じ
+            // （md = mainFolder / file = files dir）
+            revealLinkTarget: (href: string, kind: string, mdFilePath: string) => {
+                void revealMdLinkTarget(href, kind, notesMdLinkResolvers(mdFilePath));
+            },
+            exportMdSelectionBundle: (markdown: string, mdFilePath: string, options) => {
+                void runExportMdSelectionBundle(mdFilePath, markdown, options);
+            },
+            exportMdSelectionFolder: (markdown: string, mdFilePath: string) => {
+                void runExportMdSelectionFolder(markdown, notesMdLinkResolvers(mdFilePath),
+                    (destPath: string) => fileManager.guardFolderSelection(destPath));
             },
             // FR-MDM-03 (sprint 20260818-183407): md/subpage/file リンクだけフルパス化して clipboard へ。
             // 変換 core = convertMdLinksToFullPaths（正典パーサ + whole-link-target 置換）。

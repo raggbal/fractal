@@ -2909,6 +2909,51 @@ var notesFilePanel = (function() {
     var searchCountMd = 0;
     var searchCountExplore = 0;
     var searchCountFiles = 0;
+    var searchJumpEl = null;
+
+    /** 拡張子別アイコン（ツリーと同じ MarkdownLinkParser.fileIconGlyph）。汎用クリップ 📎 しかない種類は出さない */
+    function searchFileGlyph(nameOrPath) {
+        if (typeof MarkdownLinkParser === 'undefined' || !MarkdownLinkParser.fileIconGlyph) return '';
+        var g = MarkdownLinkParser.fileIconGlyph(nameOrPath || '');
+        return g && g !== '📎' ? g : '';
+    }
+    function prependSearchGlyph(el, glyph) {
+        if (!glyph) return;
+        var g = document.createElement('span');
+        g.className = 'file-panel-search-file-glyph';
+        g.textContent = glyph;
+        el.insertBefore(g, el.firstChild);
+    }
+
+    /** 結果の一番上の「種別へ飛ぶ」リンク。結果のあるセクションだけ出す（件数つき） */
+    function updateSearchJumpNav() {
+        if (!searchJumpEl) return;
+        var entries = [
+            { label: 'Notes', section: searchSectionExplore, count: searchCountExplore },
+            { label: 'Outliner', section: searchSectionOut, count: searchCountOut },
+            { label: 'Markdown', section: searchSectionMd, count: searchCountMd },
+            { label: 'Files', section: searchSectionFiles, count: searchCountFiles },
+        ];
+        searchJumpEl.innerHTML = '';
+        var shown = 0;
+        entries.forEach(function(en) {
+            if (!en.section || en.count <= 0) return;
+            var a = document.createElement('a');
+            a.className = 'file-panel-search-jump-link';
+            a.textContent = en.label + ' (' + en.count + ')';
+            a.addEventListener('click', function(e) {
+                e.preventDefault();
+                // sticky のリンク行の下にセクション見出しが来るように合わせる
+                if (searchResultsEl) {
+                    var delta = en.section.getBoundingClientRect().top - searchJumpEl.getBoundingClientRect().bottom;
+                    searchResultsEl.scrollTop = Math.max(0, searchResultsEl.scrollTop + delta);
+                }
+            });
+            searchJumpEl.appendChild(a);
+            shown++;
+        });
+        searchJumpEl.style.display = shown > 0 ? '' : 'none';
+    }
 
     function buildSearchSection(label) {
         var section = document.createElement('div');
@@ -2932,6 +2977,10 @@ var notesFilePanel = (function() {
         searchCountFiles = 0;
         if (searchResultsEl) {
             searchResultsEl.innerHTML = '';
+            searchJumpEl = document.createElement('div');
+            searchJumpEl.className = 'file-panel-search-jump';
+            searchJumpEl.style.display = 'none';
+            searchResultsEl.appendChild(searchJumpEl);
             var exploreSec = buildSearchSection((i18n.notesSearchExploreResults || 'Notes Exploreの検索結果'));
             var outSec = buildSearchSection((i18n.notesSearchOutlinerResults || 'Outlinerの検索結果'));
             var mdSec = buildSearchSection((i18n.notesSearchMarkdownResults || 'Markdownの検索結果'));
@@ -3024,6 +3073,7 @@ var notesFilePanel = (function() {
             matchEl.className = 'file-panel-search-match';
             // Title (highlighted) + small badge for type
             matchEl.innerHTML = highlightSearchText(m.title || (i18n.notesUntitled || 'Untitled'), query);
+            if (m.type === 'file' && m.fileExt === 'file') prependSearchGlyph(matchEl, searchFileGlyph(m.filePath || m.title));
             var badge = document.createElement('span');
             badge.style.cssText = 'opacity:0.5;font-size:10px;margin-left:4px;';
             badge.textContent = '[' + (m.type === 'folder' ? 'folder' : (m.fileExt || 'file')) + ']';
@@ -3043,6 +3093,7 @@ var notesFilePanel = (function() {
         if (searchSectionExploreTitle) {
             searchSectionExploreTitle.textContent = base + ' (' + searchCountExplore + ')';
         }
+        updateSearchJumpNav();
     }
 
     function buildNameMatcher(query) {
@@ -3126,6 +3177,7 @@ var notesFilePanel = (function() {
         var headerEl = document.createElement('div');
         headerEl.className = 'file-panel-search-file-header' + (isMd ? ' is-md' : '');
         headerEl.textContent = fileResult.fileTitle + ' (' + fileResult.matches.length + ')';
+        if (isFile) prependSearchGlyph(headerEl, searchFileGlyph(fileResult.fileId || fileResult.fileTitle));
         groupEl.appendChild(headerEl);
 
         var query = currentSearch().body;   // FR-SEF-01: ハイライトは本文クエリ（ext: 非混入）
@@ -3189,6 +3241,7 @@ var notesFilePanel = (function() {
         if (searchSectionOutTitle) searchSectionOutTitle.textContent = outBase + ' (' + searchCountOut + ')';
         if (searchSectionMdTitle) searchSectionMdTitle.textContent = mdBase + ' (' + searchCountMd + ')';
         if (searchSectionFilesTitle) searchSectionFilesTitle.textContent = filesBase + ' (' + searchCountFiles + ')';
+        updateSearchJumpNav();
     }
 
     function onSearchEnd(searchId) {

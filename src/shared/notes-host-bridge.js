@@ -342,6 +342,26 @@
                 sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
             });
         },
+        // md リンクの Reveal in Finder / 選択範囲の Export — 同上（自 filePath 畳み override）
+        // 第 3 引数（SidePanelHostBridge 経由の sidepanel md）があればそれを宛先にする
+        revealLinkTarget: function(href, kind, sidePanelFilePath) {
+            api.postMessage({
+                type: 'revealLinkTarget', href: href, kind: kind,
+                sidePanelFilePath: sidePanelFilePath || window.notesMarkdownHostBridge.filePath || '',
+            });
+        },
+        exportMdSelectionBundle: function(markdown, options, sidePanelFilePath) {
+            api.postMessage({
+                type: 'exportMdSelectionBundle', markdown: markdown, options: options,
+                sidePanelFilePath: sidePanelFilePath || window.notesMarkdownHostBridge.filePath || '',
+            });
+        },
+        exportMdSelectionFolder: function(markdown, sidePanelFilePath) {
+            api.postMessage({
+                type: 'exportMdSelectionFolder', markdown: markdown,
+                sidePanelFilePath: sidePanelFilePath || window.notesMarkdownHostBridge.filePath || '',
+            });
+        },
         // FR-MDM-02 (sprint 20260818-183407): 同上 — destination='main-md'（sidepanel へ転送させない）
         duplicateLinkEntity: function(href, kind) {
             api.postMessage({

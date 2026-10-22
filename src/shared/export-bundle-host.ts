@@ -9,7 +9,7 @@ import { runOutlinerNodesExportBundle, OutlinerPasteNode } from './paste-asset-h
  * フォルダ選択ダイアログを出し、選ばれたら root md を起点に bundle を出力する。
  * キャンセル時は何もしない（副作用ゼロ・NFR-EX-01）。
  */
-export async function runExportBundle(rootMdAbs: string, options: ExportOptions): Promise<void> {
+export async function runExportBundle(rootMdAbs: string, options: ExportOptions, rootBody?: string): Promise<void> {
     if (!rootMdAbs) {
         vscode.window.showErrorMessage('Export failed: no file is open.');
         return;
@@ -22,7 +22,8 @@ export async function runExportBundle(rootMdAbs: string, options: ExportOptions)
     });
     if (!picked || picked.length === 0) return; // キャンセル = 副作用ゼロ
     const dest = picked[0].fsPath;
-    const result = exportBundle({ rootMdAbs, dest, options });
+    // rootBody: md エディタの選択範囲（rootMdAbs は仮の root。md-link-actions-host 経由）
+    const result = exportBundle({ rootMdAbs, dest, options, rootBody });
     if (result.ok) {
         vscode.window.showInformationMessage(
             `Exported ${result.mdCount} md, ${result.imageCount} images, ${result.fileCount} files → ${result.bundleDir}`);

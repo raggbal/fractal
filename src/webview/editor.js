@@ -124,6 +124,22 @@ class SidePanelHostBridge {
             this._mainHost.duplicateLinkEntity(href, kind, this.filePath);
         }
     }
+    // md リンクの Reveal in Finder / 選択範囲の Export bundle・Export folder。宛先 md = this.filePath
+    revealLinkTarget(href, kind) {
+        if (typeof this._mainHost.revealLinkTarget === 'function') {
+            this._mainHost.revealLinkTarget(href, kind, this.filePath);
+        }
+    }
+    exportMdSelectionBundle(markdown, options) {
+        if (typeof this._mainHost.exportMdSelectionBundle === 'function') {
+            this._mainHost.exportMdSelectionBundle(markdown, options, this.filePath);
+        }
+    }
+    exportMdSelectionFolder(markdown) {
+        if (typeof this._mainHost.exportMdSelectionFolder === 'function') {
+            this._mainHost.exportMdSelectionFolder(markdown, this.filePath);
+        }
+    }
     // FR-TF-06a (sprint 20260809-031217): ツリー file item → sidepanel md D&D。
     // 宛先 = sidepanel の md (this.filePath)。SidePanelHostBridge は共有 factory 非経由の
     // 手書きクラスなので個別追加が必要 (designer_failures 2026-07-20)。
@@ -895,6 +911,21 @@ class EditorInstance {
         return { kind: 'normal', href: href, isSubpage: false };
     }
 
+    /** 範囲に含まれる md / subpage / file リンクの数（選択範囲の Export を出すかの判定） */
+    function countEntityLinksInRange(range) {
+        try {
+            var frag = range.cloneContents();
+            var n = 0;
+            Array.prototype.forEach.call(frag.querySelectorAll('a[href], a[data-markdown-path]'), function(a) {
+                var info = classifyLinkForMenu(a);
+                if (info && (info.kind === 'md' || info.kind === 'file')) n++;
+            });
+            return n;
+        } catch (e) {
+            return 0;
+        }
+    }
+
     // FR-MDM-03: Copy (file link full path) の入力 md 化。
     // FR-MDM-02: Duplicate 応答で直下挿入する対象（one-shot — 応答消費とメニュー再表示で clear）
     var _pendingDuplicateLink = null;
@@ -1099,6 +1130,37 @@ class EditorInstance {
             restoreSelectionAndFocus();
             document.execCommand('paste');
         }, mod + '+V');
+
+        // md / subpage / file リンク上: Reveal in Finder（リンク先を OS のファイラで選択表示）
+        if (ctxLinkInfo && (ctxLinkInfo.kind === 'md' || ctxLinkInfo.kind === 'file')) {
+            addCtxSeparator();
+            addCtxItem(i18n.notesRevealInFinder || 'Reveal in Finder', function() {
+                if (typeof host.revealLinkTarget === 'function') {
+                    host.revealLinkTarget(ctxLinkInfo.href, ctxLinkInfo.kind);
+                }
+            });
+        }
+        // 範囲選択に md / subpage / file リンクがあるとき: outliner と同じ Export bundle / Export folder
+        //   bundle = 選択範囲を 1 本の md にし、リンク先 md と画像・添付を 1 フォルダに集めてリンクを書き換える
+        //   folder = 箇条書きの入れ子をフォルダ木にし、リンク先の実体をリンク名で書き出す（一覧の md は作らない）
+        if (hasSelection && savedRange && countEntityLinksInRange(savedRange) > 0) {
+            addCtxSeparator();
+            addCtxItem(i18n.outlinerExportBundle || 'Export bundle', function() {
+                restoreSelectionAndFocus();
+                var selMd = getSelectionMarkdownForFullPath();
+                if (!selMd || typeof host.exportMdSelectionBundle !== 'function') return;
+                openExportDialog(function(options) {
+                    host.exportMdSelectionBundle(selMd, options);
+                });
+            });
+            addCtxItem(i18n.exportFolderMenu || 'Export folder...', function() {
+                restoreSelectionAndFocus();
+                var selMd = getSelectionMarkdownForFullPath();
+                if (selMd && typeof host.exportMdSelectionFolder === 'function') {
+                    host.exportMdSelectionFolder(selMd);
+                }
+            });
+        }
 
         document.body.appendChild(editorContextMenuEl);
 

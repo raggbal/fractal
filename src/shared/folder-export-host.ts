@@ -7,7 +7,7 @@
  */
 import * as vscode from 'vscode';
 import { t } from '../i18n/messages';
-import { runFolderExport, ExportNode, FolderExportOutcome } from './folder-export';
+import { runFolderExport, ExportNode, FolderExportDeps, FolderExportOutcome } from './folder-export';
 
 export interface FolderExportTarget {
     /** 出力する node 木（webview の buildExportTree が組んだ DOM-ExportPayload） */
@@ -27,6 +27,8 @@ export interface FolderExportTarget {
     guard?: (destPath: string) => { ok: boolean; reason?: string };
     /** FR-SND-03: 宛先を確定済みにする（dialog を出さない）。folder link root を渡す */
     pickDestinationOverride?: string;
+    /** md の選択範囲から書き出すとき: pageId を md の実パスに読み替える adapter（md-selection-export） */
+    exportMd?: FolderExportDeps['exportMd'];
 }
 
 /**
@@ -65,6 +67,7 @@ export async function runFolderExportWithDialog(target: FolderExportTarget): Pro
         srcPagesDir: target.srcPagesDir,
         srcFileDir: target.srcFileDir,
         srcImageDir: target.srcImageDir,
+        exportMd: target.exportMd,
         pickDestination: async () => {
             // FR-SND-03: 宛先が確定済み（folder link root）なら dialog を出さず guard だけ通す
             if (target.pickDestinationOverride) {

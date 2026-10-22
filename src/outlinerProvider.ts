@@ -4,6 +4,7 @@ import * as crypto from 'crypto';
 import * as path from 'path';
 import { getOutlinerWebviewContent, getBrokenOutlinerHtml, classifyOutlinerContent } from './outlinerWebviewContent';
 import { runExportBundle, runExportOutlinerNodesBundle } from './shared/export-bundle-host';
+import { revealMdLinkTarget, runExportMdSelectionBundle, runExportMdSelectionFolder } from './shared/md-link-actions-host';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { recordSelfWrite, isRecentSelfWrite, clearSelfWrites } from './shared/self-write-registry';
@@ -1151,6 +1152,30 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         } catch (err) {
                             console.error('[outliner duplicateLinkEntity] failed:', err);
                             vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                        }
+                        break;
+                    }
+
+                    // sidepanel md リンクの Reveal in Finder / 選択範囲の Export bundle・Export folder。
+                    // clamp root = .out の dir（copyLinkPath と同じ）
+                    case 'revealLinkTarget':
+                    case 'exportMdSelectionBundle':
+                    case 'exportMdSelectionFolder': {
+                        const spMd: string = message.sidePanelFilePath || '';
+                        if (!spMd) break;
+                        // eslint-disable-next-line @typescript-eslint/no-var-requires
+                        const { resolveLinkTargetUnder } = require('./shared/path-safety');
+                        const outDir3 = path.dirname(document.uri.fsPath);
+                        const resolvers = {
+                            resolveMd: (url: string) => resolveLinkTargetUnder(outDir3, spMd, url),
+                            resolveFile: (url: string) => resolveLinkTargetUnder(outDir3, spMd, url),
+                        };
+                        if (message.type === 'revealLinkTarget') {
+                            if (message.href) await revealMdLinkTarget(message.href, message.kind || 'md', resolvers);
+                        } else if (message.type === 'exportMdSelectionBundle') {
+                            if (message.markdown && message.options) await runExportMdSelectionBundle(spMd, message.markdown, message.options);
+                        } else if (message.markdown) {
+                            await runExportMdSelectionFolder(message.markdown, resolvers);
                         }
                         break;
                     }

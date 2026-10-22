@@ -608,14 +608,24 @@ function generateNotesFilePanelHtml(options) {
             text-transform: none; letter-spacing: 0.02em;
         }
         .file-panel-search-file-group { margin-bottom: 4px; }
+        /* ファイル名はリンク色（旧: classForeground のオレンジは見づらい — 2026-10-22） */
         .file-panel-search-file-header {
             padding: 4px 11px; font-size: 10px; font-weight: 600;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            color: var(--vscode-symbolIcon-classForeground, #d19a66);
+            color: var(--vscode-textLink-foreground, #3794ff);
         }
-        .file-panel-search-file-header.is-md {
-            color: var(--vscode-symbolIcon-classForeground, #d19a66);
+        .file-panel-search-file-glyph { margin-right: 4px; font-size: 11px; line-height: 1; }
+        /* 結果の一番上: 種別ごとのセクションへ飛ぶリンク（スクロールしても上に残す） */
+        .file-panel-search-jump {
+            position: sticky; top: 0; z-index: 1;
+            display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 4px 9px 5px;
+            font-size: 10px; background: var(--fr-color-bg-panel, var(--outliner-bg, #fafafa));
+            border-bottom: 1px solid var(--vscode-panel-border, var(--outliner-border, #e0e0e0));
         }
+        .file-panel-search-jump-link {
+            color: var(--vscode-textLink-foreground, #3794ff); cursor: pointer; text-decoration: none;
+        }
+        .file-panel-search-jump-link:hover { text-decoration: underline; }
         .file-panel-search-match {
             padding: 4px 11px 4px 18px; font-size: 11px; cursor: pointer;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
