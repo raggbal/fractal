@@ -599,22 +599,25 @@ function generateNotesFilePanelHtml(options) {
             color: var(--fr-color-text-primary, inherit);
             background: var(--fr-color-primary-soft, transparent);
         }
-        .file-panel-search-results { flex: 1; overflow-y: auto; padding: 4px 0; }
+        /* 上 padding は 0（sticky のリンク行の上にスクロールした結果が 4px 覗く隙間になっていた — 2026-10-23） */
+        .file-panel-search-results { flex: 1; overflow-y: auto; padding: 0 0 4px; }
         .file-panel-search-section { margin-bottom: 5px; }
+        /* 色は fractal の青系トークン（--vscode-textLink-foreground はテーマ次第で紫になる — 2026-10-23）。
+         * 種別名（Outliner results 等）は文字を灰色 + 青の下線、ファイル名は青の文字で見分ける */
         .file-panel-search-section-title {
-            padding: 5px 9px 4px; font-size: 10px; font-weight: 700;
-            color: var(--vscode-textLink-foreground, #007acc);
-            border-bottom: 1px solid var(--vscode-panel-border, var(--outliner-border, #e0e0e0));
+            padding: 6px 9px 3px; font-size: 10px; font-weight: 700;
+            color: var(--fr-color-text-secondary, #6B6F76);
+            border-bottom: 2px solid var(--fr-color-primary, #9CC8DC);
             text-transform: none; letter-spacing: 0.02em;
         }
         .file-panel-search-file-group { margin-bottom: 4px; }
-        /* ファイル名はリンク色（旧: classForeground のオレンジは見づらい — 2026-10-22） */
         .file-panel-search-file-header {
             padding: 4px 11px; font-size: 10px; font-weight: 600;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            color: var(--vscode-textLink-foreground, #3794ff);
+            color: var(--fr-color-primary-strong, #3994BC);
         }
         .file-panel-search-file-glyph { margin-right: 4px; font-size: 11px; line-height: 1; }
+        .file-panel-search-file-icon { width: 12px; height: 12px; margin-right: 4px; vertical-align: -2px; opacity: 0.8; }
         /* 結果の一番上: 種別ごとのセクションへ飛ぶリンク（スクロールしても上に残す） */
         .file-panel-search-jump {
             position: sticky; top: 0; z-index: 1;
@@ -623,7 +626,7 @@ function generateNotesFilePanelHtml(options) {
             border-bottom: 1px solid var(--vscode-panel-border, var(--outliner-border, #e0e0e0));
         }
         .file-panel-search-jump-link {
-            color: var(--vscode-textLink-foreground, #3794ff); cursor: pointer; text-decoration: none;
+            color: var(--fr-color-primary-strong, #3994BC); cursor: pointer; text-decoration: none;
         }
         .file-panel-search-jump-link:hover { text-decoration: underline; }
         .file-panel-search-match {

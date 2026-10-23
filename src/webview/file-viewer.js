@@ -151,8 +151,11 @@
             '.viewer-find-bar { flex: 0 0 auto; display: flex; gap: 4px; align-items: center; padding: 2px 6px;',
             '  background: var(--fv-bg, transparent); border-bottom: 1px solid var(--fv-border, rgba(128,128,128,0.25)); }',
             '.viewer-find-bar input { flex: 0 1 220px; min-width: 80px; font-size: 12px; padding: 2px 6px;',
-            '  background: var(--vscode-input-background, #fff); color: var(--vscode-input-foreground, #333);',
-            '  border: 1px solid var(--vscode-input-border, rgba(128,128,128,0.4)); border-radius: 3px; outline: none; }',
+            // 入力欄は viewer の chrome と同じ fractal トークン（--vscode-input-* は VS Code が暗いテーマだと
+            // fractal が白でも黒い箱になっていた — 2026-10-23）
+            '  background: var(--fv-btn-bg); color: var(--fv-text);',
+            '  border: 1px solid var(--fv-border); border-radius: 3px; outline: none; }',
+            '.viewer-find-bar input:focus { border-color: var(--fr-color-primary, var(--vscode-focusBorder, #9CC8DC)); }',
             '.viewer-find-count { font-size: 11px; opacity: 0.75; min-width: 40px; text-align: center; }',
             '.viewer-find-bar button { background: none; border: none; cursor: pointer; opacity: 0.7; padding: 2px 4px;',
             '  color: var(--fv-text); border-radius: 3px; }',

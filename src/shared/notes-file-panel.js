@@ -2917,6 +2917,12 @@ var notesFilePanel = (function() {
         var g = MarkdownLinkParser.fileIconGlyph(nameOrPath || '');
         return g && g !== '📎' ? g : '';
     }
+    /** md / .out の結果見出しの前にツリーと同じ種別アイコン（SVG は定数のみ — 外の文字列は入らない） */
+    function prependSearchKindIcon(el, kind) {
+        var svg = kind === 'md' ? ICON_FILE_MD : (kind === 'out' ? ICON_FILE_OUT : '');
+        if (!svg) return;
+        el.insertAdjacentHTML('afterbegin', svg.replace('class="file-panel-item-icon"', 'class="file-panel-search-file-icon"'));
+    }
     function prependSearchGlyph(el, glyph) {
         if (!glyph) return;
         var g = document.createElement('span');
@@ -3074,6 +3080,7 @@ var notesFilePanel = (function() {
             // Title (highlighted) + small badge for type
             matchEl.innerHTML = highlightSearchText(m.title || (i18n.notesUntitled || 'Untitled'), query);
             if (m.type === 'file' && m.fileExt === 'file') prependSearchGlyph(matchEl, searchFileGlyph(m.filePath || m.title));
+            else if (m.type === 'file') prependSearchKindIcon(matchEl, m.fileExt);
             var badge = document.createElement('span');
             badge.style.cssText = 'opacity:0.5;font-size:10px;margin-left:4px;';
             badge.textContent = '[' + (m.type === 'folder' ? 'folder' : (m.fileExt || 'file')) + ']';
@@ -3178,6 +3185,7 @@ var notesFilePanel = (function() {
         headerEl.className = 'file-panel-search-file-header' + (isMd ? ' is-md' : '');
         headerEl.textContent = fileResult.fileTitle + ' (' + fileResult.matches.length + ')';
         if (isFile) prependSearchGlyph(headerEl, searchFileGlyph(fileResult.fileId || fileResult.fileTitle));
+        else prependSearchKindIcon(headerEl, isMd ? 'md' : 'out');
         groupEl.appendChild(headerEl);
 
         var query = currentSearch().body;   // FR-SEF-01: ハイライトは本文クエリ（ext: 非混入）

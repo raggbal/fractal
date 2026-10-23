@@ -206,3 +206,29 @@ test('TC-VFB-07 pdf + locHint: ヒントページのマッチに着地（両ペ�
     await expect(page.locator('.pdfViewer .page[data-page-number="2"] .textLayer .highlight.selected').first())
         .toBeAttached({ timeout: 10000 });
 });
+
+test('TC-VFB-08 find の入力欄は viewer の chrome と同じ色（VS Code の input 色が暗くても白い箱のまま）', async ({ page }) => {
+    await openViewer(page, 'html', './viewer-fixtures/find-sample.html');
+    await page.waitForSelector('.viewer-find-toggle');
+    // VS Code が暗いテーマのときの --vscode-input-* を再現（fractal のトークンは light のまま）
+    await page.evaluate(() => {
+        const r = document.documentElement.style;
+        r.setProperty('--vscode-input-background', '#1e1e1e');
+        r.setProperty('--vscode-input-foreground', '#cccccc');
+    });
+    await page.click('.viewer-find-toggle');
+    const c = await page.evaluate(() => {
+        const input = document.querySelector('.viewer-find-bar input') as HTMLElement;
+        const probe = document.createElement('div');
+        probe.style.background = 'var(--fv-btn-bg)';
+        probe.style.color = 'var(--fv-text)';
+        document.querySelector('.viewer-find-bar')!.appendChild(probe);
+        const out = { bg: getComputedStyle(input).backgroundColor, fg: getComputedStyle(input).color,
+            chromeBg: getComputedStyle(probe).backgroundColor, chromeFg: getComputedStyle(probe).color };
+        probe.remove();
+        return out;
+    });
+    expect(c.bg).not.toBe('rgb(30, 30, 30)');
+    expect(c.bg).toBe(c.chromeBg);
+    expect(c.fg).toBe(c.chromeFg);
+});
