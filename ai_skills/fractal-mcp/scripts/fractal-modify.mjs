@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * fractal-modify.mjs — 既存 Outliner ノードの変更系 CLI（fractal-edit skill）
+ * fractal-modify.mjs — 既存 Outliner ノードの変更系 CLI（fractal MCP の fractal_modify の実体）
  *
  * fractal-md.mjs（追加系）の対になる変更系。1 コマンド 1 操作:
  *   --set-text <str>   : text 書換（tags 再計算）

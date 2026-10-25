@@ -2,11 +2,12 @@
 # install.sh — Fractal ai_skills を各 AI IDE の user-level skill 領域に配置
 #
 # fractal の search / edit / summary / doctor / structure は skill ではなく MCP サーバー（fractal-mcp）。
-# fractal-* の dir は scripts の置き場として配置し、各 IDE の MCP 設定に fractal を登録する:
+# skill の dir には何も置かず、fractal-mcp の依存を入れて（npm ci）、各 IDE の MCP 設定に repo の server.mjs を登録する:
 #   - Claude Code: claude mcp add -s user fractal（claude CLI があるとき）
 #   - Kiro:        ~/.kiro/settings/mcp.json
 #   - Cursor:      ~/.cursor/mcp.json
 #   - Antigravity: 自動登録しない（表示するコマンドを手で設定）
+# collect / doc-md 等の register-fractal.mjs 用に ~/.fractal/fractal-mcp → repo の fractal-mcp の symlink も張る
 #
 # 配置方式は IDE ごとに自動選択:
 #   - symlink: claude / cursor / antigravity  (source 直リンク・更新即反映)
@@ -31,9 +32,12 @@ set -eu
 
 # ─── 設定 ─────────────────────────────────────────────
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILLS="fractal-mcp fractal-search fractal-edit fractal-doctor fractal-summary collect web-crawler-md youtube-md doc-md pptx-pages-md arxiv-md aws-doc-maker"
-# 以前は skill だったが今は無いもの（install のたびに片付ける）
-LEGACY_SKILLS="fractal-structure"
+SKILLS="collect web-crawler-md youtube-md doc-md pptx-pages-md arxiv-md aws-doc-maker"
+# 以前は skill だったが今は fractal-mcp に入ったもの（install / uninstall のたびに片付ける）
+LEGACY_SKILLS="fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary fractal-mcp"
+MCP_DIR="$SOURCE_DIR/fractal-mcp"
+MCP_SERVER="$MCP_DIR/server.mjs"
+MCP_LINK="$HOME/.fractal/fractal-mcp"
 IDE_LIST="claude cursor kiro antigravity"
 
 ide_parent() {
@@ -213,12 +217,54 @@ do_uninstall_one() {
     fi
 }
 
-# fractal-mcp の登録 / 解除（server のパスは install 先 = kiro は copy 先、他は repo）
+# 旧 fractal-* skill の片付け。symlink はどこを指していても消す（以前は ~/.kiro のコピーを指す配置もあった）。
+# copy 配置の IDE（kiro）は dir ごと消す。symlink 配置の IDE で実体の dir があれば、消さずに知らせる
+do_legacy_cleanup() {
+    ide=$1; skill=$2
+    dest="$(ide_dir "$ide")/$skill"
+    if [ -L "$dest" ]; then
+        [ "$DRY_RUN" -eq 1 ] && { echo "  [dry-run] rm $dest (旧 skill)"; return 0; }
+        rm "$dest" && ok "  $skill ← 旧 skill を削除 ($dest)"
+    elif [ -d "$dest" ]; then
+        if [ "$(ide_method "$ide")" = "copy" ]; then
+            [ "$DRY_RUN" -eq 1 ] && { echo "  [dry-run] rm -rf $dest (旧 skill の copy)"; return 0; }
+            rm -rf "$dest" && ok "  $skill ← 旧 skill を削除 ($dest)"
+        else
+            warn "  $skill ← 旧 skill の実体 dir があるので残す（要らなければ手で削除: $dest）"
+        fi
+    fi
+}
+
+# fractal-mcp の依存（npm ci）と ~/.fractal/fractal-mcp の symlink。1 回だけ
+MCP_PREPARED=0
+prepare_mcp() {
+    [ "$MCP_PREPARED" -eq 1 ] && return 0
+    MCP_PREPARED=1
+    if [ "$DRY_RUN" -eq 1 ]; then
+        [ "$UNINSTALL" -eq 1 ] && echo "  [dry-run] rm $MCP_LINK" || { echo "  [dry-run] (cd $MCP_DIR && npm ci --omit=dev)"; echo "  [dry-run] ln -sfn $MCP_DIR $MCP_LINK"; }
+        return 0
+    fi
+    if [ "$UNINSTALL" -eq 1 ]; then
+        [ -L "$MCP_LINK" ] && rm "$MCP_LINK" && ok "fractal-mcp ← $MCP_LINK を削除"
+        return 0
+    fi
+    if ! command -v npm >/dev/null 2>&1; then
+        err "npm が無いので fractal-mcp の依存を入れられません"
+        return 1
+    fi
+    (cd "$MCP_DIR" && npm ci --omit=dev --no-fund --no-audit --loglevel=error) || { err "fractal-mcp: npm ci に失敗"; return 1; }
+    mkdir -p "$(dirname "$MCP_LINK")"
+    ln -sfn "$MCP_DIR" "$MCP_LINK"
+    ok "fractal-mcp → 依存を導入、$MCP_LINK → $MCP_DIR"
+}
+
+# fractal-mcp の登録 / 解除（server は repo の fractal-mcp/server.mjs を直接起動）
 do_mcp_one() {
     ide=$1
-    server="$(ide_dir "$ide")/fractal-mcp/server.mjs"
-    [ "$(ide_method "$ide")" = "symlink" ] && server="$SOURCE_DIR/fractal-mcp/server.mjs"
+    server="$MCP_SERVER"
+    # mise 等の版つきパスは node の更新で消えるので、shim があればそちらを登録する
     node_bin=$(command -v node || true)
+    case "$node_bin" in */mise/installs/*) [ -x "$HOME/.local/share/mise/shims/node" ] && node_bin="$HOME/.local/share/mise/shims/node" ;; esac
     if [ -z "$node_bin" ]; then
         warn "  MCP: node が見つからないので登録をスキップ"
         return 0
@@ -267,6 +313,9 @@ _suffix=$([ "$DRY_RUN" -eq 1 ] && echo ' (dry-run)' || true)
 echo "  mode:   ${_mode}${_suffix}"
 echo ""
 
+prepare_mcp || exit 1
+echo ""
+
 did_any=0
 for ide in $TARGETS; do
     parent=$(ide_parent "$ide")
@@ -286,7 +335,7 @@ for ide in $TARGETS; do
         fi
     done
     for legacy in $LEGACY_SKILLS; do
-        do_uninstall_one "$ide" "$legacy" >/dev/null 2>&1 || true
+        do_legacy_cleanup "$ide" "$legacy" || true
     done
     do_mcp_one "$ide" || true
     did_any=1

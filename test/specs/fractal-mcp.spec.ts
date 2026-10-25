@@ -1,7 +1,7 @@
 /**
  * fractal-mcp（spec 20261025-2350-fractal-mcp）: fractal skill 群を 1 つの MCP サーバー（stdio）にまとめたもの。
  *
- * server.mjs を子プロセスで起動し、改行区切りの JSON-RPC で実際に話す（クライアントと同じ経路）。
+ * server.mjs（公式 SDK の McpServer）を子プロセスで起動し、改行区切りの JSON-RPC で実際に話す（クライアントと同じ経路）。
  * tmp fixture note を都度生成。
  */
 import { test, expect } from '@playwright/test';
@@ -79,9 +79,11 @@ class Client {
         this.notify('notifications/initialized');
         return r;
     }
+    /** JSON-RPC の error 応答も { isError: true } にそろえて返す */
     async call(name: string, args: object = {}) {
         const r = await this.request('tools/call', { name, arguments: args });
-        return r.result as { content: { type: string; text: string }[]; isError: boolean };
+        if (r.error) return { isError: true, content: [{ type: 'text', text: String(r.error.message) }] };
+        return { isError: !!r.result.isError, content: r.result.content as { type: string; text: string }[] };
     }
     close() { this.proc.stdin.end(); this.proc.kill(); }
 }
@@ -94,7 +96,7 @@ test.describe('fractal-mcp', () => {
     test('AC-1 initialize → tools/list で 9 本の tool が inputSchema つきで返る', async () => {
         const c2 = new Client();
         const init = await c2.init();
-        expect(init.result.protocolVersion).toBe('2025-06-18');
+        expect(init.result.protocolVersion).toBe('2025-06-18');   // クライアントが求めた版で返す
         expect(init.result.capabilities.tools).toBeDefined();
         expect(init.result.serverInfo.name).toBe('fractal');
         const list = await c2.request('tools/list');
@@ -172,6 +174,10 @@ test.describe('fractal-mcp', () => {
         const dash = await c.call('fractal_add', { note: outPath, md: ['--note'] });
         expect(dash.isError).toBe(true);
         expect(dash.content[0].text).toContain('"-"');
+        expect(Object.keys(JSON.parse(fs.readFileSync(outPath, 'utf-8')).nodes)).toEqual(['nA', 'nC']);
+
+        const wrongType = await c.call('fractal_search', { query: 'x', maxResults: 'ten' });
+        expect(wrongType.isError).toBe(true);
 
         const badEnum = await c.call('fractal_modify', { note: outPath, target: 'nA', op: 'explode' });
         expect(badEnum.isError).toBe(true);
@@ -196,7 +202,7 @@ test.describe('fractal-mcp', () => {
         expect(ok.isError).toBe(false);
     });
 
-    test('AC-5 fractal_structure が文書を返し、5 skill の SKILL.md は無く install.sh が fractal-mcp を入れる', async () => {
+    test('AC-5 fractal_structure が文書を返し、旧 fractal-* skill の dir は無く install.sh は skill として配置しない', async () => {
         const r = await c.call('fractal_structure');
         expect(r.isError).toBe(false);
         expect(r.content[0].text).toBe(fs.readFileSync(path.join(AI_SKILLS, 'fractal-mcp', 'structure.md'), 'utf-8'));
@@ -204,14 +210,21 @@ test.describe('fractal-mcp', () => {
         expect(r.content[0].text).not.toMatch(/^name: /m); // SKILL.md の frontmatter を持ち込んでいない
 
         for (const s of ['fractal-structure', 'fractal-search', 'fractal-edit', 'fractal-doctor', 'fractal-summary']) {
-            expect(fs.existsSync(path.join(AI_SKILLS, s, 'SKILL.md')), s).toBe(false);
+            expect(fs.existsSync(path.join(AI_SKILLS, s)), s).toBe(false);
         }
+        expect(fs.existsSync(path.join(AI_SKILLS, 'fractal-mcp', 'SKILL.md'))).toBe(false);
         const installSh = fs.readFileSync(path.join(AI_SKILLS, 'install.sh'), 'utf-8');
         const skills = installSh.match(/^SKILLS="([^"]+)"/m)![1].split(' ');
-        expect(skills).toContain('fractal-mcp');
-        expect(skills).not.toContain('fractal-structure');
-        // scripts の置き場は install し続ける（register-fractal.mjs が ~/.claude/skills/fractal-edit/scripts を参照）
-        for (const s of ['fractal-search', 'fractal-edit', 'fractal-doctor', 'fractal-summary']) expect(skills).toContain(s);
+        expect(skills.filter((s) => s.startsWith('fractal-'))).toEqual([]);
+        const legacy = installSh.match(/^LEGACY_SKILLS="([^"]+)"/m)![1].split(' ');
+        for (const s of ['fractal-structure', 'fractal-search', 'fractal-edit', 'fractal-doctor', 'fractal-summary', 'fractal-mcp']) expect(legacy).toContain(s);
+        // register-fractal.mjs（doc-md 等）は fractal-mcp/scripts の fractal-md.mjs を引く
+        for (const s of ['doc-md', 'arxiv-md', 'pptx-pages-md', 'youtube-md', 'web-crawler-md', 'aws-doc-maker']) {
+            const src = fs.readFileSync(path.join(AI_SKILLS, s, 'scripts', 'register-fractal.mjs'), 'utf-8');
+            expect(src, s).toContain("'..', '..', 'fractal-mcp', 'scripts', 'fractal-md.mjs'");
+            expect(src, s).not.toContain('fractal-edit');
+        }
+        expect(fs.existsSync(path.join(AI_SKILLS, 'fractal-mcp', 'scripts', 'fractal-md.mjs'))).toBe(true);
     });
 });
 

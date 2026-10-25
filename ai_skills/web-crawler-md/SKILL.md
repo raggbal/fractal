@@ -247,7 +247,7 @@ If `--to-fractal-title` is not provided, derive it from the crawl root page titl
 
 ### Notes
 
-- The script shells out to `fractal-edit/scripts/fractal-md.mjs` for each node insert. Auto-resolves the path via the sibling skill location (`<SKILL_DIR>/../fractal-edit/scripts/fractal-md.mjs`) or `~/.claude/skills/fractal-edit/scripts/fractal-md.mjs`. Override with `--fractal-md-script <path>`.
+- The script shells out to `fractal-mcp/scripts/fractal-md.mjs` for each node insert. Auto-resolves the path via the sibling skill location (`<SKILL_DIR>/../fractal-mcp/scripts/fractal-md.mjs`) or `~/.fractal/fractal-mcp/scripts/fractal-md.mjs`. Override with `--fractal-md-script <path>`.
 - Sitemap order is preserved by chaining `--position after` inserts; do not run this concurrently against the same `.out`.
 - Per Fractal hygiene, ensure the target `.out` is not open in the Fractal app/extension during write.
 

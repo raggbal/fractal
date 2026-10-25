@@ -23,9 +23,10 @@ LINK_MODE="link"            # link | copy
 INSTALL_RULES="yes"
 DRY_RUN="no"
 
-SKILLS=(fractal-mcp fractal-search fractal-edit fractal-doctor fractal-summary)
-# Legacy skill names (cleanup only — never installed). fractal-md → fractal-edit, fractal-structure → fractal-mcp
-LEGACY_SKILLS=(fractal-md fractal-structure)
+# fractal の skill は fractal MCP（ai_skills/fractal-mcp）に統合したので、ここで配置する skill は無い
+SKILLS=()
+# Legacy skill names (cleanup only — never installed). 今は全部 fractal MCP
+LEGACY_SKILLS=(fractal-md fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary fractal-mcp)
 RULE_FILE="fractal-skills.md"
 
 # ─── arg parse ───
@@ -88,7 +89,7 @@ else
 fi
 
 # ─── preflight ───
-for skill in "${SKILLS[@]}"; do
+for skill in ${SKILLS[@]+"${SKILLS[@]}"}; do
     if [[ ! -d "$SRC_SKILLS_DIR/$skill" ]]; then
         echo "Error: source skill not found: $SRC_SKILLS_DIR/$skill" >&2
         exit 1
@@ -185,7 +186,7 @@ if [[ "$INSTALL_RULES" == "yes" ]]; then
 fi
 
 echo "Installing skills:"
-for skill in "${SKILLS[@]}"; do
+for skill in ${SKILLS[@]+"${SKILLS[@]}"}; do
     install_skill "$skill"
 done
 
@@ -211,8 +212,7 @@ if [[ "$DRY_RUN" == "yes" ]]; then
     echo "✅ Dry-run complete. Re-run without --dry-run to apply."
 else
     echo "✅ Installed. Start a new Claude Code session to pick up the changes."
-    echo "   fractal の tools は MCP サーバー。未登録なら: claude mcp add -s user fractal -- $(command -v node || echo node) $DEST_SKILLS_DIR/fractal-mcp/server.mjs"
-    echo "   （ai_skills/install.sh なら Claude Code / Kiro / Cursor への登録まで行う）"
+    echo "   fractal の tools は MCP サーバー: ai_skills/install.sh で依存の導入と Claude Code / Kiro / Cursor への登録を行う"
     if [[ "$LINK_MODE" == "link" ]]; then
         echo "   (symlink mode — edits in $REPO_DIR are reflected immediately)"
     fi

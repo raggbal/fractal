@@ -9,12 +9,12 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-const modifyMjs = path.resolve(__dirname, '../../ai_skills/fractal-edit/scripts/fractal-modify.mjs');
-const mdMjs = path.resolve(__dirname, '../../ai_skills/fractal-edit/scripts/fractal-md.mjs');
-const attachMjs = path.resolve(__dirname, '../../ai_skills/fractal-edit/scripts/fractal-attach.mjs');
-const doctorMjs = path.resolve(__dirname, '../../ai_skills/fractal-doctor/scripts/fractal-doctor.mjs');
-const summaryMjs = path.resolve(__dirname, '../../ai_skills/fractal-summary/scripts/fractal-summary.mjs');
-const searchMjs = path.resolve(__dirname, '../../ai_skills/fractal-search/scripts/fractal-search.mjs');
+const modifyMjs = path.resolve(__dirname, '../../ai_skills/fractal-mcp/scripts/fractal-modify.mjs');
+const mdMjs = path.resolve(__dirname, '../../ai_skills/fractal-mcp/scripts/fractal-md.mjs');
+const attachMjs = path.resolve(__dirname, '../../ai_skills/fractal-mcp/scripts/fractal-attach.mjs');
+const doctorMjs = path.resolve(__dirname, '../../ai_skills/fractal-mcp/scripts/fractal-doctor.mjs');
+const summaryMjs = path.resolve(__dirname, '../../ai_skills/fractal-mcp/scripts/fractal-summary.mjs');
+const searchMjs = path.resolve(__dirname, '../../ai_skills/fractal-mcp/scripts/fractal-search.mjs');
 
 let tmpRoot: string;
 test.beforeAll(() => {
@@ -480,13 +480,11 @@ test.describe('E. fractal-search --tag/--checked', () => {
 });
 
 test.describe('F. 配線', () => {
-    test('TC-EX-20 install.sh SKILLS + scripts 実在（SKILL.md は fractal-mcp に統合済み）', async () => {
+    test('TC-EX-20 fractal の scripts は fractal-mcp に集約され、install.sh は skill として配置しない', async () => {
         const installSh = fs.readFileSync(path.resolve(__dirname, '../../ai_skills/install.sh'), 'utf-8');
         const skillsLine = installSh.match(/^SKILLS="([^"]+)"/m);
         expect(skillsLine).toBeTruthy();
-        expect(skillsLine![1]).toContain('fractal-doctor');
-        expect(skillsLine![1]).toContain('fractal-summary');
-        expect(skillsLine![1]).toContain('fractal-mcp');
+        expect(skillsLine![1]).not.toContain('fractal-');
         expect(fs.existsSync(doctorMjs)).toBe(true);
         expect(fs.existsSync(summaryMjs)).toBe(true);
         expect(fs.existsSync(path.resolve(__dirname, '../../ai_skills/fractal-mcp/server.mjs'))).toBe(true);

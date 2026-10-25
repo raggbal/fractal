@@ -1,0 +1,14 @@
+{
+  "name": "fractal-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Fractal（.out / outline.note / page md）を読み書きする MCP サーバー",
+  "type": "module",
+  "bin": { "fractal-mcp": "server.mjs" },
+  "scripts": { "start": "node server.mjs" },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "4.6.7"
+  }
+}

@@ -302,4 +302,4 @@ Electron 側は `~/Library/Application Support/fractal-desktop/config.json` の�
 - md を page として取り込むと、md 内のローカルリンク（PDF / CSV / 他 md）は `<outDir>/files/` にコピーされ相対パスに書き換わる（URL・anchor・存在しないファイルはそのまま）
 - `fractal_doctor` は書き込まない。修復は結果をユーザーと相談してから
 - `fractal_search` はバイナリ添付の中身を検索しない（パスだけ。docx / pptx / xlsx / pdf は抽出して検索）。`outline.note` のフォルダ階層は結果に反映しない
-- 各 tool の実体は `ai_skills/fractal-*/scripts/*.mjs`（CLI として直接実行もできる。`node <script> --help`）
+- 各 tool の実体は `ai_skills/fractal-mcp/scripts/*.mjs`（CLI として直接実行もできる。`node <script> --help`）

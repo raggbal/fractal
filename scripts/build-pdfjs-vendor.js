@@ -5,7 +5,7 @@
 //   pdfjs-dist@4.10.38 legacy build + fake worker（pdf.worker.mjs を同一バンドルに畳み
 //   globalThis.pdfjsWorker 代入）を CJS 単一ファイルに落とす。
 //
-// 生成物 ai_skills/fractal-search/vendor/pdfjs-bundle.cjs は**リポジトリに commit する**
+// 生成物 ai_skills/fractal-mcp/vendor/pdfjs-bundle.cjs は**リポジトリに commit する**
 // （ゼロ install 配布 = install.sh の symlink 先で npm install 不要）。
 // pdfjs-dist を更新したときのみ手動で再実行: npm run build:pdfjs-vendor
 

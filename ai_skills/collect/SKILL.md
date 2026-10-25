@@ -266,7 +266,7 @@ Outline 指定の 2 モード:
 - **直接指定**: `--to-fractal-out <path.out>` — 既存 `.out` を直接書き込む
 - **Notes フォルダ + outline タイトル**: `--to-fractal-notes <folder> --to-fractal-outline <title>` — `outline.note` を見て該当タイトルの file アイテムを探索。無ければ `fractal-md.mjs --create-outliner` で自動作成
 
-各サブ skill は `scripts/register-fractal.mjs` を持ち、`fractal-edit` の `fractal-md.mjs` をシェルアウトして実装する。
+各サブ skill は `scripts/register-fractal.mjs` を持ち、`fractal-mcp/scripts/fractal-md.mjs` をシェルアウトして実装する。
 
 **注意**: 対象 `.out` を Fractal アプリ / 拡張で開いた状態だと書き込みが競合する。書き込み前に閉じてもらう。
 

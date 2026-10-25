@@ -224,16 +224,12 @@ AWS アカウントがあれば、note を S3 に同期できます:
 
 Fractal Note は **AI スキル**（`ai_skills/`）を公開しています。AI エージェントに Fractal Note のデータモデルを教え、ノートの検索・読み取り・書き込みを直接行えるようにするものです:
 
-- `fractal-structure` — Notes / Outliner / Page のデータモデルのリファレンス
-- `fractal-search` — Notes フォルダの自動検出、note 横断の全文検索 — 添付 PDF / Word / Excel / PowerPoint の中身も対象（npm install 不要・位置表示付き）— タグ・タスク状態フィルタ（`--tag` / `--checked`）、note 名での絞り込み
-- `fractal-edit` — ノードの追加・変更・削除・移動、マークダウンページの取り込み（単一・一括）、画像・ファイル添付、md へのサブページ / 添付の追加、新規アウトライナー / md 作成
-- `fractal-doctor` — note の整合性チェック（参照切れ・孤児ファイル・レイアウト検査。read-only）
-- `fractal-summary` — アウトライナーや md（サブページ再帰込み）を 1 本のマークダウンにまとめて AI に読ませる
+- **fractal MCP**（`ai_skills/fractal-mcp`）— skill ではなく MCP サーバー。tools: `fractal_structure`（データモデルのリファレンス）/ `fractal_list_folders`・`fractal_list_notes`・`fractal_search`（Notes フォルダの自動検出、note 横断の全文検索 — 添付 PDF / Word / Excel / PowerPoint の中身も対象、タグ・タスク状態・note 名での絞り込み）/ `fractal_add`・`fractal_modify`・`fractal_attach`（ノードの追加・変更・削除・移動、マークダウンページの取り込み、画像・ファイル添付、新規アウトライナー / md 作成）/ `fractal_doctor`（整合性チェック。read-only）/ `fractal_summary`（アウトライナーや md を 1 本のマークダウンにまとめる）
 - `collect` ほか変換系 — Web ページ / YouTube 字幕 / arXiv 論文 / PDF・Office 文書を Markdown 化して取り込み
 
 ```bash
-ai_skills/install.sh         # 検出した AI IDE すべてに配置（Claude Code / Cursor / Kiro / Antigravity）
-./install-skills.sh          # Claude Code のみ・rules 付きでインストール
+ai_skills/install.sh         # skill を配置し、fractal MCP を登録（Claude Code / Cursor / Kiro。Antigravity は配置のみ）
+./install-skills.sh          # Claude Code の rules を配置（旧 fractal-* skill の片付け）
 ```
 
 スキルをインストールすれば、Claude Code などのエージェントがリサーチ結果の整理、クリップの要約、ナレッジベースの構築を Fractal Note に直接書き込めます — AI ネイティブなワークフローを備えた、実用的な **Obsidian 代替** として。

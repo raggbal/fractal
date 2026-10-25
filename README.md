@@ -219,16 +219,12 @@ Translate a selection or the whole document with **Amazon Translate**, including
 
 Fractal Note publishes **AI skills** (`ai_skills/`) that teach AI agents the Fractal Note data model so they can search, read, and write your notes directly:
 
-- `fractal-structure` — Reference for the Notes / Outliner / Page data model
-- `fractal-search` — Auto-discovers notes folders, full-text search across notes — including inside attached PDF / Word / Excel / PowerPoint files (zero-install, with hit locations) — tag and task-state filters (`--tag` / `--checked`), filtering by note name
-- `fractal-edit` — Add / modify / delete / move nodes, import markdown pages (single or bulk), attach images and files, add subpages and attachments to markdown files, create new outliners and markdown files
-- `fractal-doctor` — Note integrity checks (broken references, orphaned files, layout inspection; read-only)
-- `fractal-summary` — Bundle an outliner or a markdown file (including subpages recursively) into a single markdown for an AI to read
+- **fractal MCP** (`ai_skills/fractal-mcp`) — an MCP server, not skills. Tools: `fractal_structure` (data model reference) / `fractal_list_folders`, `fractal_list_notes`, `fractal_search` (auto-detect Notes folders, full-text search across notes including attached PDF / Word / Excel / PowerPoint, filter by tag / task state / note name) / `fractal_add`, `fractal_modify`, `fractal_attach` (add / modify / delete / move nodes, import markdown pages, attach images and files, create outliners and markdown files) / `fractal_doctor` (integrity checks; read-only) / `fractal_summary` (bundle an outliner or markdown into one markdown)
 - `collect` and other converters — Ingest web pages / YouTube transcripts / arXiv papers / PDF & Office documents as Markdown
 
 ```bash
-ai_skills/install.sh         # install into every detected AI IDE (Claude Code / Cursor / Kiro / Antigravity)
-./install-skills.sh          # Claude Code only, with rules
+ai_skills/install.sh         # install skills and register the fractal MCP (Claude Code / Cursor / Kiro; Antigravity: skills only)
+./install-skills.sh          # Claude Code rules only (cleans up the old fractal-* skills)
 ```
 
 With the skills installed, agents like Claude Code can organize research, summarize clips, and build knowledge bases by writing straight into Fractal Note — a practical **Obsidian alternative** with an AI-native workflow.

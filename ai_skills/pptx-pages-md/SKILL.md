@@ -140,7 +140,7 @@ If `--to-fractal-title` is not provided, derive it from the `.pptx` filename ste
 
 ### Notes
 
-- Auto-resolves `fractal-edit/scripts/fractal-md.mjs` via the sibling skill location or `~/.claude/skills/fractal-edit/scripts/fractal-md.mjs`. Override with `--fractal-md-script <path>`.
+- Auto-resolves `fractal-mcp/scripts/fractal-md.mjs` via the sibling skill location or `~/.fractal/fractal-mcp/scripts/fractal-md.mjs`. Override with `--fractal-md-script <path>`.
 
 ## When to use
 

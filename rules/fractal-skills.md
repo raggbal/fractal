@@ -81,7 +81,7 @@ Fractal の操作は skill ではなく MCP サーバー **fractal** の tools �
 
 ## CLI パスのヒント
 
-tool の実体は `ai_skills/fractal-*/scripts/*.mjs`（install 先は `~/.claude/skills/fractal-{search,edit,summary,doctor}/scripts/`）。MCP が使えない環境では `node <script> --help` を見て直接実行してよい。
+tool の実体は `ai_skills/fractal-mcp/scripts/*.mjs`（install 後は `~/.fractal/fractal-mcp/scripts/` からも辿れる）。MCP が使えない環境では `node <script> --help` を見て直接実行してよい。
 
 ---
 

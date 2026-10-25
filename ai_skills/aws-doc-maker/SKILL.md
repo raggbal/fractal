@@ -1,6 +1,6 @@
 ---
 name: aws-doc-maker
-description: AWS サービスの公式ドキュメント（`.collected/web/<service>/` 配下の Markdown 群）を、12 軸に沿って理解しやすい md ファイル群に再構成する。生成した md はそのまま配置するか、Outliner に差し込む（fractal-edit 直接 / register-fractal.mjs --mode tree いずれか）
+description: AWS サービスの公式ドキュメント（`.collected/web/<service>/` 配下の Markdown 群）を、12 軸に沿って理解しやすい md ファイル群に再構成する。生成した md はそのまま配置するか、Outliner に差し込む（fractal-md.mjs 直接 / register-fractal.mjs --mode tree いずれか）
 ---
 
 # aws-doc-maker — AWS ドキュメント整理スキル
@@ -13,7 +13,7 @@ AWS 公式ドキュメントをダウンロード済み (`.collected/web/<servic
 2. **fractal 連携**: 上記 md を生成した上で、Outliner に差し込む。次の 2 経路のどちらかを使う:
    - **`/collect` 互換 — `--to-fractal-*` で `register-fractal.mjs --mode tree` を呼ぶ** ★推奨★。
      `日付 > <サービス名> > 00-index > (01..12 軸の各ページ)` という階層を自動生成する。
-   - **fractal-edit を直接呼ぶレガシー経路** — `outliner:` / `applink:` 指定で `fractal-md.mjs` を一括モードで実行 (互換性のため残す)。
+   - **fractal-md.mjs を直接呼ぶレガシー経路** — `outliner:` / `applink:` 指定で `fractal-md.mjs` を一括モードで実行 (互換性のため残す)。
 
 ---
 
@@ -163,7 +163,7 @@ md ファイル名は `NN-<slug>.md` 形式。番号は以下の固定順を推�
    - 12 軸ファイルへのリンクと、それぞれの 1 行サマリを含む
 
 4. **fractal 連携 (指定がある場合)**
-   - 下記セクション 4 に従って fractal-edit を呼ぶ
+   - 下記セクション 4 に従って fractal-md.mjs を呼ぶ
 
 ---
 
@@ -222,7 +222,7 @@ md ファイル名は `NN-<slug>.md` 形式。番号は以下の固定順を推�
 #### Notes
 
 - `--fractal-title` 省略時は 00-index.md の H1（あるいは tree JSON のルート `title`）を使う
-- `register-fractal.mjs` は `fractal-edit/scripts/fractal-md.mjs` を sibling skill 位置 or `~/.claude/skills/fractal-edit/scripts/fractal-md.mjs` で自動解決する。`--fractal-md-script <path>` で上書き可能
+- `register-fractal.mjs` は `fractal-mcp/scripts/fractal-md.mjs` を sibling skill 位置 or `~/.fractal/fractal-mcp/scripts/fractal-md.mjs` で自動解決する。`--fractal-md-script <path>` で上書き可能
 - `.fractal-tree.json` は中間ファイル。コミット対象から除外して良い（`.gitignore` 推奨）
 
 ---
@@ -237,9 +237,9 @@ md ファイル名は `NN-<slug>.md` 形式。番号は以下の固定順を推�
 1. `.out` ファイルの絶対パスを解決
    - 絶対パスならそのまま
    - 相対 / basename のみなら fractal MCP の `fractal_list_folders` で登録済みフォルダを取得して検索
-2. `fractal-edit` の `fractal-md.mjs` を一括モードで呼ぶ:
+2. `fractal-mcp/scripts/fractal-md.mjs` を一括モードで呼ぶ:
    ```bash
-   node ~/.claude/skills/fractal-edit/scripts/fractal-md.mjs \
+   node ~/.fractal/fractal-mcp/scripts/fractal-md.mjs \
      --note /abs/path/to/xxx.out \
      --md "output_dir/00-index.md" "output_dir/01-purpose.md" ... "output_dir/12-cost.md" \
      --group-name "<サービス正式名>" \
@@ -264,9 +264,9 @@ md ファイル名は `NN-<slug>.md` 形式。番号は以下の固定順を推�
 処理:
 1. workspace basename → 絶対パス解決: fractal MCP の `fractal_list_folders` の出力で `folders[].path` の basename が一致するもの
 2. `.out` パス: `<workspace-path>/<outlineId>.out`
-3. `fractal-edit` を呼ぶ:
+3. `fractal-md.mjs` を呼ぶ:
    ```bash
-   node ~/.claude/skills/fractal-edit/scripts/fractal-md.mjs \
+   node ~/.fractal/fractal-mcp/scripts/fractal-md.mjs \
      --note <workspace-path>/<outlineId>.out \
      --md "output_dir/00-index.md" "output_dir/01-purpose.md" ... \
      --group-name "<サービス正式名>" \
@@ -279,7 +279,7 @@ md ファイル名は `NN-<slug>.md` 形式。番号は以下の固定順を推�
 ### エラー処理
 - workspace が見つからない → ユーザーに確認（勝手に別 workspace を使わない）
 - `.out` が見つからない → ユーザーに確認
-- node ID が `.out` 内に存在しない → `fractal-edit` 側でエラー停止するので、ユーザーに報告
+- node ID が `.out` 内に存在しない → `fractal-md.mjs` 側でエラー停止するので、ユーザーに報告
 
 ---
 
@@ -346,4 +346,4 @@ fractal へ登録した場合は、登録後に fractal MCP の `fractal_search`
 
 - fractal MCP の `fractal_structure` — fractal のデータモデル（最初に読む）
 - fractal MCP の `fractal_search` — Notes フォルダ / `.out` の検索
-- `fractal-edit/scripts/fractal-md.mjs` — ノード追加・MD 取り込み（このスキルから呼び出す。MCP の `fractal_add` と同じ実体）
+- `fractal-mcp/scripts/fractal-md.mjs` — ノード追加・MD 取り込み（このスキルから呼び出す。MCP の `fractal_add` と同じ実体）

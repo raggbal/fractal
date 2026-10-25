@@ -11,7 +11,7 @@
  *           └── single MD page node
  *               or sitemap tree of nodes (web-crawler tree mode)
  *
- * This script orchestrates calls to fractal-edit's fractal-md.mjs:
+ * This script orchestrates calls to fractal-mcp's fractal-md.mjs:
  *   - creates date / title plain nodes
  *   - imports MD as page node(s)
  *   - for tree mode, recursively replicates a sitemap (e.g., map.json)
@@ -49,8 +49,8 @@
  *
  * Optional:
  *   --fractal-date <YYYY-MM-DD>    Override date (default: today, local timezone)
- *   --fractal-md-script <path>     Path to fractal-edit's fractal-md.mjs
- *                                  (auto-resolved if fractal-edit skill is installed)
+ *   --fractal-md-script <path>     Path to fractal-mcp's fractal-md.mjs
+ *                                  (auto-resolved from ~/.fractal/fractal-mcp)
  *
  * NOTE: This script does NOT consult any environment variables. Environment
  *       variable handling (e.g., FRACTAL_DEFAULT_OUT) is the responsibility of
@@ -141,15 +141,15 @@ function locateFractalMd(explicit) {
         return abs;
     }
     const candidates = [
-        path.resolve(__dirname, '..', '..', 'fractal-edit', 'scripts', 'fractal-md.mjs'),
-        path.join(os.homedir(), '.claude', 'skills', 'fractal-edit', 'scripts', 'fractal-md.mjs'),
+        path.resolve(__dirname, '..', '..', 'fractal-mcp', 'scripts', 'fractal-md.mjs'),
+        path.join(os.homedir(), '.fractal', 'fractal-mcp', 'scripts', 'fractal-md.mjs'),
     ];
     for (const c of candidates) {
         if (fs.existsSync(c)) return c;
     }
     console.error(
         `fractal-md.mjs not found. Tried:\n  ${candidates.join('\n  ')}\n` +
-        `Pass --fractal-md-script <path> or install the fractal-edit skill.`
+        `Pass --fractal-md-script <path> or run ai_skills/install.sh (fractal-mcp).`
     );
     process.exit(1);
 }

@@ -144,7 +144,7 @@ If `--to-fractal-title` is not provided, derive it from the YouTube video title 
 
 ### Notes
 
-- Auto-resolves `fractal-edit/scripts/fractal-md.mjs` via the sibling skill location or `~/.claude/skills/fractal-edit/scripts/fractal-md.mjs`. Override with `--fractal-md-script <path>`.
+- Auto-resolves `fractal-mcp/scripts/fractal-md.mjs` via the sibling skill location or `~/.fractal/fractal-mcp/scripts/fractal-md.mjs`. Override with `--fractal-md-script <path>`.
 - The transcript MD's H1 is preserved as the page content; the node text shown in the outliner is `--fractal-title`.
 
 ## Output

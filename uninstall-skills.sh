@@ -19,9 +19,10 @@ PROJECT_DIR=""
 FORCE="no"
 DRY_RUN="no"
 
-SKILLS=(fractal-mcp fractal-search fractal-edit fractal-doctor fractal-summary)
+# fractal の skill は fractal MCP（ai_skills/fractal-mcp）に統合したので、ここで配置する skill は無い
+SKILLS=()
 # Legacy skill names (previous install may have left these)
-LEGACY_SKILLS=(fractal-md fractal-structure)
+LEGACY_SKILLS=(fractal-md fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary fractal-mcp)
 RULE_FILE="fractal-skills.md"
 
 usage() {
@@ -146,7 +147,7 @@ echo "  dry-run  : $DRY_RUN"
 echo ""
 
 echo "Removing skills:"
-for skill in "${SKILLS[@]}"; do
+for skill in ${SKILLS[@]+"${SKILLS[@]}"}; do
     remove_skill "$skill"
 done
 
