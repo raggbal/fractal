@@ -23,9 +23,9 @@ LINK_MODE="link"            # link | copy
 INSTALL_RULES="yes"
 DRY_RUN="no"
 
-SKILLS=(fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary)
-# Legacy skill names that were merged into fractal-edit (cleanup only — never installed)
-LEGACY_SKILLS=(fractal-md)
+SKILLS=(fractal-mcp fractal-search fractal-edit fractal-doctor fractal-summary)
+# Legacy skill names (cleanup only — never installed). fractal-md → fractal-edit, fractal-structure → fractal-mcp
+LEGACY_SKILLS=(fractal-md fractal-structure)
 RULE_FILE="fractal-skills.md"
 
 # ─── arg parse ───
@@ -211,6 +211,8 @@ if [[ "$DRY_RUN" == "yes" ]]; then
     echo "✅ Dry-run complete. Re-run without --dry-run to apply."
 else
     echo "✅ Installed. Start a new Claude Code session to pick up the changes."
+    echo "   fractal の tools は MCP サーバー。未登録なら: claude mcp add -s user fractal -- $(command -v node || echo node) $DEST_SKILLS_DIR/fractal-mcp/server.mjs"
+    echo "   （ai_skills/install.sh なら Claude Code / Kiro / Cursor への登録まで行う）"
     if [[ "$LINK_MODE" == "link" ]]; then
         echo "   (symlink mode — edits in $REPO_DIR are reflected immediately)"
     fi

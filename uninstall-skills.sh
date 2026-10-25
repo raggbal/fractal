@@ -19,9 +19,9 @@ PROJECT_DIR=""
 FORCE="no"
 DRY_RUN="no"
 
-SKILLS=(fractal-structure fractal-search fractal-edit)
+SKILLS=(fractal-mcp fractal-search fractal-edit fractal-doctor fractal-summary)
 # Legacy skill names (previous install may have left these)
-LEGACY_SKILLS=(fractal-md)
+LEGACY_SKILLS=(fractal-md fractal-structure)
 RULE_FILE="fractal-skills.md"
 
 usage() {

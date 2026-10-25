@@ -236,7 +236,7 @@ md ファイル名は `NN-<slug>.md` 形式。番号は以下の固定順を推�
 処理:
 1. `.out` ファイルの絶対パスを解決
    - 絶対パスならそのまま
-   - 相対 / basename のみなら `fractal-search --list-folders --json` で登録済みフォルダを取得して検索
+   - 相対 / basename のみなら fractal MCP の `fractal_list_folders` で登録済みフォルダを取得して検索
 2. `fractal-edit` の `fractal-md.mjs` を一括モードで呼ぶ:
    ```bash
    node ~/.claude/skills/fractal-edit/scripts/fractal-md.mjs \
@@ -257,12 +257,12 @@ md ファイル名は `NN-<slug>.md` 形式。番号は以下の固定順を推�
 ユーザー指定: `applink:fractal://note/<workspace>/<outlineId>/<nodeId>`
 
 パース規則:
-- `<workspace>` = fractal Notes フォルダ名 (basename)。`fractal-search --list-folders --json` で basename 一致して絶対パス解決
+- `<workspace>` = fractal Notes フォルダ名 (basename)。fractal MCP の `fractal_list_folders` で basename 一致して絶対パス解決
 - `<outlineId>` = `.out` ファイル名 (拡張子なし)
 - `<nodeId>` = `.out` 内の node ID（`nxxxxx` 形式）
 
 処理:
-1. workspace basename → 絶対パス解決: `fractal-search --list-folders --json` の出力で `folders[].path` の basename が一致するもの
+1. workspace basename → 絶対パス解決: fractal MCP の `fractal_list_folders` の出力で `folders[].path` の basename が一致するもの
 2. `.out` パス: `<workspace-path>/<outlineId>.out`
 3. `fractal-edit` を呼ぶ:
    ```bash
@@ -329,7 +329,7 @@ fractal_target: applink:fractal://note/pace/mny7xqfb8bew/nmny8wc94bzm7hi
 - [ ] 内部リンクが壊れていないか
 - [ ] 00-index.md から全 md に飛べるか
 
-fractal へ登録した場合は、登録後に `fractal-search --query "<service-slug>" --folder <workspace-path>` で登録成功を確認する。
+fractal へ登録した場合は、登録後に fractal MCP の `fractal_search`（query: "<service-slug>", folders: [<workspace-path>]）で登録成功を確認する。
 
 ---
 
@@ -344,6 +344,6 @@ fractal へ登録した場合は、登録後に `fractal-search --query "<servic
 
 ## 8. 関連スキル
 
-- `fractal-structure` — fractal のデータモデル（最初に読む）
-- `fractal-search` — Notes フォルダ / `.out` の検索
-- `fractal-edit` — ノード追加・MD 取り込み（このスキルから呼び出す）
+- fractal MCP の `fractal_structure` — fractal のデータモデル（最初に読む）
+- fractal MCP の `fractal_search` — Notes フォルダ / `.out` の検索
+- `fractal-edit/scripts/fractal-md.mjs` — ノード追加・MD 取り込み（このスキルから呼び出す。MCP の `fractal_add` と同じ実体）

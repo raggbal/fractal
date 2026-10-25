@@ -1,17 +1,12 @@
----
-name: fractal-structure
-description: Fractal の Notes / Outliner / Page / Image / File 構造とデータモデル、Notes フォルダの場所の見つけ方を説明するリファレンス
----
+# Fractal のデータ構造リファレンス（fractal MCP の fractal_structure）
 
-# fractal-structure — Fractal のデータ構造リファレンス
+Fractal は VSCode 拡張 (`imaken.fractal`) と Electron 単体アプリ (`fractal-desktop`) の両方で動く。どちらも同じ **Notes フォルダ** を扱う。AI が Fractal のノートを追加編集／検索する際、これを読めば「どこに何があるか」が分かる。
 
-Fractal は VSCode 拡張 (`imaken.fractal`) と Electron 単体アプリ (`fractal-desktop`) の両方で動く。どちらも同じ **Notes フォルダ** を扱う。Claude Code が Fractal のノートを追加編集／検索する際、このファイルを読めば「どこに何があるか」が分かる。
-
-関連スキル:
-- `fractal-search` — 検索（全文 + `--tag` / `--checked` フィルタ）
-- `fractal-edit` — 書き込み全般: ノード／画像／ファイル追加、変更（text 書換・チェック・削除・移動 = fractal-modify）、新規 `.out` / 独立 md 作成
-- `fractal-doctor` — note 整合性チェック（read-only。未移行検出・参照切れ・孤児）
-- `fractal-summary` — Outliner・md の全内容を 1 本の md にまとめる（read-only。AI 入力・要約用）
+関連 tools（fractal MCP）:
+- `fractal_search` / `fractal_list_folders` / `fractal_list_notes` — 検索・一覧（全文 + tags / checked フィルタ）
+- `fractal_add` / `fractal_modify` / `fractal_attach` — 書き込み全般: ノード／md page／画像／ファイル追加、変更（本文書換・チェック・削除・移動）、新規 `.out` / 独立 md 作成
+- `fractal_doctor` — note 整合性チェック（read-only。未移行検出・参照切れ・孤児）
+- `fractal_summary` — Outliner・md の全内容を 1 本の md にまとめる（read-only。AI 入力・要約用）
 
 ---
 
@@ -227,7 +222,7 @@ fractal 本体の読み取りは legacy fallback を持つが、**外部ツー�
 - **タイトル ↔ H1 は双方向同期**（v0.212 世代）: 先頭 H1 を書き換えるとツリー側の title に反映され、逆も同期される。H1 抽出は CommonMark 準拠（`# C#` の末尾 `#` はタイトルの一部・閉じ `#` は空白前置時のみ。正典 `src/shared/md-h1-utils.ts`）
 - 画像参照 `![alt](path)` のパスは **md ファイルの場所からの相対パス**（フラットでは `images/foo.png`）
 - **subpage リンク**: `[[label]](x.md)` 形式（通常リンクと区別される Fractal 独自記法）。相対 url は `dirname(現md)` 基準で解決。**label に `]` は使えない**（パーサが最初の `]` で label を切る）— 生成時は `]`/`[` を全角 `］`/`［` に置換する（clipper / fractal-md `--target-md` は自動でやる）
-- subpage は独立 md からも page md からも張れる（`fractal-summary --md` はこれを再帰的に辿る）
+- subpage は独立 md からも page md からも張れる（`fractal_summary` の md はこれを再帰的に辿る）
 - テーブルはセル内改行を `<br>` で平坦化する独自正規化あり（`src/shared/markdown-import.ts` `normalizeMultiLineTableCells`）
 - `fractal-md` スクリプトの MD 取り込みも同等処理を行う
 
@@ -279,8 +274,8 @@ Electron 側は `~/Library/Application Support/fractal-desktop/config.json` の�
 ## 10. Claude Code がファイル操作する時のチェックリスト
 
 1. 対象 Notes フォルダを確定（§1 の順で解決、曖昧ならユーザーに確認）
-2. **書き込みは JSON 手編集より skill スクリプトを優先**（`fractal-edit` の fractal-md / fractal-attach / fractal-modify が相互排他・ID 採番・パス規約を守ってくれる）。手編集が必要なのはスクリプトが対応しない操作だけ
-3. 未移行の可能性がある note は先に `fractal-doctor --note-dir` でプリフライト（layout WARN が出たら本体の移行ゲートでフラット化してもらう）
+2. **書き込みは JSON 手編集より fractal MCP の tool を優先**（`fractal_add` / `fractal_attach` / `fractal_modify` が相互排他・ID 採番・パス規約を守ってくれる）。手編集が必要なのはスクリプトが対応しない操作だけ
+3. 未移行の可能性がある note は先に `fractal_doctor` でプリフライト（layout WARN が出たら本体の移行ゲートでフラット化してもらう）
 4. 書き込む前に、そのファイルがエディタで開かれていないかユーザーに確認（推奨）
 5. 手編集する場合: ID は既存と衝突しないように（Node ID は `n` + 時刻 + ランダム、Page ID は `crypto.randomUUID()`）、optional フィールド（noteTitle / favorites / history 等）を消さない、書き込み後は JSON 再 parse で検証
 6. 親ノードを text 指定で探すときは完全一致 → 部分一致の順
@@ -296,3 +291,15 @@ Electron 側は `~/Library/Application Support/fractal-desktop/config.json` の�
 - `src/notesFolderProvider.ts` — VSCode フォルダ登録 UI（globalState 永続化）
 - `electron/src/settings-manager.ts` — Electron 設定 (electron-store)
 - `package.json` (`contributes.configuration`) — VSCode 設定キー定義
+
+---
+
+## tools を使うときの注意（旧 fractal-edit / fractal-search / fractal-doctor の SKILL.md から）
+
+- 対象の `.out` を Fractal（VSCode / Electron）で**開いたまま外部から書き込まない**（競合して壊れる）。ノード ID・Page ID は tool が採番する（手書きしない）
+- `parent` / `target` は ID か本文で指定する。見つからなければエラーで止まり、勝手に root にフォールバックしない。曖昧ならノード ID を使うかユーザーに確認する
+- `fractal_modify` の delete は物理ファイル（page md / 画像 / 添付）を消さない。残骸は `fractal_doctor` の orphans で確認し、消すかはユーザーが決める。破壊的な操作の前は `dryRun: true` で確かめられる
+- md を page として取り込むと、md 内のローカルリンク（PDF / CSV / 他 md）は `<outDir>/files/` にコピーされ相対パスに書き換わる（URL・anchor・存在しないファイルはそのまま）
+- `fractal_doctor` は書き込まない。修復は結果をユーザーと相談してから
+- `fractal_search` はバイナリ添付の中身を検索しない（パスだけ。docx / pptx / xlsx / pdf は抽出して検索）。`outline.note` のフォルダ階層は結果に反映しない
+- 各 tool の実体は `ai_skills/fractal-*/scripts/*.mjs`（CLI として直接実行もできる。`node <script> --help`）

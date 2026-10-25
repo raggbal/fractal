@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # install.sh — Fractal ai_skills を各 AI IDE の user-level skill 領域に配置
 #
+# fractal の search / edit / summary / doctor / structure は skill ではなく MCP サーバー（fractal-mcp）。
+# fractal-* の dir は scripts の置き場として配置し、各 IDE の MCP 設定に fractal を登録する:
+#   - Claude Code: claude mcp add -s user fractal（claude CLI があるとき）
+#   - Kiro:        ~/.kiro/settings/mcp.json
+#   - Cursor:      ~/.cursor/mcp.json
+#   - Antigravity: 自動登録しない（表示するコマンドを手で設定）
+#
 # 配置方式は IDE ごとに自動選択:
 #   - symlink: claude / cursor / antigravity  (source 直リンク・更新即反映)
 #   - copy:    kiro                            (Kiro が symlink 経由のスキルを認識しないため)
@@ -24,7 +31,9 @@ set -eu
 
 # ─── 設定 ─────────────────────────────────────────────
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILLS="fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary collect web-crawler-md youtube-md doc-md pptx-pages-md arxiv-md aws-doc-maker"
+SKILLS="fractal-mcp fractal-search fractal-edit fractal-doctor fractal-summary collect web-crawler-md youtube-md doc-md pptx-pages-md arxiv-md aws-doc-maker"
+# 以前は skill だったが今は無いもの（install のたびに片付ける）
+LEGACY_SKILLS="fractal-structure"
 IDE_LIST="claude cursor kiro antigravity"
 
 ide_parent() {
@@ -204,6 +213,50 @@ do_uninstall_one() {
     fi
 }
 
+# fractal-mcp の登録 / 解除（server のパスは install 先 = kiro は copy 先、他は repo）
+do_mcp_one() {
+    ide=$1
+    server="$(ide_dir "$ide")/fractal-mcp/server.mjs"
+    [ "$(ide_method "$ide")" = "symlink" ] && server="$SOURCE_DIR/fractal-mcp/server.mjs"
+    node_bin=$(command -v node || true)
+    if [ -z "$node_bin" ]; then
+        warn "  MCP: node が見つからないので登録をスキップ"
+        return 0
+    fi
+    case "$ide" in
+        claude)
+            if ! command -v claude >/dev/null 2>&1; then
+                warn "  MCP: claude CLI が無いので手で登録: claude mcp add -s user fractal -- $node_bin $server"
+                return 0
+            fi
+            if [ "$DRY_RUN" -eq 1 ]; then
+                echo "  [dry-run] claude mcp add -s user fractal -- $node_bin $server"
+                return 0
+            fi
+            claude mcp remove -s user fractal >/dev/null 2>&1 || true
+            [ "$UNINSTALL" -eq 1 ] && { ok "  MCP: fractal ← 解除"; return 0; }
+            claude mcp add -s user fractal -- "$node_bin" "$server" >/dev/null
+            ok "  MCP: fractal → claude (user scope)"
+            ;;
+        kiro|cursor)
+            cfg="$(ide_parent "$ide")/mcp.json"
+            [ "$ide" = "kiro" ] && cfg="$HOME/.kiro/settings/mcp.json"
+            if [ "$DRY_RUN" -eq 1 ]; then
+                echo "  [dry-run] $cfg の mcpServers.fractal を$([ "$UNINSTALL" -eq 1 ] && echo 削除 || echo "設定 ($server)")"
+                return 0
+            fi
+            if [ "$UNINSTALL" -eq 1 ]; then
+                "$node_bin" "$SOURCE_DIR/fractal-mcp/register.mjs" "$cfg" --remove && ok "  MCP: fractal ← 解除 ($cfg)"
+            else
+                "$node_bin" "$SOURCE_DIR/fractal-mcp/register.mjs" "$cfg" "$server" --node "$node_bin" && ok "  MCP: fractal → $cfg"
+            fi
+            ;;
+        *)
+            [ "$UNINSTALL" -eq 1 ] || dim "  MCP: $ide は自動登録しない。設定するなら command=$node_bin args=[$server]"
+            ;;
+    esac
+}
+
 # ─── メイン ────────────────────────────────────────
 echo ""
 echo "Fractal ai_skills installer"
@@ -232,6 +285,10 @@ for ide in $TARGETS; do
             do_install_one "$ide" "$skill" || true
         fi
     done
+    for legacy in $LEGACY_SKILLS; do
+        do_uninstall_one "$ide" "$legacy" >/dev/null 2>&1 || true
+    done
+    do_mcp_one "$ide" || true
     did_any=1
 done
 

@@ -480,13 +480,15 @@ test.describe('E. fractal-search --tag/--checked', () => {
 });
 
 test.describe('F. 配線', () => {
-    test('TC-EX-20 install.sh SKILLS + SKILL.md 実在', async () => {
+    test('TC-EX-20 install.sh SKILLS + scripts 実在（SKILL.md は fractal-mcp に統合済み）', async () => {
         const installSh = fs.readFileSync(path.resolve(__dirname, '../../ai_skills/install.sh'), 'utf-8');
         const skillsLine = installSh.match(/^SKILLS="([^"]+)"/m);
         expect(skillsLine).toBeTruthy();
         expect(skillsLine![1]).toContain('fractal-doctor');
         expect(skillsLine![1]).toContain('fractal-summary');
-        expect(fs.existsSync(path.resolve(__dirname, '../../ai_skills/fractal-doctor/SKILL.md'))).toBe(true);
-        expect(fs.existsSync(path.resolve(__dirname, '../../ai_skills/fractal-summary/SKILL.md'))).toBe(true);
+        expect(skillsLine![1]).toContain('fractal-mcp');
+        expect(fs.existsSync(doctorMjs)).toBe(true);
+        expect(fs.existsSync(summaryMjs)).toBe(true);
+        expect(fs.existsSync(path.resolve(__dirname, '../../ai_skills/fractal-mcp/server.mjs'))).toBe(true);
     });
 });
