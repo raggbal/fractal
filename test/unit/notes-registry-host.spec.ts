@@ -1,5 +1,5 @@
 /**
- * spec 20261026-1555-fractal-notes-json — NotesFolderProvider（Notes 一覧ファイルの作成・取り込み・切替・解除）。
+ * spec 20261026-1845-fractal-file-views — NotesFolderProvider / NotesListsProvider（default.fractal の初回作成・作成・切替・解除・ビュー）。
  * vscode を stub require する（test/unit/folder-link-host.spec.ts と同じ「require 直前 purge + finally purge」）。
  */
 import { test, expect } from '@playwright/test';
@@ -78,12 +78,13 @@ function makeContext(initial: Record<string, unknown> = {}) {
     };
 }
 
-function setup(initial: Record<string, unknown> = {}) {
+function setup(initial: Record<string, unknown> = {}, defaultFile?: string) {
     const v = makeVscodeStub();
     const mod = loadProvider(v.stub);
     const ctx = makeContext(initial);
-    const provider = new mod.NotesFolderProvider(ctx);
-    return { ...v, mod, ctx, provider };
+    const def = defaultFile || path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'nr-home-')), '.fractal', 'default.fractal');
+    const provider = new mod.NotesFolderProvider(ctx, def);
+    return { ...v, mod, ctx, provider, def };
 }
 
 function tmp(prefix: string): string {
@@ -92,172 +93,177 @@ function tmp(prefix: string): string {
 
 const readJson = (f: string) => JSON.parse(fs.readFileSync(f, 'utf8'));
 
-test.describe('NotesFolderProvider × Notes 一覧ファイル', () => {
-    test('AC-2 保存先・name・title を指定すると作られて登録・アクティブになる。途中キャンセルでは何も書かない', async () => {
-        const dir = tmp('nr-create-');
-        const { provider, answers, ctx, shown } = setup();
-        expect(shown.context['fractal.hasNotesRegistry']).toBe(false);
+test.describe('NotesFolderProvider × .fractal', () => {
+    test('AC-1 初回に default.fractal を作って旧 notesFolders を入れ、登録・アクティブにする。空でも作る。2 回目は作らない', async () => {
+        const legacy = [tmp('nr-legacy-a-'), tmp('nr-legacy-b-')];
+        const s1 = setup({ notesFolders: legacy });
+        expect(s1.shown.context['fractal.hasNotesRegistry']).toBe(false);
+        await s1.provider.initialize();
+        expect(readJson(s1.def)).toEqual({ version: 1, notes: legacy });
+        expect(s1.provider.getRegistries()).toEqual([s1.def]);
+        expect(s1.provider.getActiveRegistry()).toBe(s1.def);
+        expect(s1.provider.getFolders()).toEqual(legacy);
+        expect(s1.ctx.store.get('notesRegistryInitialized')).toBe(true);
+        expect(s1.shown.context['fractal.hasNotesRegistry']).toBe(true);
 
-        // キャンセル（title で中断）→ 何も書かない
+        // 旧が空でも作る
+        const s2 = setup();
+        await s2.provider.initialize();
+        expect(readJson(s2.def)).toEqual({ version: 1, notes: [] });
+        expect(s2.provider.getActiveRegistry()).toBe(s2.def);
+
+        // 全部解除した後の起動では作り直さない（フラグ）
+        await s2.provider.removeRegistry({ file: s2.def });
+        fs.rmSync(s2.def);
+        const again = new s2.mod.NotesFolderProvider(s2.ctx, s2.def);
+        await again.initialize();
+        expect(fs.existsSync(s2.def)).toBe(false);
+        expect(again.getRegistries()).toEqual([]);
+
+        // rc.8 で既に登録があれば作らない
+        const old = path.join(tmp('nr-rc8-'), 'work-fractal-notes.json');
+        fs.writeFileSync(old, JSON.stringify({ version: 1, name: 'work', title: '仕事', notes: ['/x'] }));
+        const s3 = setup({ notesRegistries: [old], activeNotesRegistry: old });
+        await s3.provider.initialize();
+        expect(fs.existsSync(s3.def)).toBe(false);
+        expect(s3.provider.getFolders()).toEqual(['/x']);
+    });
+
+    test('AC-2 default.fractal が既にあれば無い Note だけ足す。壊れていれば書かずに登録して警告。作成に失敗したらフラグを立てない', async () => {
+        const home = tmp('nr-exist-');
+        const def = path.join(home, '.fractal', 'default.fractal');
+        fs.mkdirSync(path.dirname(def));
+        fs.writeFileSync(def, JSON.stringify({ version: 1, notes: ['/other-ide'] }));
+        const s1 = setup({ notesFolders: ['/mine', '/other-ide'] }, def);
+        await s1.provider.initialize();
+        expect(readJson(def).notes).toEqual(['/other-ide', '/mine']);
+        expect(s1.provider.getFolders()).toEqual(['/other-ide', '/mine']);
+
+        fs.writeFileSync(def, '{ broken');
+        const s2 = setup({ notesFolders: ['/mine'] }, def);
+        await s2.provider.initialize();
+        expect(fs.readFileSync(def, 'utf8')).toBe('{ broken');
+        expect(s2.provider.getRegistries()).toEqual([def]);
+        expect(s2.shown.warn.length).toBe(1);
+        expect(s2.ctx.store.get('notesFolders')).toEqual(['/mine']); // 旧の Note は消えない
+
+        // 作れない（親が通常ファイル）→ フラグを立てない
+        const blocker = path.join(tmp('nr-fail-'), 'file');
+        fs.writeFileSync(blocker, 'x');
+        const s3 = setup({ notesFolders: ['/mine'] }, path.join(blocker, '.fractal', 'default.fractal'));
+        await s3.provider.initialize();
+        expect(s3.ctx.store.get('notesRegistryInitialized')).toBeUndefined();
+        expect(s3.provider.getRegistries()).toEqual([]);
+        expect(s3.shown.warn.length).toBe(1);
+    });
+
+    test('AC-3 新規作成は 保存先 + name。不正な name・同名・キャンセルでは書かない。既存を追加・切替・解除', async () => {
+        const dir = tmp('nr-create-');
+        const { provider, answers, ctx, shown, mod, def } = setup();
+        await provider.initialize();
+
         answers.openDialog.push(dir);
-        answers.inputBox.push('work', undefined);
+        answers.inputBox.push(undefined);
         expect(await provider.createRegistry()).toBe(false);
-        expect(fs.readdirSync(dir)).toEqual([]);
-        // 不正な name は確定できない
         answers.openDialog.push(dir);
         answers.inputBox.push('my work');
         expect(await provider.createRegistry()).toBe(false);
         expect(fs.readdirSync(dir)).toEqual([]);
 
         answers.openDialog.push(dir);
-        answers.inputBox.push('work', '仕事');
+        answers.inputBox.push('work');
         expect(await provider.createRegistry()).toBe(true);
-        const file = path.join(dir, 'work-fractal-notes.json');
-        expect(readJson(file)).toEqual({ version: 1, name: 'work', title: '仕事', notes: [] });
-        expect(ctx.store.get('notesRegistries')).toEqual([file]);
-        expect(ctx.store.get('activeNotesRegistry')).toBe(file);
-        expect(shown.context['fractal.hasNotesRegistry']).toBe(true);
+        const work = path.join(dir, 'work.fractal');
+        expect(readJson(work)).toEqual({ version: 1, notes: [] });
+        expect(provider.getRegistries()).toEqual([def, work]);
+        expect(ctx.store.get('activeNotesRegistry')).toBe(work);
 
-        // 同名は上書きしない
-        fs.writeFileSync(file, JSON.stringify({ version: 1, name: 'work', title: '仕事', notes: ['/keep'] }));
+        fs.writeFileSync(work, JSON.stringify({ version: 1, notes: ['/keep'] }));
         answers.openDialog.push(dir);
-        answers.inputBox.push('work', '別');
+        answers.inputBox.push('work');
         expect(await provider.createRegistry()).toBe(false);
-        expect(readJson(file).notes).toEqual(['/keep']);
+        expect(readJson(work).notes).toEqual(['/keep']);
         expect(shown.error.length).toBe(1);
-    });
 
-    test('AC-3 初回の新規作成で旧 notesFolders を取り込む。既存を開いたときは取り込まない。旧キーは残る', async () => {
-        const legacy = [tmp('nr-legacy-a-'), tmp('nr-legacy-b-')];
-        const dir = tmp('nr-import-');
-        const s1 = setup({ notesFolders: legacy });
-        s1.answers.openDialog.push(dir);
-        s1.answers.inputBox.push('home', '個人');
-        await s1.provider.createRegistry();
-        const file = path.join(dir, 'home-fractal-notes.json');
-        expect(readJson(file).notes).toEqual(legacy);
-        expect(s1.provider.getFolders()).toEqual(legacy);
-        expect(s1.ctx.store.get('notesFolders')).toEqual(legacy);
-        expect(s1.shown.info.some((m: string) => m.includes('imported 2'))).toBe(true);
+        // Note の追加・並べ替え・削除はアクティブの .fractal に書かれ、notesFolders に写る
+        const [a, b] = [tmp('nr-a-'), tmp('nr-b-')];
+        for (const f of [a, b]) { answers.openDialog.push(f); await provider.addFolder(); }
+        expect(readJson(work).notes).toEqual(['/keep', a, b]);
+        await provider.handleDrop(new mod.NotesFolderItem('/keep'), { get: () => ({ value: [b] }) });
+        expect(readJson(work).notes).toEqual([b, '/keep', a]);
+        await provider.removeFolder(new mod.NotesFolderItem('/keep'));
+        expect(readJson(work).notes).toEqual([b, a]);
+        expect(ctx.store.get('notesFolders')).toEqual([b, a]);
+        expect(readJson(def).notes).toEqual([]); // 他の .fractal には書かない
 
-        // 2 つ目の新規作成では取り込まない
-        s1.answers.openDialog.push(dir);
-        s1.answers.inputBox.push('second', '2');
-        await s1.provider.createRegistry();
-        expect(readJson(path.join(dir, 'second-fractal-notes.json')).notes).toEqual([]);
-
-        // 既存を開く: 取り込まない
-        const other = path.join(tmp('nr-open-'), 'x-fractal-notes.json');
-        fs.writeFileSync(other, JSON.stringify({ version: 1, name: 'x', title: 'X', notes: [] }));
-        const s2 = setup({ notesFolders: legacy });
-        s2.answers.openDialog.push(other);
-        expect(await s2.provider.openRegistry()).toBe(true);
-        expect(readJson(other).notes).toEqual([]);
-        expect(s2.provider.getFolders()).toEqual([]);
-        // 形式の違う json は登録しない
-        const bogus = path.join(tmp('nr-bogus-'), 'package.json');
+        // 既存を追加（.fractal / 形式違いは登録しない）
+        const other = path.join(tmp('nr-open-'), 'home.fractal');
+        fs.writeFileSync(other, JSON.stringify({ version: 1, notes: ['/h'] }));
+        answers.openDialog.push(other);
+        expect(await provider.openRegistry()).toBe(true);
+        const bogus = path.join(tmp('nr-bogus-'), 'x.fractal');
         fs.writeFileSync(bogus, JSON.stringify({ name: 'x' }));
-        s2.answers.openDialog.push(bogus);
-        expect(await s2.provider.openRegistry()).toBe(false);
-        expect(s2.provider.getRegistries()).toEqual([other]);
-    });
+        answers.openDialog.push(bogus);
+        expect(await provider.openRegistry()).toBe(false);
+        expect(provider.getRegistries()).toEqual([def, work, other]);
+        expect(provider.getFolders()).toEqual(['/h']);
+        expect(provider.getAllFolders()).toEqual(['/h', b, a]);
 
-    test('AC-4 Note の追加・削除・並べ替えがアクティブの一覧に書かれ notesFolders に写る。壊れた一覧には書かない', async () => {
-        const dir = tmp('nr-mutate-');
-        const file = path.join(dir, 'w-fractal-notes.json');
-        fs.writeFileSync(file, JSON.stringify({ version: 1, name: 'w', title: 'W', notes: [], extra: { keep: true } }));
-        const { provider, answers, ctx, mod, shown } = setup({ notesRegistries: [file], activeNotesRegistry: file });
-        const [a, b, c] = [tmp('nr-a-'), tmp('nr-b-'), tmp('nr-c-')];
-        for (const f of [a, b, c]) { answers.openDialog.push(f); await provider.addFolder(); }
-        expect(readJson(file).notes).toEqual([a, b, c]);
-        expect(readJson(file).extra).toEqual({ keep: true });
-        expect(ctx.store.get('notesFolders')).toEqual([a, b, c]);
-
-        // 並べ替え: c を a の位置へ
-        const dt = { get: () => ({ value: [c] }) };
-        await provider.handleDrop(new mod.NotesFolderItem(a), dt);
-        expect(readJson(file).notes).toEqual([c, a, b]);
-
-        await provider.removeFolder(new mod.NotesFolderItem(a));
-        expect(readJson(file).notes).toEqual([c, b]);
-        expect(ctx.store.get('notesFolders')).toEqual([c, b]);
-
-        // 別ウィンドウが書いた変更を潰さない（書く直前に読み直す）
-        fs.writeFileSync(file, JSON.stringify({ version: 1, name: 'w', title: 'W', notes: [c, b, '/other-window'] }));
-        answers.openDialog.push(a);
-        await provider.addFolder();
-        expect(readJson(file).notes).toEqual([c, b, '/other-window', a]);
-
-        // 壊れた一覧には書かない（表示は最後に読めた中身のまま）
-        fs.writeFileSync(file, '{ broken');
-        answers.openDialog.push(tmp('nr-d-'));
-        await provider.addFolder();
-        expect(fs.readFileSync(file, 'utf8')).toBe('{ broken');
-        expect(provider.getFolders()).toEqual([c, b, '/other-window', a]);
-        expect(shown.warn.length).toBeGreaterThan(0);
-    });
-
-    test('AC-5 複数の一覧を切り替えると Note が入れ替わる。解除はファイルを消さない。リンク逆引きは和集合', async () => {
-        const dir = tmp('nr-switch-');
-        const [n1, n2, n3] = ['/notes/one', '/notes/two', '/notes/three'];
-        const f1 = path.join(dir, 'a-fractal-notes.json');
-        const f2 = path.join(dir, 'b-fractal-notes.json');
-        fs.writeFileSync(f1, JSON.stringify({ version: 1, name: 'a', title: 'A', notes: [n1, n2] }));
-        fs.writeFileSync(f2, JSON.stringify({ version: 1, name: 'b', title: 'B', notes: [n2, n3] }));
-        const { provider, answers, ctx, shown } = setup({ notesRegistries: [f1, f2], activeNotesRegistry: f1 });
-        const view: any = {};
-        provider.setTreeView(view);
-        expect(view.description).toBe('A');
-        expect(provider.getChildren().map((i: any) => i.folderPath)).toEqual([n1, n2]);
-        expect(provider.getAllFolders()).toEqual([n1, n2, n3]);
-
-        answers.quickPick.push(items => items.find((i: any) => i.file === f2));
-        await provider.switchRegistry();
-        expect(provider.getChildren().map((i: any) => i.folderPath)).toEqual([n2, n3]);
-        expect(ctx.store.get('activeNotesRegistry')).toBe(f2);
-        expect(ctx.store.get('notesFolders')).toEqual([n2, n3]);
-        expect(view.description).toBe('B');
-
-        // アクティブを解除 → 残りの先頭へ。ファイルは消さない
-        answers.quickPick.push(items => items.find((i: any) => i.file === f2));
-        await provider.removeRegistry();
-        expect(fs.existsSync(f2)).toBe(true);
-        expect(provider.getRegistries()).toEqual([f1]);
-        expect(provider.getActiveRegistry()).toBe(f1);
-        expect(provider.getFolders()).toEqual([n1, n2]);
-
-        // 最後の 1 つを解除 → 一覧なし（welcome）
-        answers.quickPick.push(items => items.find((i: any) => i.file === f1));
-        await provider.removeRegistry();
+        // 切替（Notes Lists の行クリック）・解除（行の ✕。ファイルは消さない）
+        await provider.activateRegistry(work);
+        expect(provider.getFolders()).toEqual([b, a]);
+        await provider.removeRegistry({ file: work });
+        expect(fs.existsSync(work)).toBe(true);
+        expect(provider.getActiveRegistry()).toBe(def);
+        await provider.removeRegistry({ file: def });
+        await provider.removeRegistry({ file: other });
         expect(provider.getActiveRegistry()).toBeUndefined();
-        expect(provider.getFolders()).toEqual([]);
         expect(shown.context['fractal.hasNotesRegistry']).toBe(false);
-        expect(fs.existsSync(f1)).toBe(true);
 
-        // 一覧が無いときの Note 追加は、先に既存を開く / 新規作成を聞く
+        // 一覧が無いときの Note 追加は、先に既存を追加 / 新規作成を聞く
         answers.info.push(undefined);
         await provider.addFolder();
-        expect(shown.info.some((m: string) => m.includes('fractal-notes.json'))).toBe(true);
-        expect(provider.getRegistries()).toEqual([]);
+        expect(shown.info.some((m: string) => m.includes('.fractal'))).toBe(true);
     });
 
-    test('AC-6 package.json の一覧コマンドが extension.ts で登録され、view/title・viewsWelcome から呼べる', () => {
+    test('AC-4 Notes Lists に登録した .fractal（アクティブに印・壊れたものに ⚠）、Notes の description はファイル名', async () => {
+        const dir = tmp('nr-view-');
+        const f1 = path.join(dir, 'a.fractal');
+        const f2 = path.join(dir, 'b.fractal');
+        fs.writeFileSync(f1, JSON.stringify({ version: 1, notes: ['/one'] }));
+        fs.writeFileSync(f2, '{ broken');
+        const { provider } = setup({ notesRegistries: [f1, f2], activeNotesRegistry: f1, notesRegistryInitialized: true });
+        const view: any = {};
+        provider.setTreeView(view);
+        expect(view.description).toBe('a.fractal');
+        const rows = provider.lists.getChildren();
+        expect(rows.map((r: any) => r.label)).toEqual(['a.fractal', 'b.fractal']);
+        expect(rows[0].description).toBe('●');
+        expect(rows[0].iconPath.id).toBe('check');
+        expect(rows[0].command.command).toBe('fractal.activateNotesRegistry');
+        expect(rows[0].command.arguments).toEqual([f1]);
+        expect(rows[1].iconPath.id).toBe('warning');
+        expect(rows[1].tooltip).toContain('Invalid JSON');
+        expect(rows.every((r: any) => r.contextValue === 'notesList')).toBe(true);
+        expect(provider.getChildren().map((i: any) => i.folderPath)).toEqual(['/one']);
+    });
+
+    test('AC-5 views・メニュー・viewsWelcome のコマンドが extension.ts で登録され、Note 追加は notesExplorer、.fractal の操作は notesLists にだけ出る', () => {
         const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
         const ext = fs.readFileSync(path.join(ROOT, 'src', 'extension.ts'), 'utf8');
-        const cmds = ['fractal.switchNotesRegistry', 'fractal.openNotesRegistry', 'fractal.createNotesRegistry', 'fractal.removeNotesRegistry'];
+        expect(pkg.contributes.views['fractal-notes'].map((v: any) => v.id)).toEqual(['notesLists', 'notesExplorer']);
+        for (const id of ['notesLists', 'notesExplorer']) expect(ext, id).toContain(`createTreeView('${id}'`);
         const declared = pkg.contributes.commands.map((c: any) => c.command);
-        const viewTitle = pkg.contributes.menus['view/title'].filter((m: any) => m.when.includes('view == notesExplorer')).map((m: any) => m.command);
-        for (const c of cmds) {
+        const menus = [...pkg.contributes.menus['view/title'], ...pkg.contributes.menus['view/item/context']];
+        const inView = (id: string) => menus.filter((m: any) => m.when.includes(`view == ${id}`)).map((m: any) => m.command);
+        expect(inView('notesExplorer').sort()).toEqual(['fractal.addNotesFolder', 'fractal.migrateToFlatLayout', 'fractal.removeNotesFolder']);
+        expect(inView('notesLists').sort()).toEqual(['fractal.createNotesRegistry', 'fractal.openNotesRegistry', 'fractal.removeNotesRegistry']);
+        const welcome = pkg.contributes.viewsWelcome.map((w: any) => w.contents).join('\n');
+        const used = new Set<string>([...menus.map((m: any) => m.command), ...[...welcome.matchAll(/command:([\w.]+)/g)].map(m => m[1]), 'fractal.activateNotesRegistry', 'fractal.switchNotesRegistry']);
+        for (const c of used) {
             expect(declared, c).toContain(c);
             expect(ext, c).toContain(`registerCommand('${c}'`);
-            expect(viewTitle, c).toContain(c);
         }
-        const welcome = pkg.contributes.viewsWelcome.filter((w: any) => w.view === 'notesExplorer').map((w: any) => w.contents).join('\n');
-        for (const c of [...welcome.matchAll(/command:([\w.]+)/g)].map(m => m[1])) {
-            expect(declared, c).toContain(c);
-            expect(ext, c).toContain(`registerCommand('${c}'`);
-        }
-        expect(welcome).toContain('command:fractal.openNotesRegistry');
-        expect(welcome).toContain('command:fractal.createNotesRegistry');
+        expect(ext).toContain('notesFolderProvider.initialize()');
     });
 });

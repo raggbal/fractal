@@ -282,14 +282,19 @@ export function activate(context: vscode.ExtensionContext) {
         dragAndDropController: notesFolderProvider,
     });
     notesFolderProvider.setTreeView(notesTreeView);
-    context.subscriptions.push(notesTreeView, notesFolderProvider);
+    // spec 20261026-1845-fractal-file-views D4: 上の Notes Lists ビュー（登録した .fractal）
+    const notesListsView = vscode.window.createTreeView('notesLists', { treeDataProvider: notesFolderProvider.lists });
+    context.subscriptions.push(notesTreeView, notesListsView, notesFolderProvider);
+    // D3: 初回は ~/.fractal/default.fractal を作って今までの Note を入れる
+    void notesFolderProvider.initialize();
 
-    // spec 20261026-1555-fractal-notes-json: Notes 一覧ファイルの切替・追加・作成・解除
+    // Notes 一覧ファイル（.fractal）の切替・追加・作成・解除
     context.subscriptions.push(
+        vscode.commands.registerCommand('fractal.activateNotesRegistry', (file: string) => notesFolderProvider.activateRegistry(file)),
         vscode.commands.registerCommand('fractal.switchNotesRegistry', () => notesFolderProvider.switchRegistry()),
         vscode.commands.registerCommand('fractal.openNotesRegistry', () => notesFolderProvider.openRegistry()),
         vscode.commands.registerCommand('fractal.createNotesRegistry', () => notesFolderProvider.createRegistry()),
-        vscode.commands.registerCommand('fractal.removeNotesRegistry', () => notesFolderProvider.removeRegistry())
+        vscode.commands.registerCommand('fractal.removeNotesRegistry', (item) => notesFolderProvider.removeRegistry(item))
     );
 
     context.subscriptions.push(

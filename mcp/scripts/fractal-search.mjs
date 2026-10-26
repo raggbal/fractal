@@ -318,7 +318,7 @@ function discoverFolders() {
         // editor 名は db path のフォルダ名から推定
         const editorName = path.basename(path.dirname(path.dirname(path.dirname(db))));
         addAll(st.notesFolders, { kind: 'vscode', editor: editorName, detail: db });
-        // spec 20261026-1555-fractal-notes-json D12: 登録した Notes 一覧ファイル（<name>-fractal-notes.json）の notes も足す
+        // spec 20261026-1555-fractal-notes-json D12: 登録した Notes 一覧ファイル（<name>.fractal）の notes も足す
         for (const reg of Array.isArray(st.notesRegistries) ? st.notesRegistries : []) {
             const notes = readNotesRegistry(reg);
             if (notes) addAll(notes, { kind: 'vscode-registry', editor: editorName, detail: reg });

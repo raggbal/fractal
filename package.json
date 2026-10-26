@@ -73,15 +73,23 @@
     "views": {
       "fractal-notes": [
         {
+          "id": "notesLists",
+          "name": "Notes Lists"
+        },
+        {
           "id": "notesExplorer",
-          "name": "Notes Folders"
+          "name": "Notes"
         }
       ]
     },
     "viewsWelcome": [
       {
+        "view": "notesLists",
+        "contents": "Add a .fractal notes list, or create a new one.\n[Add Existing .fractal](command:fractal.openNotesRegistry)\n[Create New .fractal](command:fractal.createNotesRegistry)"
+      },
+      {
         "view": "notesExplorer",
-        "contents": "Choose a fractal-notes.json that lists your notes, or create a new one.\n[Open fractal-notes.json](command:fractal.openNotesRegistry)\n[Create New](command:fractal.createNotesRegistry)",
+        "contents": "Choose or create a .fractal in Notes Lists above.",
         "when": "!fractal.hasNotesRegistry"
       },
       {
@@ -100,28 +108,35 @@
         "command": "fractal.addNotesFolder",
         "title": "Add Notes Folder",
         "category": "Fractal Note",
-        "icon": "$(add)"
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "fractal.activateNotesRegistry",
+        "title": "Switch to This Notes List",
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.switchNotesRegistry",
-        "title": "Switch Notes List",
-        "category": "Fractal Note",
-        "icon": "$(arrow-swap)"
+        "title": "Switch Notes List (.fractal)…",
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.openNotesRegistry",
-        "title": "Open Existing fractal-notes.json…",
-        "category": "Fractal Note"
+        "title": "Add Existing .fractal…",
+        "category": "Fractal Note",
+        "icon": "$(folder-opened)"
       },
       {
         "command": "fractal.createNotesRegistry",
-        "title": "Create New fractal-notes.json…",
-        "category": "Fractal Note"
+        "title": "Create New .fractal…",
+        "category": "Fractal Note",
+        "icon": "$(new-file)"
       },
       {
         "command": "fractal.removeNotesRegistry",
-        "title": "Remove Notes List (keeps the file)…",
-        "category": "Fractal Note"
+        "title": "Remove from Notes Lists (keeps the file)",
+        "category": "Fractal Note",
+        "icon": "$(close)"
       },
       {
         "command": "fractal.removeNotesFolder",
@@ -614,37 +629,38 @@
           "group": "navigation"
         }
       ],
+      "commandPalette": [
+        {
+          "command": "fractal.activateNotesRegistry",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
-          "command": "fractal.switchNotesRegistry",
-          "when": "view == notesExplorer",
+          "command": "fractal.createNotesRegistry",
+          "when": "view == notesLists",
           "group": "navigation@1"
+        },
+        {
+          "command": "fractal.openNotesRegistry",
+          "when": "view == notesLists",
+          "group": "navigation@2"
         },
         {
           "command": "fractal.addNotesFolder",
           "when": "view == notesExplorer && fractal.hasNotesRegistry",
-          "group": "navigation@2"
-        },
-        {
-          "command": "fractal.openNotesRegistry",
-          "when": "view == notesExplorer",
-          "group": "1_registry@1"
-        },
-        {
-          "command": "fractal.createNotesRegistry",
-          "when": "view == notesExplorer",
-          "group": "1_registry@2"
-        },
-        {
-          "command": "fractal.removeNotesRegistry",
-          "when": "view == notesExplorer && fractal.hasNotesRegistry",
-          "group": "1_registry@3"
+          "group": "navigation"
         }
       ],
       "view/item/context": [
         {
+          "command": "fractal.removeNotesRegistry",
+          "when": "view == notesLists && viewItem == notesList",
+          "group": "inline"
+        },
+        {
           "command": "fractal.removeNotesFolder",
-          "when": "view == notesExplorer",
+          "when": "view == notesExplorer && viewItem == notesFolder",
           "group": "inline"
         },
         {

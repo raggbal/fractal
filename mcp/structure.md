@@ -55,15 +55,15 @@ JSON の中身（例）:
   "notesFolders": ["/Users/you/Desktop/notes", "/Users/you/Desktop/tasks"],
   "notesLastFile:/Users/you/Desktop/notes": "/Users/you/Desktop/notes/xxx.out",
   "notesPanelCollapsed:/Users/you/Desktop/notes": false,
-  "notesRegistries": ["/Users/you/Documents/work-fractal-notes.json"],
-  "activeNotesRegistry": "/Users/you/Documents/work-fractal-notes.json"
+  "notesRegistries": ["/Users/you/.fractal/default.fractal", "/Users/you/Documents/work.fractal"],
+  "activeNotesRegistry": "/Users/you/.fractal/default.fractal"
 }
 ```
 
-Note の一覧の正は **Notes 一覧ファイル**（`<name>-fractal-notes.json`）。`notesRegistries` に登録した一覧ファイルのパス、`activeNotesRegistry` にサイドパネルで選んでいるものが入る。`notesFolders` はアクティブの一覧の notes の写し。一覧ファイルの形式:
+Note の一覧の正は **Notes 一覧ファイル**（`<name>.fractal`。初回は `~/.fractal/default.fractal` が自動で作られる）。`notesRegistries` に登録した一覧ファイルのパス、`activeNotesRegistry` にサイドパネルの Notes Lists で選んでいるものが入る。`notesFolders` はアクティブの一覧の notes の写し。一覧ファイルの中身（JSON）:
 
 ```json
-{ "version": 1, "name": "work", "title": "仕事", "notes": ["/Users/you/Desktop/notes", "/Users/you/Desktop/tasks"] }
+{ "version": 1, "notes": ["/Users/you/Desktop/notes", "/Users/you/Desktop/tasks"] }
 ```
 
 `fractal_list_folders` は全 IDE の `notesFolders` と、登録された全一覧ファイルの `notes` を合わせて返す（source は `vscode:<IDE>:<一覧ファイル名>`）。

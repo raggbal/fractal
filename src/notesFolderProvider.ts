@@ -5,10 +5,11 @@ import {
     NotesRegistryDoc,
     RegistryExistsError,
     createRegistryFile,
+    defaultRegistryPath,
+    ensureDefaultRegistry,
     readRegistry,
     updateRegistryNotes,
     validateName,
-    validateTitle,
 } from './shared/notes-registry';
 
 /**
@@ -31,11 +32,12 @@ export function resolveNoteLabel(folderPath: string): string {
 }
 
 /**
- * NotesFolderProvider — Activity Bar の Notes フォルダ一覧を提供する TreeDataProvider
+ * NotesFolderProvider — Activity Bar の Notes ビュー（アクティブの .fractal の Note）を提供する TreeDataProvider
  *
- * spec 20261026-1555-fractal-notes-json: Note の一覧の正は Notes 一覧ファイル（`<name>-fractal-notes.json`）。
+ * spec 20261026-1555-fractal-notes-json / 20261026-1845-fractal-file-views: Note の一覧の正は Notes 一覧ファイル（`<name>.fractal`）。
  * globalState には登録した一覧ファイルのパス（notesRegistries）とアクティブ（activeNotesRegistry）だけを持ち、
  * ツリーはアクティブの一覧の Note を出す。旧 notesFolders はアクティブの notes の写しとして書き続ける（旧版 MCP 等の互換）。
+ * 登録した .fractal の一覧は上の Notes Lists ビュー（this.lists = NotesListsProvider）が出す。
  *
  * D&D 並べ替え対応: TreeDragAndDropController を実装し、ツリー上でフォルダを掴んで
  * 並べ替えるとアクティブの一覧ファイルの notes の順序を更新する。
@@ -44,6 +46,7 @@ const NOTES_FOLDER_DND_MIME = 'application/vnd.fractal.notes-folder';
 const KEY_REGISTRIES = 'notesRegistries';
 const KEY_ACTIVE = 'activeNotesRegistry';
 const KEY_LEGACY = 'notesFolders';
+const KEY_INITIALIZED = 'notesRegistryInitialized';
 const CTX_HAS_REGISTRY = 'fractal.hasNotesRegistry';
 
 interface RegistryState {
@@ -67,8 +70,11 @@ export class NotesFolderProvider
     private states = new Map<string, RegistryState>();
     private watchers = new Map<string, vscode.Disposable>();
     private treeView?: vscode.TreeView<NotesFolderItem>;
+    /** 上の Notes Lists ビュー（登録した .fractal） */
+    readonly lists: NotesListsProvider;
 
-    constructor(private context: vscode.ExtensionContext) {
+    constructor(private context: vscode.ExtensionContext, private readonly defaultRegistry: string = defaultRegistryPath()) {
+        this.lists = new NotesListsProvider(this);
         this.registries = context.globalState.get<string[]>(KEY_REGISTRIES, []).filter(p => typeof p === 'string');
         const active = context.globalState.get<string>(KEY_ACTIVE);
         this.active = active && this.registries.includes(active) ? active : this.registries[0];
@@ -79,7 +85,36 @@ export class NotesFolderProvider
         this.updateContext();
     }
 
-    /** view の description にアクティブの title を出すため、作った TreeView を受け取る */
+    /**
+     * 初回（フラグなし・登録 0 件）に default.fractal を作って旧 notesFolders を入れ、登録・アクティブにする（D3）。
+     * 失敗したらフラグを立てない（次の起動でやり直す）。
+     */
+    async initialize(): Promise<void> {
+        if (this.context.globalState.get<boolean>(KEY_INITIALIZED)) return;
+        if (this.registries.length > 0) {
+            await this.context.globalState.update(KEY_INITIALIZED, true);
+            return;
+        }
+        const file = this.defaultRegistry;
+        const legacy = this.context.globalState.get<string[]>(KEY_LEGACY, []).filter(p => typeof p === 'string');
+        try {
+            ensureDefaultRegistry(file, legacy);
+        } catch (e: any) {
+            if (!fs.existsSync(file)) {
+                vscode.window.showWarningMessage(`Could not create ${file}. ${e?.message || e}`);
+                return;
+            }
+            // 壊れた default.fractal: 書かずに登録して ⚠ を出す（旧 notesFolders は globalState に残る。D7）
+            vscode.window.showWarningMessage(`${file}: ${e?.message || e} Fix the file to see your notes.`);
+        }
+        this.registries.push(file);
+        this.reload(file, false);
+        this.watch(file);
+        await this.context.globalState.update(KEY_INITIALIZED, true);
+        await this.setActive(file);
+    }
+
+    /** view の description にアクティブのファイル名を出すため、作った TreeView を受け取る */
     setTreeView(view: vscode.TreeView<NotesFolderItem>): void {
         this.treeView = view;
         this.updateDescription();
@@ -190,10 +225,10 @@ export class NotesFolderProvider
 
     /** 一覧が無いとき: 既存を開くか新規作成するかを選ばせる（D5） */
     async promptSetup(): Promise<boolean> {
-        const open = 'Open fractal-notes.json…';
-        const create = 'Create new…';
+        const open = 'Add existing .fractal…';
+        const create = 'Create new .fractal…';
         const pick = await vscode.window.showInformationMessage(
-            'Choose a fractal-notes.json that lists your notes, or create a new one.',
+            'Choose a .fractal notes list, or create a new one.',
             { modal: true },
             open,
             create
@@ -209,8 +244,8 @@ export class NotesFolderProvider
             canSelectFiles: true,
             canSelectFolders: false,
             canSelectMany: false,
-            filters: { 'Fractal notes list': ['json'] },
-            title: 'Open fractal-notes.json',
+            filters: { 'Fractal notes list': ['fractal'] },
+            title: 'Add existing .fractal',
         });
         if (!result || result.length === 0) return false;
         const file = path.resolve(result[0].fsPath);
@@ -228,54 +263,42 @@ export class NotesFolderProvider
         return true;
     }
 
-    /** 保存先・name・title を指定させて一覧ファイルを作り、登録してアクティブにする（D6 / D7） */
+    /** 保存先と name を指定させて <name>.fractal を作り、登録してアクティブにする（D5） */
     async createRegistry(): Promise<boolean> {
         const dirPick = await vscode.window.showOpenDialog({
             canSelectFiles: false,
             canSelectFolders: true,
             canSelectMany: false,
-            title: 'Select the folder to save fractal-notes.json in',
+            title: 'Select the folder to save the .fractal file in',
             openLabel: 'Save here',
         });
         if (!dirPick || dirPick.length === 0) return false;
         const dir = dirPick[0].fsPath;
         const name = await vscode.window.showInputBox({
-            title: 'Name (used in the file name: <name>-fractal-notes.json)',
+            title: 'File name (<name>.fractal)',
             prompt: 'Letters, digits, "-" and "_"',
             placeHolder: 'work',
             validateInput: v => validateName(v) ?? undefined,
         });
         if (name === undefined) return false;
-        const title = await vscode.window.showInputBox({
-            title: 'Title (shown in the Notes Folders panel)',
-            placeHolder: 'My notes',
-            validateInput: v => validateTitle(v) ?? undefined,
-        });
-        if (title === undefined) return false;
-
-        // 初めての一覧なら、旧 globalState の Note を取り込む（D7）
-        const legacy = this.registries.length === 0
-            ? this.context.globalState.get<string[]>(KEY_LEGACY, []).filter(p => typeof p === 'string')
-            : [];
         let file: string;
         try {
-            file = createRegistryFile(dir, name, title, legacy);
+            file = createRegistryFile(dir, name);
         } catch (e: any) {
             vscode.window.showErrorMessage(e instanceof RegistryExistsError ? `${e.message} Choose another name.` : String(e?.message || e));
             return false;
         }
-        const r = readRegistry(file);
         this.registries.push(file);
-        this.states.set(file, r.ok ? { doc: r.doc } : { error: r.error });
+        this.reload(file, false);
         this.watch(file);
         await this.setActive(file);
-        const imported = r.ok ? r.doc.notes.length : 0;
-        vscode.window.showInformationMessage(
-            imported > 0
-                ? `Created ${path.basename(file)} and imported ${imported} registered note(s).`
-                : `Created ${path.basename(file)}.`
-        );
         return true;
+    }
+
+    /** Notes Lists の行をクリック: その .fractal をアクティブにする */
+    async activateRegistry(file: string): Promise<void> {
+        if (!this.registries.includes(file) || file === this.active) return;
+        await this.setActive(file);
     }
 
     /** 切替（quick pick: 登録済み + 既存を追加 + 新規作成） */
@@ -283,8 +306,8 @@ export class NotesFolderProvider
         type Item = vscode.QuickPickItem & { file?: string; action?: 'open' | 'create' };
         const items: Item[] = this.registries.map(file => this.registryPickItem(file));
         items.push(
-            { label: '$(folder-opened) Open existing fractal-notes.json…', action: 'open' },
-            { label: '$(new-file) Create new fractal-notes.json…', action: 'create' }
+            { label: '$(folder-opened) Add existing .fractal…', action: 'open' },
+            { label: '$(new-file) Create new .fractal…', action: 'create' }
         );
         const pick = await vscode.window.showQuickPick(items, { title: 'Switch notes list', placeHolder: 'Select a notes list' });
         if (!pick) return;
@@ -301,8 +324,12 @@ export class NotesFolderProvider
         await this.setActive(pick.file);
     }
 
-    /** 解除（登録から外すだけ。ファイルは消さない。D8） */
-    async removeRegistry(): Promise<void> {
+    /** 解除（登録から外すだけ。ファイルは消さない。D8）。Notes Lists の行から呼ばれたらその .fractal を外す */
+    async removeRegistry(item?: NotesListItem): Promise<void> {
+        if (item && item.file) {
+            await this.unregister(item.file);
+            return;
+        }
         if (this.registries.length === 0) return;
         type Item = vscode.QuickPickItem & { file?: string };
         const items: Item[] = this.registries.map(file => this.registryPickItem(file));
@@ -323,13 +350,16 @@ export class NotesFolderProvider
 
     private registryPickItem(file: string): vscode.QuickPickItem & { file: string } {
         const st = this.states.get(file);
-        const title = st?.doc?.title || path.basename(file);
         return {
-            label: `${file === this.active ? '$(check) ' : ''}${st?.error ? '$(warning) ' : ''}${title}`,
-            description: path.basename(file),
+            label: `${file === this.active ? '$(check) ' : ''}${st?.error ? '$(warning) ' : ''}${path.basename(file)}`,
             detail: st?.error ? `${st.error} — ${file}` : file,
             file,
         };
+    }
+
+    /** Notes Lists ビュー用: 登録した .fractal とその状態 */
+    getRegistryStates(): { file: string; active: boolean; error?: string }[] {
+        return this.registries.map(file => ({ file, active: file === this.active, error: this.states.get(file)?.error }));
     }
 
     private async unregister(file: string): Promise<void> {
@@ -372,9 +402,9 @@ export class NotesFolderProvider
         this._onDidChangeTreeData.fire(undefined);
     }
 
-    /** 旧 notesFolders にアクティブの notes を写す（アクティブが無いときは触らない） */
+    /** 旧 notesFolders にアクティブの notes を写す（アクティブが無い・一度も読めていないときは触らない — 旧の Note を消さない） */
     private async writeLegacyMirror(): Promise<void> {
-        if (!this.active) return;
+        if (!this.active || !this.states.get(this.active)?.doc) return;
         await this.context.globalState.update(KEY_LEGACY, this.getFolders());
     }
 
@@ -417,9 +447,41 @@ export class NotesFolderProvider
     }
 
     private updateDescription(): void {
+        this.lists.refresh();
         if (!this.treeView) return;
         const st = this.active ? this.states.get(this.active) : undefined;
-        this.treeView.description = this.active ? `${st?.error ? '⚠ ' : ''}${st?.doc?.title || path.basename(this.active)}` : undefined;
+        this.treeView.description = this.active ? `${st?.error ? '⚠ ' : ''}${path.basename(this.active)}` : undefined;
+    }
+}
+
+/** Notes Lists ビュー（上）: 登録した .fractal を出す。クリックで切替、行の ✕ で解除 */
+export class NotesListsProvider implements vscode.TreeDataProvider<NotesListItem> {
+    private _onDidChangeTreeData = new vscode.EventEmitter<NotesListItem | undefined>();
+    readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+    constructor(private readonly folders: NotesFolderProvider) {}
+
+    getTreeItem(element: NotesListItem): vscode.TreeItem {
+        return element;
+    }
+
+    getChildren(): NotesListItem[] {
+        return this.folders.getRegistryStates().map(s => new NotesListItem(s.file, s.active, s.error));
+    }
+
+    refresh(): void {
+        this._onDidChangeTreeData.fire(undefined);
+    }
+}
+
+export class NotesListItem extends vscode.TreeItem {
+    constructor(public readonly file: string, active: boolean, error?: string) {
+        super(path.basename(file), vscode.TreeItemCollapsibleState.None);
+        this.description = active ? '●' : undefined;
+        this.tooltip = error ? `${error}\n${file}` : file;
+        this.contextValue = 'notesList';
+        this.iconPath = new vscode.ThemeIcon(error ? 'warning' : active ? 'check' : 'file');
+        this.command = { command: 'fractal.activateNotesRegistry', title: 'Switch Notes List', arguments: [file] };
     }
 }
 
