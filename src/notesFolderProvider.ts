@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import {
     NotesRegistryDoc,
     RegistryExistsError,
@@ -170,7 +171,7 @@ export class NotesFolderProvider
             canSelectFiles: false,
             canSelectFolders: true,
             canSelectMany: false,
-            title: 'Select Notes Folder',
+            title: 'Select an existing note folder',
         });
         if (!result || result.length === 0) return;
         const folderPath = path.resolve(result[0].fsPath);
@@ -179,6 +180,45 @@ export class NotesFolderProvider
             return;
         }
         await this.mutateActive(notes => [...notes, folderPath]);
+    }
+
+    /**
+     * 新しい Note: 置き場所（親フォルダ）と名前を聞いてフォルダを作り、アクティブの .fractal に足す。
+     * 作ったフォルダのパスを返す（呼び出し側が開く）。空フォルダを開くと Note として始まる
+     */
+    async newNote(): Promise<string | undefined> {
+        if (!this.active) {
+            const ok = await this.promptSetup();
+            if (!ok || !this.active) return undefined;
+        }
+        const notes = this.getFolders();
+        const last = notes[notes.length - 1];
+        const start = last && fs.existsSync(path.dirname(last)) ? path.dirname(last) : os.homedir();
+        const parentPick = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            title: 'Select the folder to create the new note in',
+            openLabel: 'Create here',
+            defaultUri: vscode.Uri.file(start),
+        });
+        if (!parentPick || parentPick.length === 0) return undefined;
+        const parent = parentPick[0].fsPath;
+        const name = await vscode.window.showInputBox({
+            title: 'New note name (a folder with this name is created)',
+            placeHolder: 'My note',
+            validateInput: v => validateNoteFolderName(parent, v) ?? undefined,
+        });
+        if (name === undefined) return undefined;
+        const folderPath = path.join(parent, name.trim());
+        try {
+            fs.mkdirSync(folderPath);
+        } catch (e: any) {
+            vscode.window.showErrorMessage(`Could not create ${folderPath}. ${e?.message || e}`);
+            return undefined;
+        }
+        await this.mutateActive(n => [...n, folderPath]);
+        return this.getFolders().includes(folderPath) ? folderPath : undefined;
     }
 
     /** アクティブの一覧の Note（ツリー・移動先・全 note 掃除・flat 移行の対象） */
@@ -468,6 +508,15 @@ export class NotesFolderProvider
         const st = this.active ? this.states.get(this.active) : undefined;
         this.treeView.description = this.active ? `${st?.error ? '⚠ ' : ''}${path.basename(this.active)}` : undefined;
     }
+}
+
+/** 新しい Note のフォルダ名の検証（OS で使えない文字・既存の名前を拒否）。正しければ null */
+export function validateNoteFolderName(parent: string, name: string): string | null {
+    const n = name.trim();
+    if (!n) return 'Name is required.';
+    if (/[\\/:*?"<>|]/.test(n) || n === '.' || n === '..') return 'These characters cannot be used: \\ / : * ? " < > |';
+    if (fs.existsSync(path.join(parent, n))) return `"${n}" already exists in this folder.`;
+    return null;
 }
 
 /** Fractal List ビュー（上）: 登録した .fractal を出す。クリックで切替、行の ✕ で解除 */

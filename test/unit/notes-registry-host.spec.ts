@@ -267,8 +267,15 @@ test.describe('NotesFolderProvider × .fractal', () => {
         const declared = pkg.contributes.commands.map((c: any) => c.command);
         const menus = [...pkg.contributes.menus['view/title'], ...pkg.contributes.menus['view/item/context']];
         const inView = (id: string) => menus.filter((m: any) => m.when.includes(`view == ${id}`)).map((m: any) => m.command);
-        expect(inView('notesExplorer').sort()).toEqual(['fractal.addNotesFolder', 'fractal.migrateToFlatLayout', 'fractal.removeNotesFolder']);
-        expect(inView('notesLists').sort()).toEqual(['fractal.createNotesRegistry', 'fractal.openNotesRegistry', 'fractal.removeNotesRegistry']);
+        expect(inView('notesExplorer').sort()).toEqual(['fractal.addNotesFolder', 'fractal.migrateToFlatLayout', 'fractal.newNote', 'fractal.removeNotesFolder', 'fractal.revealNotesFolder']);
+        expect(inView('notesLists').sort()).toEqual(['fractal.createNotesRegistry', 'fractal.openNotesRegistry', 'fractal.removeNotesRegistry', 'fractal.revealNotesRegistry']);
+        // 解除ボタンは両ビューとも ✕、行には Reveal と解除が並ぶ
+        const icon = (c: string) => pkg.contributes.commands.find((x: any) => x.command === c).icon;
+        expect(icon('fractal.removeNotesFolder')).toBe('$(close)');
+        expect(icon('fractal.removeNotesRegistry')).toBe('$(close)');
+        const inline = (id: string) => pkg.contributes.menus['view/item/context'].filter((m: any) => m.when.includes(`view == ${id}`) && String(m.group).startsWith('inline')).map((m: any) => m.command);
+        expect(inline('notesExplorer')).toEqual(['fractal.revealNotesFolder', 'fractal.removeNotesFolder']);
+        expect(inline('notesLists')).toEqual(['fractal.revealNotesRegistry', 'fractal.removeNotesRegistry']);
         const welcome = pkg.contributes.viewsWelcome.map((w: any) => w.contents).join('\n');
         const used = new Set<string>([...menus.map((m: any) => m.command), ...[...welcome.matchAll(/command:([\w.]+)/g)].map(m => m[1]), 'fractal.activateNotesRegistry', 'fractal.switchNotesRegistry']);
         for (const c of used) {
@@ -295,5 +302,30 @@ test.describe('NotesFolderProvider × .fractal', () => {
         await s2.provider.removeRegistry({ file: work });
         await s2.provider.openRegistry();
         expect(s2.shown.dialogStart).toEqual([dir, dir]);
+    });
+
+    test('AC-8 New Note は置き場所と名前でフォルダを作ってアクティブの .fractal に足す。使えない名前・既存の名前・キャンセルでは作らない', async () => {
+        const dir = tmp('nr-new-');
+        const work = path.join(dir, 'work.fractal');
+        fs.writeFileSync(work, JSON.stringify({ version: 1, notes: [] }));
+        const { provider, answers, mod } = setup({ notesRegistries: [work], activeNotesRegistry: work, notesDefaultFractalCreated: true });
+        const parent = tmp('nr-parent-');
+        fs.mkdirSync(path.join(parent, 'exists'));
+
+        for (const bad of ['', 'a/b', 'a:b', '..', 'exists', undefined]) {
+            answers.openDialog.push(parent);
+            answers.inputBox.push(bad as any);
+            expect(await provider.newNote(), String(bad)).toBeUndefined();
+        }
+        expect(fs.readdirSync(parent)).toEqual(['exists']);
+        expect(readJson(work).notes).toEqual([]);
+
+        answers.openDialog.push(parent);
+        answers.inputBox.push('  調査メモ  ');
+        const created = await provider.newNote();
+        expect(created).toBe(path.join(parent, '調査メモ'));
+        expect(fs.statSync(created).isDirectory()).toBe(true);
+        expect(readJson(work).notes).toEqual([created]);
+        expect(mod.validateNoteFolderName(parent, '調査メモ')).not.toBeNull();
     });
 });

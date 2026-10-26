@@ -94,7 +94,7 @@
       },
       {
         "view": "notesExplorer",
-        "contents": "This .fractal has no notes yet.\n[Add Notes Folder](command:fractal.addNotesFolder)",
+        "contents": "This .fractal has no notes yet. A note is a folder.\n[New Note](command:fractal.newNote)\n[Add Existing Note Folder](command:fractal.addNotesFolder)",
         "when": "fractal.hasNotesRegistry"
       }
     ],
@@ -105,10 +105,28 @@
         "category": "Fractal Note"
       },
       {
-        "command": "fractal.addNotesFolder",
-        "title": "Add Notes Folder",
+        "command": "fractal.newNote",
+        "title": "New Note…",
         "category": "Fractal Note",
         "icon": "$(new-folder)"
+      },
+      {
+        "command": "fractal.addNotesFolder",
+        "title": "Add Existing Note Folder…",
+        "category": "Fractal Note",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "fractal.revealNotesFolder",
+        "title": "Reveal in Finder / Explorer",
+        "category": "Fractal Note",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "fractal.revealNotesRegistry",
+        "title": "Reveal in Finder / Explorer",
+        "category": "Fractal Note",
+        "icon": "$(go-to-file)"
       },
       {
         "command": "fractal.activateNotesRegistry",
@@ -140,9 +158,9 @@
       },
       {
         "command": "fractal.removeNotesFolder",
-        "title": "Remove Notes Folder",
+        "title": "Remove from Notes (keeps the folder)",
         "category": "Fractal Note",
-        "icon": "$(remove)"
+        "icon": "$(close)"
       },
       {
         "command": "fractal.openNotesFolder",
@@ -647,21 +665,36 @@
           "group": "navigation@2"
         },
         {
+          "command": "fractal.newNote",
+          "when": "view == notesExplorer && fractal.hasNotesRegistry",
+          "group": "navigation@1"
+        },
+        {
           "command": "fractal.addNotesFolder",
           "when": "view == notesExplorer && fractal.hasNotesRegistry",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
         {
+          "command": "fractal.revealNotesRegistry",
+          "when": "view == notesLists && viewItem == notesList",
+          "group": "inline@1"
+        },
+        {
           "command": "fractal.removeNotesRegistry",
           "when": "view == notesLists && viewItem == notesList",
-          "group": "inline"
+          "group": "inline@2"
+        },
+        {
+          "command": "fractal.revealNotesFolder",
+          "when": "view == notesExplorer && viewItem == notesFolder",
+          "group": "inline@1"
         },
         {
           "command": "fractal.removeNotesFolder",
           "when": "view == notesExplorer && viewItem == notesFolder",
-          "group": "inline"
+          "group": "inline@2"
         },
         {
           "command": "fractal.migrateToFlatLayout",

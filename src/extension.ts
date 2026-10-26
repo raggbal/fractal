@@ -294,7 +294,17 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('fractal.switchNotesRegistry', () => notesFolderProvider.switchRegistry()),
         vscode.commands.registerCommand('fractal.openNotesRegistry', () => notesFolderProvider.openRegistry()),
         vscode.commands.registerCommand('fractal.createNotesRegistry', () => notesFolderProvider.createRegistry()),
-        vscode.commands.registerCommand('fractal.removeNotesRegistry', (item) => notesFolderProvider.removeRegistry(item))
+        vscode.commands.registerCommand('fractal.removeNotesRegistry', (item) => notesFolderProvider.removeRegistry(item)),
+        vscode.commands.registerCommand('fractal.revealNotesRegistry', (item?: { file?: string }) => {
+            if (item?.file) vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(item.file));
+        }),
+        vscode.commands.registerCommand('fractal.revealNotesFolder', (item?: { folderPath?: string }) => {
+            if (item?.folderPath) vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(item.folderPath));
+        }),
+        vscode.commands.registerCommand('fractal.newNote', async () => {
+            const folderPath = await notesFolderProvider.newNote();
+            if (folderPath) await notesEditorProvider.openNotesFolder(folderPath);
+        })
     );
 
     context.subscriptions.push(
