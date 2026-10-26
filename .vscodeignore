@@ -45,6 +45,6 @@ install-skills.sh
 uninstall-skills.sh
 .node-version
 .github/**
-ai_skills/**
+mcp/**
 chrome-extension/**
 html-md-converter/**

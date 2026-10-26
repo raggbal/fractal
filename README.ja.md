@@ -222,17 +222,16 @@ AWS アカウントがあれば、note を S3 に同期できます:
 
 ## 🤖 AI スキル — Fractal Note をエージェントのノートに
 
-Fractal Note は **AI スキル**（`ai_skills/`）を公開しています。AI エージェントに Fractal Note のデータモデルを教え、ノートの検索・読み取り・書き込みを直接行えるようにするものです:
+Fractal Note は **MCP サーバー**（`mcp/`）を公開しています。AI エージェントに Fractal Note のデータモデルを教え、ノートの検索・読み取り・書き込みを直接行えるようにするものです:
 
-- **fractal MCP**（`ai_skills/fractal-mcp`）— skill ではなく MCP サーバー。tools: `fractal_structure`（データモデルのリファレンス）/ `fractal_list_folders`・`fractal_list_notes`・`fractal_search`（Notes フォルダの自動検出、note 横断の全文検索 — 添付 PDF / Word / Excel / PowerPoint の中身も対象、タグ・タスク状態・note 名での絞り込み）/ `fractal_add`・`fractal_modify`・`fractal_attach`（ノードの追加・変更・削除・移動、マークダウンページの取り込み、画像・ファイル添付、新規アウトライナー / md 作成）/ `fractal_doctor`（整合性チェック。read-only）/ `fractal_summary`（アウトライナーや md を 1 本のマークダウンにまとめる）
-- `collect` ほか変換系 — Web ページ / YouTube 字幕 / arXiv 論文 / PDF・Office 文書を Markdown 化して取り込み
+- **fractal MCP**（`mcp/`）— tools: `fractal_structure`（データモデルのリファレンス）/ `fractal_list_folders`・`fractal_list_notes`・`fractal_search`（Notes フォルダの自動検出、note 横断の全文検索 — 添付 PDF / Word / Excel / PowerPoint の中身も対象、タグ・タスク状態・note 名での絞り込み）/ `fractal_add`・`fractal_modify`・`fractal_attach`（ノードの追加・変更・削除・移動、マークダウンページの取り込み、画像・ファイル添付、新規アウトライナー / md 作成）/ `fractal_doctor`（整合性チェック。read-only）/ `fractal_summary`（アウトライナーや md を 1 本のマークダウンにまとめる）
 
 ```bash
-ai_skills/install.sh         # skill を配置し、fractal MCP を登録（Claude Code / Cursor / Kiro。Antigravity は配置のみ）
+mcp/install.sh               # fractal MCP を登録（Claude Code / Cursor / Kiro）
 ./install-skills.sh          # Claude Code の rules を配置（旧 fractal-* skill の片付け）
 ```
 
-スキルをインストールすれば、Claude Code などのエージェントがリサーチ結果の整理、クリップの要約、ナレッジベースの構築を Fractal Note に直接書き込めます — AI ネイティブなワークフローを備えた、実用的な **Obsidian 代替** として。
+MCP を登録すれば、Claude Code などのエージェントがリサーチ結果の整理、クリップの要約、ナレッジベースの構築を Fractal Note に直接書き込めます — AI ネイティブなワークフローを備えた、実用的な **Obsidian 代替** として。
 
 ---
 

@@ -13,7 +13,7 @@
  *  - host ts: require('./whole-word')（notes-file-manager.ts buildSearchRegex）
  *  - webview: 本番 inline（notesWebviewContent.ts）+ ハーネス（build-standalone-notes.js）で
  *    window.WholeWord として先行ロード（notes-file-panel.js の 2 サイトが参照）
- *  - CLI: ai_skills/fractal-search/scripts/fractal-search.mjs はゼロ install 配布のため
+ *  - CLI: mcp/scripts/fractal-search.mjs はゼロ install 配布のため
  *    ミラー実装（extension⇄CLI 一致 TC = TC-MLG-04b が番人・ADRL-0059 同型）
  */
 (function (root, factory) {

@@ -15,8 +15,8 @@ import * as os from 'os';
 import * as path from 'path';
 
 const ROOT = path.resolve(__dirname, '../..');
-const SEARCH_MJS = path.join(ROOT, 'ai_skills/fractal-mcp/scripts/fractal-search.mjs');
-const MD_MJS = path.join(ROOT, 'ai_skills/fractal-mcp/scripts/fractal-md.mjs');
+const SEARCH_MJS = path.join(ROOT, 'mcp/scripts/fractal-search.mjs');
+const MD_MJS = path.join(ROOT, 'mcp/scripts/fractal-md.mjs');
 const CANON = path.join(ROOT, 'out/shared/md-h1-utils.js');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -148,12 +148,12 @@ test.describe('H1 ミラー（ADRL-0002）', () => {
             expect(out).toContain('Discovered Fractal notes folders'); // main が実際に走った
             // 全 6 mjs の guard が realpath 対応版に統一されていることを静的確認
             const mjsFiles = [
-                'ai_skills/fractal-mcp/scripts/fractal-search.mjs',
-                'ai_skills/fractal-mcp/scripts/fractal-md.mjs',
-                'ai_skills/fractal-mcp/scripts/fractal-attach.mjs',
-                'ai_skills/fractal-mcp/scripts/fractal-modify.mjs',
-                'ai_skills/fractal-mcp/scripts/fractal-doctor.mjs',
-                'ai_skills/fractal-mcp/scripts/fractal-summary.mjs',
+                'mcp/scripts/fractal-search.mjs',
+                'mcp/scripts/fractal-md.mjs',
+                'mcp/scripts/fractal-attach.mjs',
+                'mcp/scripts/fractal-modify.mjs',
+                'mcp/scripts/fractal-doctor.mjs',
+                'mcp/scripts/fractal-summary.mjs',
             ];
             for (const f of mjsFiles) {
                 const src = fs.readFileSync(path.join(ROOT, f), 'utf-8');

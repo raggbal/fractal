@@ -10,9 +10,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-const mdMjs = path.resolve(__dirname, '../../ai_skills/fractal-mcp/scripts/fractal-md.mjs');
-const attachMjs = path.resolve(__dirname, '../../ai_skills/fractal-mcp/scripts/fractal-attach.mjs');
-const searchMjs = path.resolve(__dirname, '../../ai_skills/fractal-mcp/scripts/fractal-search.mjs');
+const mdMjs = path.resolve(__dirname, '../../mcp/scripts/fractal-md.mjs');
+const attachMjs = path.resolve(__dirname, '../../mcp/scripts/fractal-attach.mjs');
+const searchMjs = path.resolve(__dirname, '../../mcp/scripts/fractal-search.mjs');
 
 let tmpRoot: string;
 test.beforeAll(() => {

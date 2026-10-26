@@ -78,6 +78,18 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "notesExplorer",
+        "contents": "Choose a fractal-notes.json that lists your notes, or create a new one.\n[Open fractal-notes.json](command:fractal.openNotesRegistry)\n[Create New](command:fractal.createNotesRegistry)",
+        "when": "!fractal.hasNotesRegistry"
+      },
+      {
+        "view": "notesExplorer",
+        "contents": "This notes list has no notes yet.\n[Add Notes Folder](command:fractal.addNotesFolder)",
+        "when": "fractal.hasNotesRegistry"
+      }
+    ],
     "commands": [
       {
         "command": "fractal.openEditor",
@@ -89,6 +101,27 @@
         "title": "Add Notes Folder",
         "category": "Fractal Note",
         "icon": "$(add)"
+      },
+      {
+        "command": "fractal.switchNotesRegistry",
+        "title": "Switch Notes List",
+        "category": "Fractal Note",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "fractal.openNotesRegistry",
+        "title": "Open Existing fractal-notes.json…",
+        "category": "Fractal Note"
+      },
+      {
+        "command": "fractal.createNotesRegistry",
+        "title": "Create New fractal-notes.json…",
+        "category": "Fractal Note"
+      },
+      {
+        "command": "fractal.removeNotesRegistry",
+        "title": "Remove Notes List (keeps the file)…",
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.removeNotesFolder",
@@ -583,9 +616,29 @@
       ],
       "view/title": [
         {
-          "command": "fractal.addNotesFolder",
+          "command": "fractal.switchNotesRegistry",
           "when": "view == notesExplorer",
-          "group": "navigation"
+          "group": "navigation@1"
+        },
+        {
+          "command": "fractal.addNotesFolder",
+          "when": "view == notesExplorer && fractal.hasNotesRegistry",
+          "group": "navigation@2"
+        },
+        {
+          "command": "fractal.openNotesRegistry",
+          "when": "view == notesExplorer",
+          "group": "1_registry@1"
+        },
+        {
+          "command": "fractal.createNotesRegistry",
+          "when": "view == notesExplorer",
+          "group": "1_registry@2"
+        },
+        {
+          "command": "fractal.removeNotesRegistry",
+          "when": "view == notesExplorer && fractal.hasNotesRegistry",
+          "group": "1_registry@3"
         }
       ],
       "view/item/context": [

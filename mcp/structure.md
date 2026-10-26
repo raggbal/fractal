@@ -54,9 +54,19 @@ JSON の中身（例）:
 {
   "notesFolders": ["/Users/you/Desktop/notes", "/Users/you/Desktop/tasks"],
   "notesLastFile:/Users/you/Desktop/notes": "/Users/you/Desktop/notes/xxx.out",
-  "notesPanelCollapsed:/Users/you/Desktop/notes": false
+  "notesPanelCollapsed:/Users/you/Desktop/notes": false,
+  "notesRegistries": ["/Users/you/Documents/work-fractal-notes.json"],
+  "activeNotesRegistry": "/Users/you/Documents/work-fractal-notes.json"
 }
 ```
+
+Note の一覧の正は **Notes 一覧ファイル**（`<name>-fractal-notes.json`）。`notesRegistries` に登録した一覧ファイルのパス、`activeNotesRegistry` にサイドパネルで選んでいるものが入る。`notesFolders` はアクティブの一覧の notes の写し。一覧ファイルの形式:
+
+```json
+{ "version": 1, "name": "work", "title": "仕事", "notes": ["/Users/you/Desktop/notes", "/Users/you/Desktop/tasks"] }
+```
+
+`fractal_list_folders` は全 IDE の `notesFolders` と、登録された全一覧ファイルの `notes` を合わせて返す（source は `vscode:<IDE>:<一覧ファイル名>`）。
 
 ### 1c. ユーザーに聞く
 
@@ -302,4 +312,4 @@ Electron 側は `~/Library/Application Support/fractal-desktop/config.json` の�
 - md を page として取り込むと、md 内のローカルリンク（PDF / CSV / 他 md）は `<outDir>/files/` にコピーされ相対パスに書き換わる（URL・anchor・存在しないファイルはそのまま）
 - `fractal_doctor` は書き込まない。修復は結果をユーザーと相談してから
 - `fractal_search` はバイナリ添付の中身を検索しない（パスだけ。docx / pptx / xlsx / pdf は抽出して検索）。`outline.note` のフォルダ階層は結果に反映しない
-- 各 tool の実体は `ai_skills/fractal-mcp/scripts/*.mjs`（CLI として直接実行もできる。`node <script> --help`）
+- 各 tool の実体は `mcp/scripts/*.mjs`（CLI として直接実行もできる。`node <script> --help`）

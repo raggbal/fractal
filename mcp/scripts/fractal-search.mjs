@@ -274,9 +274,21 @@ function readVscodeGlobalState(dbPath) {
     }
 }
 
+/** Notes 一覧ファイル（version 1）の notes を返す。読めなければ null（src/shared/notes-registry.ts の parseRegistry と同じ判定） */
+function readNotesRegistry(file) {
+    if (typeof file !== 'string') return null;
+    try {
+        const o = JSON.parse(fs.readFileSync(file, 'utf-8'));
+        if (!o || o.version !== 1 || !Array.isArray(o.notes)) return null;
+        return o.notes.filter(n => typeof n === 'string');
+    } catch {
+        return null;
+    }
+}
+
 function discoverFolders() {
     /**
-     * 返り値: [{ path, sources: [{ kind: 'electron'|'vscode', detail: string }] }, ...]
+     * 返り値: [{ path, sources: [{ kind: 'electron'|'vscode'|'vscode-registry', detail: string }] }, ...]
      * sources は同一 path が複数エディタに登録されていれば複数要素になる。
      */
     const byPath = new Map();
@@ -306,6 +318,11 @@ function discoverFolders() {
         // editor 名は db path のフォルダ名から推定
         const editorName = path.basename(path.dirname(path.dirname(path.dirname(db))));
         addAll(st.notesFolders, { kind: 'vscode', editor: editorName, detail: db });
+        // spec 20261026-1555-fractal-notes-json D12: 登録した Notes 一覧ファイル（<name>-fractal-notes.json）の notes も足す
+        for (const reg of Array.isArray(st.notesRegistries) ? st.notesRegistries : []) {
+            const notes = readNotesRegistry(reg);
+            if (notes) addAll(notes, { kind: 'vscode-registry', editor: editorName, detail: reg });
+        }
     }
     return [...byPath.values()];
 }
@@ -1146,6 +1163,7 @@ function renderFoldersList(folders) {
         const srcLabels = (f.sources || []).map(s => {
             if (s.kind === 'electron') return 'electron';
             if (s.kind === 'vscode') return `vscode:${s.editor}`;
+            if (s.kind === 'vscode-registry') return `vscode:${s.editor}:${path.basename(s.detail)}`;
             return 'unknown';
         });
         const uniq = [...new Set(srcLabels)];

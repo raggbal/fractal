@@ -141,19 +141,3 @@ test.describe('B. clipper md 取込 + プリセット', () => {
         expect(registry.extractTargets({})).toBeNull();
     });
 });
-
-test.describe('D. 網羅（TC-REG-01）', () => {
-    test('TC-REG-01 register-fractal.mjs 6 種 + collect に独自パス解決なし', () => {
-        const fs = require('fs');
-        const skills = ['arxiv-md', 'aws-doc-maker', 'doc-md', 'pptx-pages-md', 'web-crawler-md', 'youtube-md'];
-        for (const s of skills) {
-            const p = path.resolve(__dirname, `../../ai_skills/${s}/scripts/register-fractal.mjs`);
-            const body = fs.readFileSync(p, 'utf-8');
-            // fractal-md.mjs 委譲のみで、独自の pageDir/images 解決を持たない
-            expect(body).not.toMatch(/pageDir\s*[=:]/);
-            expect(body).not.toMatch(/join\([^)]*['"]images['"]/);
-        }
-        const collect = fs.readFileSync(path.resolve(__dirname, '../../ai_skills/collect/scripts/list-default-outs.mjs'), 'utf-8');
-        expect(collect).not.toMatch(/pageDir\s*[=:]/);
-    });
-});

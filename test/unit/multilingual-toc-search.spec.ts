@@ -109,7 +109,7 @@ test('TC-MLG-04 host 配線: NotesFileManager.buildSearchRegex が helper を通
 });
 
 test('TC-MLG-04b CLI ミラー一致（fractal-search.mjs buildRegex — extension⇄CLI 同挙動の番人）', async () => {
-    const cli = await import('../../ai_skills/fractal-mcp/scripts/fractal-search.mjs' as string).catch(() => null);
+    const cli = await import('../../mcp/scripts/fractal-search.mjs' as string).catch(() => null);
     // CLI は main() 実行ガード付きの想定。import 不可なら子プロセス評価に切替える前に構造を確認する
     if (!cli || typeof (cli as any).buildRegex !== 'function') {
         // buildRegex が export されていない場合は同挙動をソース関数抽出でなく実行で検証できないため、

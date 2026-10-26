@@ -14,7 +14,7 @@
  *  - host ts: require('./search-ext-filter')（notes-file-manager.ts の 4 段ゲート）
  *  - webview: 本番 inline（notesWebviewContent.ts）+ ハーネス（build-standalone-notes.js）で
  *    window.SearchExtFilter として notes-file-panel.js より前にロード
- *  - CLI: ai_skills/fractal-search/scripts/fractal-search.mjs はゼロ install 配布のため
+ *  - CLI: mcp/scripts/fractal-search.mjs はゼロ install 配布のため
  *    ミラー実装（extension⇄CLI 一致 TC = TC-SEF-06 が番人・ADRL-0059 同型）
  */
 (function (root, factory) {

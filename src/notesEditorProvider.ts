@@ -196,8 +196,8 @@ export class NotesEditorProvider {
         }
     }
 
-    private folderProvider?: { refresh(): void; getFolders(): string[] };
-    public setFolderProvider(fp: { refresh(): void; getFolders(): string[] }): void {
+    private folderProvider?: { refresh(): void; getFolders(): string[]; getAllFolders(): string[] };
+    public setFolderProvider(fp: { refresh(): void; getFolders(): string[]; getAllFolders(): string[] }): void {
         this.folderProvider = fp;
     }
 
@@ -227,7 +227,8 @@ export class NotesEditorProvider {
         const folderName = decodeURIComponent(m[1]);
         const outFileId = decodeURIComponent(m[2]);
         const pageId = decodeURIComponent(m[3]);
-        const folders = this.folderProvider?.getFolders() || [];
+        // D10: リンクは登録した全一覧の Note で解決する
+        const folders = this.folderProvider?.getAllFolders() || [];
         const folderPath = folders.find(f => path.basename(f) === folderName);
         if (!folderPath) return null;
         return this.resolvePagePath(folderPath, outFileId, pageId);

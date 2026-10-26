@@ -24,7 +24,7 @@
 
 ## tools（fractal MCP）と呼び出し順
 
-Fractal の操作は skill ではなく MCP サーバー **fractal** の tools で行う（`ai_skills/install.sh` が Claude Code / Kiro / Cursor に登録する）:
+Fractal の操作は skill ではなく MCP サーバー **fractal** の tools で行う（`mcp/install.sh` が Claude Code / Kiro / Cursor に登録する）:
 
 | tool | 用途 |
 |------|------|
@@ -81,7 +81,7 @@ Fractal の操作は skill ではなく MCP サーバー **fractal** の tools �
 
 ## CLI パスのヒント
 
-tool の実体は `ai_skills/fractal-mcp/scripts/*.mjs`（install 後は `~/.fractal/fractal-mcp/scripts/` からも辿れる）。MCP が使えない環境では `node <script> --help` を見て直接実行してよい。
+tool の実体は fractal リポジトリの `mcp/scripts/*.mjs`。MCP が使えない環境では `node <script> --help` を見て直接実行してよい。
 
 ---
 

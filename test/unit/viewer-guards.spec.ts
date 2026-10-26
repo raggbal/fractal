@@ -56,9 +56,9 @@ test('TC-VEX-12: innerHTML 番人 — viewer-*/ に innerHTML / insertAdjacentHT
 test('TC-VEX-14: 正典不変更 — doc-text-extract.ts と ai_skills ミラーが main と一致（INV-1）', () => {
     // sprint ブランチ上で main の内容と一致 = 本 sprint が正典に diff を入れていない
     const { execSync } = require('child_process');
-    // ooxml-extract.mjs は fractal-search/scripts から fractal-mcp/scripts へ移動した（中身は同じ）。main が移動前なら旧パスと比べる
+    // ooxml-extract.mjs は ai_skills/fractal-mcp/scripts から mcp/scripts へ移動した（中身は同じ）。main が移動前なら旧パスと比べる
     const show = (rel: string) => execSync(`git show main:${rel}`, { cwd: ROOT, maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }).toString('utf8');
-    for (const [rel, before] of [['src/shared/doc-text-extract.ts', null], ['ai_skills/fractal-mcp/scripts/ooxml-extract.mjs', 'ai_skills/fractal-search/scripts/ooxml-extract.mjs']]) {
+    for (const [rel, before] of [['src/shared/doc-text-extract.ts', null], ['mcp/scripts/ooxml-extract.mjs', 'ai_skills/fractal-mcp/scripts/ooxml-extract.mjs']]) {
         const now = fs.readFileSync(path.join(ROOT, rel!), 'utf8');
         let main: string;
         try { main = show(rel!); } catch (e) { if (!before) throw e; main = show(before); }

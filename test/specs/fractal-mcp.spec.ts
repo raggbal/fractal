@@ -11,7 +11,8 @@ import * as os from 'os';
 import * as path from 'path';
 
 const AI_SKILLS = path.resolve(__dirname, '../../ai_skills');
-const serverMjs = path.join(AI_SKILLS, 'fractal-mcp', 'server.mjs');
+const MCP_DIR = path.resolve(__dirname, '../../mcp');
+const serverMjs = path.join(MCP_DIR, 'server.mjs');
 
 let tmpRoot: string;
 test.beforeAll(() => {
@@ -50,8 +51,8 @@ class Client {
     private waiting = new Map<number, (msg: any) => void>();
     readonly stray: string[] = [];
 
-    constructor() {
-        this.proc = spawn(process.execPath, [serverMjs], { stdio: ['pipe', 'pipe', 'pipe'] });
+    constructor(env?: NodeJS.ProcessEnv) {
+        this.proc = spawn(process.execPath, [serverMjs], { stdio: ['pipe', 'pipe', 'pipe'], env: env ? { ...process.env, ...env } : process.env });
         this.proc.stdout.setEncoding('utf-8');
         this.proc.stdout.on('data', (chunk: string) => {
             this.buf += chunk;
@@ -202,29 +203,23 @@ test.describe('fractal-mcp', () => {
         expect(ok.isError).toBe(false);
     });
 
-    test('AC-5 fractal_structure が文書を返し、旧 fractal-* skill の dir は無く install.sh は skill として配置しない', async () => {
+    test('AC-5 fractal_structure が文書を返し、旧 skill の dir（ai_skills/）は無く mcp/install.sh は skill を配置しない', async () => {
         const r = await c.call('fractal_structure');
         expect(r.isError).toBe(false);
-        expect(r.content[0].text).toBe(fs.readFileSync(path.join(AI_SKILLS, 'fractal-mcp', 'structure.md'), 'utf-8'));
+        expect(r.content[0].text).toBe(fs.readFileSync(path.join(MCP_DIR, 'structure.md'), 'utf-8'));
         expect(r.content[0].text).toContain('outline.note');
         expect(r.content[0].text).not.toMatch(/^name: /m); // SKILL.md の frontmatter を持ち込んでいない
 
         for (const s of ['fractal-structure', 'fractal-search', 'fractal-edit', 'fractal-doctor', 'fractal-summary']) {
             expect(fs.existsSync(path.join(AI_SKILLS, s)), s).toBe(false);
         }
-        expect(fs.existsSync(path.join(AI_SKILLS, 'fractal-mcp', 'SKILL.md'))).toBe(false);
-        const installSh = fs.readFileSync(path.join(AI_SKILLS, 'install.sh'), 'utf-8');
-        const skills = installSh.match(/^SKILLS="([^"]+)"/m)![1].split(' ');
-        expect(skills.filter((s) => s.startsWith('fractal-'))).toEqual([]);
+        expect(fs.existsSync(path.join(MCP_DIR, 'SKILL.md'))).toBe(false);
+        expect(fs.existsSync(AI_SKILLS)).toBe(false);
+        const installSh = fs.readFileSync(path.join(MCP_DIR, 'install.sh'), 'utf-8');
+        expect(installSh).not.toMatch(/^SKILLS=/m);
         const legacy = installSh.match(/^LEGACY_SKILLS="([^"]+)"/m)![1].split(' ');
-        for (const s of ['fractal-structure', 'fractal-search', 'fractal-edit', 'fractal-doctor', 'fractal-summary', 'fractal-mcp']) expect(legacy).toContain(s);
-        // register-fractal.mjs（doc-md 等）は fractal-mcp/scripts の fractal-md.mjs を引く
-        for (const s of ['doc-md', 'arxiv-md', 'pptx-pages-md', 'youtube-md', 'web-crawler-md', 'aws-doc-maker']) {
-            const src = fs.readFileSync(path.join(AI_SKILLS, s, 'scripts', 'register-fractal.mjs'), 'utf-8');
-            expect(src, s).toContain("'..', '..', 'fractal-mcp', 'scripts', 'fractal-md.mjs'");
-            expect(src, s).not.toContain('fractal-edit');
-        }
-        expect(fs.existsSync(path.join(AI_SKILLS, 'fractal-mcp', 'scripts', 'fractal-md.mjs'))).toBe(true);
+        for (const s of ['fractal-structure', 'fractal-search', 'fractal-edit', 'fractal-doctor', 'fractal-summary', 'fractal-mcp', 'collect', 'doc-md', 'pptx-pages-md', 'aws-doc-maker', 'arxiv-md', 'youtube-md', 'web-crawler-md']) expect(legacy).toContain(s);
+        expect(fs.existsSync(path.join(MCP_DIR, 'scripts', 'fractal-md.mjs'))).toBe(true);
     });
 });
 
@@ -234,7 +229,7 @@ test.describe('fractal-mcp register.mjs', () => {
         const dir = fs.mkdtempSync(path.join(tmpRoot, 'reg-'));
         const cfg = path.join(dir, 'mcp.json');
         fs.writeFileSync(cfg, JSON.stringify({ mcpServers: { other: { command: 'x', args: [] } } }));
-        const reg = path.join(AI_SKILLS, 'fractal-mcp', 'register.mjs');
+        const reg = path.join(MCP_DIR, 'register.mjs');
         execFileSync(process.execPath, [reg, cfg, serverMjs, '--node', '/usr/bin/node']);
         let data = JSON.parse(fs.readFileSync(cfg, 'utf-8'));
         expect(data.mcpServers.other).toEqual({ command: 'x', args: [] });
@@ -248,5 +243,40 @@ test.describe('fractal-mcp register.mjs', () => {
         fs.writeFileSync(cfg, '{broken');
         expect(() => execFileSync(process.execPath, [reg, cfg, serverMjs], { stdio: 'pipe' })).toThrow();
         expect(fs.readFileSync(cfg, 'utf-8')).toBe('{broken');
+    });
+});
+
+// spec 20261026-1555-fractal-notes-json D12: globalState の notesRegistries に載った Notes 一覧ファイルの Note を返す
+test.describe('fractal-mcp Notes 一覧ファイル', () => {
+    test('AC-7 fractal_list_folders が notesRegistries の一覧ファイルの Note を返す', async () => {
+        const home = fs.mkdtempSync(path.join(tmpRoot, 'home-'));
+        const { dir: noteA } = mkFixtureNote('regA');
+        const { dir: noteB } = mkFixtureNote('regB');
+        const reg = path.join(home, 'work-fractal-notes.json');
+        fs.writeFileSync(reg, JSON.stringify({ version: 1, name: 'work', title: '仕事', notes: [noteA, noteB] }));
+        const broken = path.join(home, 'broken-fractal-notes.json');
+        fs.writeFileSync(broken, '{ not json');
+        const plat = os.platform();
+        const userDir = plat === 'darwin'
+            ? path.join(home, 'Library/Application Support/Code/User/globalStorage')
+            : path.join(home, '.config/Code/User/globalStorage');
+        fs.mkdirSync(userDir, { recursive: true });
+        const db = path.join(userDir, 'state.vscdb');
+        const state = JSON.stringify({ notesFolders: [], notesRegistries: [reg, broken], activeNotesRegistry: reg }).replace(/'/g, "''");
+        require('child_process').execFileSync('sqlite3', [db,
+            `CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB); INSERT INTO ItemTable VALUES ('imaken.fractal', '${state}');`]);
+
+        const c = new Client({ HOME: home, APPDATA: home });
+        try {
+            await c.init();
+            const r = await c.call('fractal_list_folders');
+            expect(r.isError).toBe(false);
+            const text = r.content.map(x => x.text).join('\n');
+            expect(text).toContain(path.resolve(noteA));
+            expect(text).toContain(path.resolve(noteB));
+            expect(text).toContain('work-fractal-notes.json');
+        } finally {
+            c.close();
+        }
     });
 });

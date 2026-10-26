@@ -5,7 +5,7 @@
  *
  * - 公式 SDK（@modelcontextprotocol/sdk）の McpServer + stdio transport。引数の型・必須・enum は zod で検査する
  * - ロジックは持たない: 各 tool は scripts/ の既存 mjs を execFile（shell なし・引数配列）で呼ぶ
- * - skill としては配置しない。各 IDE の MCP 設定が repo のこのファイルを直接起動する（ai_skills/install.sh）
+ * - skill としては配置しない。各 IDE の MCP 設定が repo のこのファイルを直接起動する（mcp/install.sh）
  * - stdout には JSON-RPC 以外を書かない（ログは stderr）
  */
 import { execFile } from 'node:child_process';

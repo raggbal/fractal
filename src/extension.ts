@@ -71,7 +71,7 @@ export function activate(context: vscode.ExtensionContext) {
     // 第 2 引数 = note フォルダ resolver（FR-FV-08 の In-App リンク逆引き用）。standalone 面は
     // document.uri しか持たないため、候補 folder 群から所属 note を逆引きする。thunk なので
     // 評価は message 受信時（notesFolderProvider の宣言より後）— activate 時に触らない。
-    registerFileViewer(context, () => notesFolderProvider.getFolders());
+    registerFileViewer(context, () => notesFolderProvider.getAllFolders());
 
     // Register commands
     context.subscriptions.push(
@@ -277,11 +277,19 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    const notesTreeView = vscode.window.createTreeView('notesExplorer', {
+        treeDataProvider: notesFolderProvider,
+        dragAndDropController: notesFolderProvider,
+    });
+    notesFolderProvider.setTreeView(notesTreeView);
+    context.subscriptions.push(notesTreeView, notesFolderProvider);
+
+    // spec 20261026-1555-fractal-notes-json: Notes 一覧ファイルの切替・追加・作成・解除
     context.subscriptions.push(
-        vscode.window.createTreeView('notesExplorer', {
-            treeDataProvider: notesFolderProvider,
-            dragAndDropController: notesFolderProvider,
-        })
+        vscode.commands.registerCommand('fractal.switchNotesRegistry', () => notesFolderProvider.switchRegistry()),
+        vscode.commands.registerCommand('fractal.openNotesRegistry', () => notesFolderProvider.openRegistry()),
+        vscode.commands.registerCommand('fractal.createNotesRegistry', () => notesFolderProvider.createRegistry()),
+        vscode.commands.registerCommand('fractal.removeNotesRegistry', () => notesFolderProvider.removeRegistry())
     );
 
     context.subscriptions.push(
@@ -362,7 +370,8 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.window.showErrorMessage('Invalid in-app link format');
                 return;
             }
-            const folders = notesFolderProvider.getFolders();
+            // D10: リンクは登録した全一覧の Note で解決する
+            const folders = notesFolderProvider.getAllFolders();
             const folderPath = folders.find(f => path.basename(f) === parsed.noteFolderName);
             if (!folderPath) {
                 vscode.window.showErrorMessage(`Notes folder "${parsed.noteFolderName}" not found. Register it in the Notes panel first.`);

@@ -4,7 +4,6 @@
 # consumer:
 #   - src/webview/html-md-converter.js                            (VS Code extension paste handler)
 #   - chrome-extension/lib/html-md-converter.js                   (Chrome 拡張)
-#   - ai_skills/web-crawler-md/scripts/html-md-converter.js   (web-crawler-md skill)
 #
 # 使い方:
 #   npm run build && ./scripts/update-consumers.sh
@@ -25,7 +24,6 @@ fi
 TARGETS=(
     "src/webview/html-md-converter.js"
     "chrome-extension/lib/html-md-converter.js"
-    "ai_skills/web-crawler-md/scripts/html-md-converter.js"
 )
 
 SIZE=$(wc -c <"$SRC" | tr -d ' ')
@@ -44,4 +42,4 @@ for rel in "${TARGETS[@]}"; do
 done
 
 echo ""
-echo "Next: rebuild fractal ('npm run compile') / chrome 拡張 reload / web-crawler-md skill 再起動"
+echo "Next: rebuild fractal ('npm run compile') / chrome 拡張 reload"

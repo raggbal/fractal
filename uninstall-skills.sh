@@ -19,7 +19,7 @@ PROJECT_DIR=""
 FORCE="no"
 DRY_RUN="no"
 
-# fractal の skill は fractal MCP（ai_skills/fractal-mcp）に統合したので、ここで配置する skill は無い
+# fractal の skill は fractal MCP（mcp）に統合したので、ここで配置する skill は無い
 SKILLS=()
 # Legacy skill names (previous install may have left these)
 LEGACY_SKILLS=(fractal-md fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary fractal-mcp)
