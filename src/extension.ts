@@ -282,7 +282,7 @@ export function activate(context: vscode.ExtensionContext) {
         dragAndDropController: notesFolderProvider,
     });
     notesFolderProvider.setTreeView(notesTreeView);
-    // spec 20261026-1845-fractal-file-views D4: 上の Notes Lists ビュー（登録した .fractal）
+    // spec 20261026-1845-fractal-file-views D4: 上の Fractal List ビュー（登録した .fractal）
     const notesListsView = vscode.window.createTreeView('notesLists', { treeDataProvider: notesFolderProvider.lists });
     context.subscriptions.push(notesTreeView, notesListsView, notesFolderProvider);
     // D3: 初回は ~/.fractal/default.fractal を作って今までの Note を入れる

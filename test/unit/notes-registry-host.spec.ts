@@ -19,7 +19,7 @@ function purgeSrcCache(): void {
 /** ダイアログの答えを順に返す stub。答えが尽きたら undefined（= キャンセル） */
 function makeVscodeStub() {
     const answers = { openDialog: [] as (string | undefined)[], inputBox: [] as (string | undefined)[], quickPick: [] as ((items: any[]) => any)[], info: [] as (string | undefined)[], warn: [] as (string | undefined)[] };
-    const shown = { info: [] as string[], warn: [] as string[], error: [] as string[], context: {} as Record<string, unknown> };
+    const shown = { info: [] as string[], warn: [] as string[], error: [] as string[], context: {} as Record<string, unknown>, dialogStart: [] as (string | undefined)[] };
     class EventEmitter { private ls: any[] = []; event = (l: any) => { this.ls.push(l); return { dispose() {} }; }; fire(v: any) { this.ls.forEach(l => l(v)); } }
     class TreeItem { constructor(public label: string, public collapsibleState: number) {} }
     const stub = {
@@ -33,7 +33,11 @@ function makeVscodeStub() {
         workspace: {},
         commands: { executeCommand: async (cmd: string, key: string, value: unknown) => { if (cmd === 'setContext') shown.context[key] = value; } },
         window: {
-            showOpenDialog: async () => { const a = answers.openDialog.shift(); return a === undefined ? undefined : [{ fsPath: a }]; },
+            showOpenDialog: async (opts: any) => {
+                shown.dialogStart.push(opts && opts.defaultUri ? opts.defaultUri.fsPath : undefined);
+                const a = answers.openDialog.shift();
+                return a === undefined ? undefined : [{ fsPath: a }];
+            },
             showInputBox: async (opts: any) => {
                 const a = answers.inputBox.shift();
                 if (a !== undefined && opts.validateInput && opts.validateInput(a)) return undefined; // 検証エラーは確定できない
@@ -272,5 +276,24 @@ test.describe('NotesFolderProvider × .fractal', () => {
             expect(ext, c).toContain(`registerCommand('${c}'`);
         }
         expect(ext).toContain('notesFolderProvider.initialize()');
+    });
+
+    test('AC-7 既存を追加・新規作成のダイアログは最後に開いていた .fractal のフォルダから、不明なら ~/.fractal から開く', async () => {
+        const { provider, shown, def } = setup({ notesDefaultFractalCreated: true });
+        await provider.openRegistry();
+        await provider.createRegistry();
+        expect(shown.dialogStart).toEqual([path.dirname(def), path.dirname(def)]);
+        expect(fs.existsSync(path.dirname(def))).toBe(true); // 無ければ作る
+
+        const dir = tmp('nr-last-');
+        const work = path.join(dir, 'work.fractal');
+        fs.writeFileSync(work, JSON.stringify({ version: 1, notes: [] }));
+        const s2 = setup({ notesRegistries: [work], activeNotesRegistry: work, notesDefaultFractalCreated: true });
+        await s2.provider.createRegistry();
+        expect(s2.shown.dialogStart).toEqual([dir]);
+        // 全部を解除した後も、最後に開いていた .fractal のフォルダから
+        await s2.provider.removeRegistry({ file: work });
+        await s2.provider.openRegistry();
+        expect(s2.shown.dialogStart).toEqual([dir, dir]);
     });
 });

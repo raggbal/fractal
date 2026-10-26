@@ -74,7 +74,7 @@
       "fractal-notes": [
         {
           "id": "notesLists",
-          "name": "Notes Lists"
+          "name": "Fractal List"
         },
         {
           "id": "notesExplorer",
@@ -85,16 +85,16 @@
     "viewsWelcome": [
       {
         "view": "notesLists",
-        "contents": "Add a .fractal notes list, or create a new one.\n[Add Existing .fractal](command:fractal.openNotesRegistry)\n[Create New .fractal](command:fractal.createNotesRegistry)"
+        "contents": "Add an existing .fractal, or create a new one.\n[Add Existing .fractal](command:fractal.openNotesRegistry)\n[Create New .fractal](command:fractal.createNotesRegistry)"
       },
       {
         "view": "notesExplorer",
-        "contents": "Choose or create a .fractal in Notes Lists above.",
+        "contents": "Choose or create a .fractal in Fractal List above.",
         "when": "!fractal.hasNotesRegistry"
       },
       {
         "view": "notesExplorer",
-        "contents": "This notes list has no notes yet.\n[Add Notes Folder](command:fractal.addNotesFolder)",
+        "contents": "This .fractal has no notes yet.\n[Add Notes Folder](command:fractal.addNotesFolder)",
         "when": "fractal.hasNotesRegistry"
       }
     ],
@@ -112,12 +112,12 @@
       },
       {
         "command": "fractal.activateNotesRegistry",
-        "title": "Switch to This Notes List",
+        "title": "Switch to This .fractal",
         "category": "Fractal Note"
       },
       {
         "command": "fractal.switchNotesRegistry",
-        "title": "Switch Notes List (.fractal)…",
+        "title": "Switch .fractal…",
         "category": "Fractal Note"
       },
       {
@@ -134,7 +134,7 @@
       },
       {
         "command": "fractal.removeNotesRegistry",
-        "title": "Remove from Notes Lists (keeps the file)",
+        "title": "Remove from Fractal List (keeps the file)",
         "category": "Fractal Note",
         "icon": "$(close)"
       },
