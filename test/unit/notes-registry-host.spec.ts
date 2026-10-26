@@ -103,7 +103,7 @@ test.describe('NotesFolderProvider × .fractal', () => {
         expect(s1.provider.getRegistries()).toEqual([s1.def]);
         expect(s1.provider.getActiveRegistry()).toBe(s1.def);
         expect(s1.provider.getFolders()).toEqual(legacy);
-        expect(s1.ctx.store.get('notesRegistryInitialized')).toBe(true);
+        expect(s1.ctx.store.get('notesDefaultFractalCreated')).toBe(true);
         expect(s1.shown.context['fractal.hasNotesRegistry']).toBe(true);
 
         // 旧が空でも作る
@@ -120,13 +120,20 @@ test.describe('NotesFolderProvider × .fractal', () => {
         expect(fs.existsSync(s2.def)).toBe(false);
         expect(again.getRegistries()).toEqual([]);
 
-        // rc.8 で既に登録があれば作らない
+        // rc.8 の登録があっても作り、先頭に置いてアクティブにする（旧 notesFolders = rc.8 の写しを入れる）
         const old = path.join(tmp('nr-rc8-'), 'work-fractal-notes.json');
         fs.writeFileSync(old, JSON.stringify({ version: 1, name: 'work', title: '仕事', notes: ['/x'] }));
-        const s3 = setup({ notesRegistries: [old], activeNotesRegistry: old });
+        const s3 = setup({ notesRegistries: [old], activeNotesRegistry: old, notesFolders: ['/x'] });
         await s3.provider.initialize();
-        expect(fs.existsSync(s3.def)).toBe(false);
-        expect(s3.provider.getFolders()).toEqual(['/x']);
+        expect(readJson(s3.def).notes).toEqual(['/x']);
+        expect(s3.provider.getRegistries()).toEqual([s3.def, old]);
+        expect(s3.provider.getActiveRegistry()).toBe(s3.def);
+
+        // rc.8 の旧フラグ（notesRegistryInitialized）が立っていて登録 0 件でも作る（Kiro で起きた状態）
+        const s4 = setup({ notesRegistries: [], notesRegistryInitialized: true, notesFolders: ['/k1', '/k2'] });
+        await s4.provider.initialize();
+        expect(readJson(s4.def).notes).toEqual(['/k1', '/k2']);
+        expect(s4.provider.getFolders()).toEqual(['/k1', '/k2']);
     });
 
     test('AC-2 default.fractal が既にあれば無い Note だけ足す。壊れていれば書かずに登録して警告。作成に失敗したらフラグを立てない', async () => {
@@ -152,7 +159,7 @@ test.describe('NotesFolderProvider × .fractal', () => {
         fs.writeFileSync(blocker, 'x');
         const s3 = setup({ notesFolders: ['/mine'] }, path.join(blocker, '.fractal', 'default.fractal'));
         await s3.provider.initialize();
-        expect(s3.ctx.store.get('notesRegistryInitialized')).toBeUndefined();
+        expect(s3.ctx.store.get('notesDefaultFractalCreated')).toBeUndefined();
         expect(s3.provider.getRegistries()).toEqual([]);
         expect(s3.shown.warn.length).toBe(1);
     });
@@ -232,7 +239,7 @@ test.describe('NotesFolderProvider × .fractal', () => {
         const f2 = path.join(dir, 'b.fractal');
         fs.writeFileSync(f1, JSON.stringify({ version: 1, notes: ['/one'] }));
         fs.writeFileSync(f2, '{ broken');
-        const { provider } = setup({ notesRegistries: [f1, f2], activeNotesRegistry: f1, notesRegistryInitialized: true });
+        const { provider } = setup({ notesRegistries: [f1, f2], activeNotesRegistry: f1, notesDefaultFractalCreated: true });
         const view: any = {};
         provider.setTreeView(view);
         expect(view.description).toBe('a.fractal');

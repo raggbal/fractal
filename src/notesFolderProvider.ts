@@ -46,7 +46,8 @@ const NOTES_FOLDER_DND_MIME = 'application/vnd.fractal.notes-folder';
 const KEY_REGISTRIES = 'notesRegistries';
 const KEY_ACTIVE = 'activeNotesRegistry';
 const KEY_LEGACY = 'notesFolders';
-const KEY_INITIALIZED = 'notesRegistryInitialized';
+// rc.8 で立てた notesRegistryInitialized は default.fractal を作らずに立つことがあったので、別の名前で 1 回やり直す
+const KEY_INITIALIZED = 'notesDefaultFractalCreated';
 const CTX_HAS_REGISTRY = 'fractal.hasNotesRegistry';
 
 interface RegistryState {
@@ -86,15 +87,11 @@ export class NotesFolderProvider
     }
 
     /**
-     * 初回（フラグなし・登録 0 件）に default.fractal を作って旧 notesFolders を入れ、登録・アクティブにする（D3）。
-     * 失敗したらフラグを立てない（次の起動でやり直す）。
+     * 初回（フラグなし）に default.fractal を作って旧 notesFolders を入れ、登録の先頭に置いてアクティブにする（D3）。
+     * rc.8 の登録（*-fractal-notes.json）があっても作る。失敗したらフラグを立てない（次の起動でやり直す）。
      */
     async initialize(): Promise<void> {
         if (this.context.globalState.get<boolean>(KEY_INITIALIZED)) return;
-        if (this.registries.length > 0) {
-            await this.context.globalState.update(KEY_INITIALIZED, true);
-            return;
-        }
         const file = this.defaultRegistry;
         const legacy = this.context.globalState.get<string[]>(KEY_LEGACY, []).filter(p => typeof p === 'string');
         try {
@@ -107,7 +104,7 @@ export class NotesFolderProvider
             // 壊れた default.fractal: 書かずに登録して ⚠ を出す（旧 notesFolders は globalState に残る。D7）
             vscode.window.showWarningMessage(`${file}: ${e?.message || e} Fix the file to see your notes.`);
         }
-        this.registries.push(file);
+        if (!this.registries.includes(file)) this.registries.unshift(file);
         this.reload(file, false);
         this.watch(file);
         await this.context.globalState.update(KEY_INITIALIZED, true);
