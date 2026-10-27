@@ -346,6 +346,8 @@ export function getOutlinerWebviewContent(
     </script>
     <style>${pdfViewerCss}</style>
     <script nonce="${nonce}">window.__viewerConfig = {
+        // 2026-10-27: html viewer の script 既定（設定 fractal.viewerHtmlAllowScripts・既定 ON）
+        htmlScriptsDefault: ${vscode.workspace.getConfiguration('fractal').get<boolean>('viewerHtmlAllowScripts', true) ? 'true' : 'false'},
         pdfjsLibUri: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer', 'pdfjs-lib.mjs'))}',
         workerUri: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer', 'pdf.worker.min.mjs'))}',
         cMapUrl: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer'))}/cmaps/',

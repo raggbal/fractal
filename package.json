@@ -594,6 +594,12 @@
           "default": true,
           "description": "Show the \"Open in Text Editor\" button (opens the current file in VS Code's built-in text editor). Turn off if you don't use it."
         },
+        "fractal.viewerHtmlAllowScripts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run scripts in HTML files opened in the file viewer by default. Scripts run in a sandboxed frame (no access to VS Code or other files; network requests are blocked, but images from external URLs can still load). Each file can still be toggled with the viewer's Allow scripts button.",
+          "markdownDescription": "Run scripts in HTML files opened in the file viewer by default. Scripts run in a sandboxed frame (no access to VS Code or other files; `fetch` / XHR are blocked, but images from external URLs can still load). Each file can still be toggled with the viewer's **Allow scripts** button."
+        },
         "fractal.pdfStyles": {
           "type": "array",
           "items": {

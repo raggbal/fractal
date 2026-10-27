@@ -58,6 +58,8 @@ export function getFileViewerHtml(
         },
         kind,
         fileUri: asUri(fileUri),
+        // 2026-10-27: html viewer の script 既定（設定 fractal.viewerHtmlAllowScripts・既定 ON）
+        htmlScriptsDefault: vscode.workspace.getConfiguration('fractal').get<boolean>('viewerHtmlAllowScripts', true),
         // ADRL-0067: html 面の copy ヘルパー注入とオプトイン rewrite が使う nonce。
         // blob iframe は生成時の policy container（= この CSP）を継承するため、
         // この nonce を持つ script だけが blob 内で実行できる（防御の実体）。

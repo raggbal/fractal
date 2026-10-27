@@ -136,9 +136,10 @@ async function probeOut(frame: import('@playwright/test').Frame): Promise<string
 
 test.describe('file-viewer: script ゲート（FR-FV-10 / FR-FV-11 / ADRL-0067）', () => {
 
-    test('TC-FV-41: 既定はユーザー script 不実行 + 本文表示（counterfactual: 同一 nonce を与えると実行される）', async ({ page }) => {
+    test('TC-FV-41: 設定 OFF ではユーザー script 不実行 + 本文表示（counterfactual: 同一 nonce を与えると実行される）', async ({ page }) => {
         await page.goto('/standalone-viewer.html');
         await page.evaluate(() => {
+            (window as any).__viewerConfig = Object.assign((window as any).__viewerConfig || {}, { htmlScriptsDefault: false }); // 設定 OFF（従来の明示オプトイン）
             (window as any).__fileViewer.open('html', './viewer-fixtures/script-probe.html', document.getElementById('viewer-root'));
         });
         const frame = await currentBlobFrame(page);
@@ -233,6 +234,7 @@ test.describe('file-viewer: script ゲート（FR-FV-10 / FR-FV-11 / ADRL-0067�
     test('TC-FV-44: 「スクリプトを許可」ON で再読込 → ユーザー script が実行される（sandbox は不変）', async ({ page }) => {
         await page.goto('/standalone-viewer.html');
         await page.evaluate(() => {
+            (window as any).__viewerConfig = Object.assign((window as any).__viewerConfig || {}, { htmlScriptsDefault: false }); // 設定 OFF（従来の明示オプトイン）
             (window as any).__fileViewer.open('html', './viewer-fixtures/script-probe.html', document.getElementById('viewer-root'));
         });
         let frame = await currentBlobFrame(page);
@@ -260,6 +262,7 @@ test.describe('file-viewer: script ゲート（FR-FV-10 / FR-FV-11 / ADRL-0067�
             (window as any).__revoked = [];
             const orig = URL.revokeObjectURL.bind(URL);
             URL.revokeObjectURL = (u: string) => { (window as any).__revoked.push(u); orig(u); };
+            (window as any).__viewerConfig = Object.assign((window as any).__viewerConfig || {}, { htmlScriptsDefault: false }); // 設定 OFF（従来の明示オプトイン）
             (window as any).__fileViewer.open('html', './viewer-fixtures/script-probe.html', document.getElementById('viewer-root'));
         });
         await currentBlobFrame(page);
@@ -298,6 +301,7 @@ test.describe('file-viewer: script ゲート（FR-FV-10 / FR-FV-11 / ADRL-0067�
         page.on('request', (r) => { if (r.url().includes('example.com')) { externalRequests.push(r.url()); } });
         await page.goto('/standalone-viewer.html');
         await page.evaluate(() => {
+            (window as any).__viewerConfig = Object.assign((window as any).__viewerConfig || {}, { htmlScriptsDefault: false }); // 設定 OFF（従来の明示オプトイン）
             (window as any).__fileViewer.open('html', './viewer-fixtures/leak.html', document.getElementById('viewer-root'));
         });
         await currentBlobFrame(page);
@@ -311,6 +315,41 @@ test.describe('file-viewer: script ゲート（FR-FV-10 / FR-FV-11 / ADRL-0067�
         // 本命: 外部 fetch は継承 CSP connect-src 'self' で落ちる
         expect(await probeOut(frame), '外部送信が成功した（connect-src が効いていない）').toBe('BLOCKED');
         expect(externalRequests, 'example.com へのリクエストが発生した').toEqual([]);
+    });
+
+    test('TC-FV-47: 既定（設定 fractal.viewerHtmlAllowScripts = ON）では開いた時点で script が実行され、トグルで止められ、開き直すと既定に戻る', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            // 2026-10-27 ユーザー要望: 既定 ON（htmlScriptsDefault 未指定 = ON）
+            delete ((window as any).__viewerConfig || {}).htmlScriptsDefault;
+            (window as any).__fileViewer.open('html', './viewer-fixtures/script-probe.html', document.getElementById('viewer-root'));
+        });
+        let frame = await currentBlobFrame(page);
+        await page.waitForTimeout(800);
+        expect(await probeOut(frame), '既定で script が実行されない').toBe('RAN');
+        expect(await page.getAttribute('.viewer-script-toggle', 'aria-pressed')).toBe('true');
+        // sandbox は ON でも allow-scripts のみ（allow-same-origin なし = 不変条件 6）
+        const sandbox = await page.evaluate(() => (document.querySelector('#viewer-root iframe') as HTMLIFrameElement).getAttribute('sandbox'));
+        expect(sandbox).toBe('allow-scripts');
+
+        await page.click('.viewer-script-toggle');
+        await page.waitForTimeout(1200);
+        frame = await currentBlobFrame(page);
+        expect(await probeOut(frame), 'トグルで OFF にしても script が実行される').toBe('');
+
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open('html', './viewer-fixtures/script-probe.html', document.getElementById('viewer-root'));
+        });
+        await page.waitForTimeout(1200);
+        frame = await currentBlobFrame(page);
+        expect(await probeOut(frame), '開き直したら既定（ON）に戻る').toBe('RAN');
+
+        // host の 3 面（notes / outliner / standalone）が設定を __viewerConfig.htmlScriptsDefault で渡している
+        const fs = require('fs'); const path = require('path');
+        for (const f of ['src/notesWebviewContent.ts', 'src/outlinerWebviewContent.ts', 'src/fileViewerContent.ts']) {
+            const src = fs.readFileSync(path.join(__dirname, '../..', f), 'utf8');
+            expect(src, f).toMatch(/htmlScriptsDefault:[^\n]*viewerHtmlAllowScripts', true\)/);
+        }
     });
 });
 
