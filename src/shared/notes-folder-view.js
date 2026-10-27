@@ -1136,6 +1136,18 @@
             if (selection.length === 0) { return; }   // 何もしない（clipboard を上書きしない）
             e.preventDefault();
             writeFvClipboard();
+        } else if ((e.key === 'Delete' || e.key === 'Backspace') && !e.altKey && !e.shiftKey) {
+            // 2026-10-27 ユーザー要望: Delete / Backspace（mac の delete キー）/ Cmd+Backspace で選択を削除。
+            // 右クリックの Delete と同じ host 経路（folderViewDelete = ゴミ箱へ移す・取り戻せる）。
+            // 複数選択は全件。親 dir と子が両方選ばれていたら親だけ送る（子は親ごとゴミ箱へ行く）
+            if (renaming || e.isComposing || e.keyCode === 229) { return; }
+            var targets = selection.length > 0 ? selection.slice() : (selectedRel ? [selectedRel] : []);
+            if (targets.length === 0 || !bridge().folderViewDelete) { return; }
+            e.preventDefault();
+            var roots = targets.filter(function (rel) {
+                return !targets.some(function (other) { return other !== rel && rel.indexOf(other + '/') === 0; });
+            });
+            for (var di = 0; di < roots.length; di++) { bridge().folderViewDelete(currentLinkId, roots[di]); }
         } else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
             // FR-FLV-28: Enter 単独 = インライン rename（IME 変換確定の Enter は除外 — precedent ガード）
             if (!selectedRel || e.isComposing || e.keyCode === 229 || renaming) { return; }
