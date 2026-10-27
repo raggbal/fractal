@@ -12,9 +12,9 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { scanSingleNoteCore } from '../../src/shared/cleanup-core';
-import { resolvePagesDir, resolveMdFilePath, resolveMdFilesDir } from '../../src/shared/flat-layout';
-import { safeResolveUnderDir } from '../../src/shared/path-safety';
+import { scanSingleNoteCore } from '../../../src/shared/cleanup-core';
+import { resolvePagesDir, resolveMdFilePath, resolveMdFilesDir } from '../../../src/shared/flat-layout';
+import { safeResolveUnderDir } from '../../../src/shared/path-safety';
 import { collectMdLinks } from './md';
 
 export type Level = 'ERROR' | 'WARN' | 'INFO';

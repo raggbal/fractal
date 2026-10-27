@@ -4,7 +4,7 @@ dist/
 vendor/
 # CLI 用 pdfjs vendor バンドルは commit する（ゼロ install 配布 = FR-DS-06 / ADRL-0057。
 # 再生成: npm run build:pdfjs-vendor）
-!mcp/vendor/
+!agent-capability/mcp/vendor/
 *.vsix
 .vscode-test/
 .DS_Store
@@ -53,3 +53,5 @@ test/html/standalone-viewer-notescsp.html
 electron/dist-src/
 # e2e-electron の生成 fixture（.fixture-note/ = scale-NNN のノート群。112 ファイル / 約 500K）
 test/e2e-electron/
+# Claude Code plugin の bundle（agent-capability/mcp/build.mjs が mcp/dist から複製する生成物）
+agent-capability/plugin/server/

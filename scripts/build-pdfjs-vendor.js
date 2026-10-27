@@ -5,7 +5,7 @@
 //   pdfjs-dist@4.10.38 legacy build + fake worker（pdf.worker.mjs を同一バンドルに畳み
 //   globalThis.pdfjsWorker 代入）を CJS 単一ファイルに落とす。
 //
-// 生成物 mcp/vendor/pdfjs-bundle.cjs は**リポジトリに commit する**
+// 生成物 agent-capability/mcp/vendor/pdfjs-bundle.cjs は**リポジトリに commit する**
 // （ゼロ install 配布 = install.sh の symlink 先で npm install 不要）。
 // pdfjs-dist を更新したときのみ手動で再実行: npm run build:pdfjs-vendor
 
@@ -14,7 +14,7 @@ const fs = require('fs');
 const esbuild = require('esbuild');
 
 const ROOT = path.join(__dirname, '..');
-const OUT = path.join(ROOT, 'mcp', 'vendor', 'pdfjs-bundle.cjs');
+const OUT = path.join(ROOT, 'agent-capability', 'mcp', 'vendor', 'pdfjs-bundle.cjs');
 
 // entry: worker を先に畳んで fake worker 登録 → main を export
 const ENTRY_SOURCE = `

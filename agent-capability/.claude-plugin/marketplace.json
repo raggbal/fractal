@@ -1,0 +1,14 @@
+{
+  "name": "fractal-local",
+  "owner": {
+    "name": "imaken"
+  },
+  "plugins": [
+    {
+      "name": "fractal",
+      "source": "./plugin",
+      "description": "Fractal notes MCP tools + usage skill"
+    }
+  ],
+  "description": "Fractal notes (VS Code extension) for AI agents: MCP tools + usage skill"
+}

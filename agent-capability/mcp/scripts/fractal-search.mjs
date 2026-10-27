@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { extractDocTextMjs, pushNormalized } from './ooxml-extract.mjs';
-import h1Utils from '../../out/shared/md-h1-utils.js';
+import h1Utils from '../../../out/shared/md-h1-utils.js';
 
 // ── フラットレイアウトの pageDir 解決（新フラットレイアウト前提・legacy fallback なし = ユーザー決定 2026-07-26）──
 // フラット規約: page md = <folder>/<pageId>.md（直下）。hint（isFlatOut / 相対 / 絶対）尊重・無ければ直下。
@@ -556,7 +556,7 @@ function loadPdfjsVendor() {
     try {
         const require2 = createRequire(import.meta.url);
         // vendor/pdfjs-bundle.cjs は module.exports = { getDocument, ... }（scripts/build-pdfjs-vendor.js 生成）
-        // scripts/ から実行 = ../vendor、bundle（mcp/dist/server.mjs）から実行 = ./vendor（build が dist/vendor へ複製）→ ../vendor
+        // scripts/ から実行 = ../vendor、bundle（agent-capability/mcp/dist/server.mjs）から実行 = ./vendor（build が dist/vendor へ複製）→ ../vendor
         const here = path.dirname(fileURLToPath(import.meta.url));
         const candidates = [path.join(here, 'vendor', 'pdfjs-bundle.cjs'), path.join(here, '..', 'vendor', 'pdfjs-bundle.cjs')];
         const found = candidates.find((c) => fs.existsSync(c));

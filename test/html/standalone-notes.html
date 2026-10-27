@@ -10258,7 +10258,7 @@ if (typeof window !== 'undefined') {
  *  - host ts: require('./whole-word')（notes-file-manager.ts buildSearchRegex）
  *  - webview: 本番 inline（notesWebviewContent.ts）+ ハーネス（build-standalone-notes.js）で
  *    window.WholeWord として先行ロード（notes-file-panel.js の 2 サイトが参照）
- *  - CLI: mcp/scripts/fractal-search.mjs はゼロ install 配布のため
+ *  - CLI: agent-capability/mcp/scripts/fractal-search.mjs はゼロ install 配布のため
  *    ミラー実装（extension⇄CLI 一致 TC = TC-MLG-04b が番人・ADRL-0059 同型）
  */
 (function (root, factory) {
@@ -10321,7 +10321,7 @@ if (typeof window !== 'undefined') {
  *  - host ts: require('./search-ext-filter')（notes-file-manager.ts の 4 段ゲート）
  *  - webview: 本番 inline（notesWebviewContent.ts）+ ハーネス（build-standalone-notes.js）で
  *    window.SearchExtFilter として notes-file-panel.js より前にロード
- *  - CLI: mcp/scripts/fractal-search.mjs はゼロ install 配布のため
+ *  - CLI: agent-capability/mcp/scripts/fractal-search.mjs はゼロ install 配布のため
  *    ミラー実装（extension⇄CLI 一致 TC = TC-SEF-06 が番人・ADRL-0059 同型）
  */
 (function (root, factory) {

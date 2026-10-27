@@ -4,7 +4,7 @@
  *
  * spec 20261027-1700-mcp-full-ops / ADR-0012:
  * - このファイルは「ソースの入口」。実行するのは esbuild で 1 ファイルにした mcp/dist/server.mjs
- *   （`npm run compile` か `node mcp/build.mjs` で作る。SDK・zod・src/shared の正典を全部含む）。
+ *   （`npm run compile` か `node agent-capability/mcp/build.mjs` で作る。SDK・zod・src/shared の正典を全部含む）。
  *   ここは TypeScript（mcp/src）を import するので、node で直接は起動できない。
  * - 中身の処理は src/shared の正典（拡張機能と同じ関数）と webview と同じ OutlinerModel を呼ぶ（mcp/src/*.ts）。
  *   書き込みは 1 本ずつ・tmp + rename・Notes フォルダの中だけ・expectedHash（contentHash）で楽観ロック。

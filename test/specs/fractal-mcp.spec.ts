@@ -11,7 +11,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 const AI_SKILLS = path.resolve(__dirname, '../../ai_skills');
-const MCP_DIR = path.resolve(__dirname, '../../mcp');
+const MCP_DIR = path.resolve(__dirname, '../../agent-capability/mcp');
 // spec 20261027-1700-mcp-full-ops D1: 起動するのは esbuild の bundle（mcp/dist/server.mjs）。mcp/server.mjs はソースの入口
 const serverMjs = path.join(MCP_DIR, 'dist', 'server.mjs');
 
@@ -231,7 +231,7 @@ test.describe('fractal-mcp', () => {
         }
         expect(fs.existsSync(path.join(MCP_DIR, 'SKILL.md'))).toBe(false);
         expect(fs.existsSync(AI_SKILLS)).toBe(false);
-        const installSh = fs.readFileSync(path.join(MCP_DIR, 'install.sh'), 'utf-8');
+        const installSh = fs.readFileSync(path.join(MCP_DIR, '..', 'install.sh'), 'utf-8');
         expect(installSh).not.toMatch(/^SKILLS=/m);
         const legacy = installSh.match(/^LEGACY_SKILLS="([^"]+)"/m)![1].split(' ');
         for (const s of ['fractal-structure', 'fractal-search', 'fractal-edit', 'fractal-doctor', 'fractal-summary', 'fractal-mcp', 'collect', 'doc-md', 'pptx-pages-md', 'aws-doc-maker', 'arxiv-md', 'youtube-md', 'web-crawler-md']) expect(legacy).toContain(s);

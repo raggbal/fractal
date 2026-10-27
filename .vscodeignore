@@ -41,11 +41,8 @@ rules/**
 .fractal.json
 README_new.md
 README_new.ja.md
-install-skills.sh
-uninstall-skills.sh
-.node-version
+un.node-version
 .github/**
-mcp/**
-skills/**
+agent-capability/**
 chrome-extension/**
 html-md-converter/**

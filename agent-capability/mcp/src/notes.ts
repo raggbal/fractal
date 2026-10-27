@@ -7,8 +7,8 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { safeResolveUnderDir } from '../../src/shared/path-safety';
-import { resolveMdFilesDir, resolveMdFilePath, resolvePagesDir } from '../../src/shared/flat-layout';
+import { safeResolveUnderDir } from '../../../src/shared/path-safety';
+import { resolveMdFilesDir, resolveMdFilePath, resolvePagesDir } from '../../../src/shared/flat-layout';
 import { ToolError, hashOfFile } from './guard';
 import { MatchMode, textMatches, truncate } from './outdoc';
 

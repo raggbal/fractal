@@ -17,7 +17,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 const ROOT = path.resolve(__dirname, '../..');
-const SEARCH_MJS = path.join(ROOT, 'mcp/scripts/fractal-search.mjs');
+const SEARCH_MJS = path.join(ROOT, 'agent-capability/mcp/scripts/fractal-search.mjs');
 const CANON = path.join(ROOT, 'out/shared/md-h1-utils.js');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -87,7 +87,7 @@ test.describe('H1 は正典（D9: mjs ミラー廃止）', () => {
         expect(search.parseAtxH1TextMjs).toBeUndefined();
         expect(search.extractFirstH1Mjs).toBeUndefined();
         const src = fs.readFileSync(SEARCH_MJS, 'utf-8');
-        expect(src).toContain("from '../../out/shared/md-h1-utils.js'");
+        expect(src).toContain("from '../../../out/shared/md-h1-utils.js'"); // agent-capability/mcp/scripts から repo の out/shared
         expect(src, 'ATX 見出しの独自 regex が残っている').not.toMatch(/#\[ \\t\]\+\(\.\*\)/);
         // --h1 フィルタは正典 extractFirstH1 の結果に対する部分一致
         const bodies = [
@@ -142,8 +142,8 @@ test.describe('H1 は正典（D9: mjs ミラー廃止）', () => {
             // 残っている CLI の mjs（search / summary）の guard が realpath 対応版であることを静的確認
             //（書き込みと doctor の mjs は spec 20261027-1700 で mcp/src へ置き換えて廃止）
             const mjsFiles = [
-                'mcp/scripts/fractal-search.mjs',
-                'mcp/scripts/fractal-summary.mjs',
+                'agent-capability/mcp/scripts/fractal-search.mjs',
+                'agent-capability/mcp/scripts/fractal-summary.mjs',
             ];
             for (const f of mjsFiles) {
                 const src = fs.readFileSync(path.join(ROOT, f), 'utf-8');

@@ -4,8 +4,8 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { resolvePagesDir } from '../../src/shared/flat-layout';
-import { extractFirstH1 } from '../../src/shared/md-h1-utils';
+import { resolvePagesDir } from '../../../src/shared/flat-layout';
+import { extractFirstH1 } from '../../../src/shared/md-h1-utils';
 import { ToolError, findNoteRoot, hashOfFile, requireAbs } from './guard';
 import { MatchMode, firstLine, loadOut, nodeCandidate, nodeView, resolveNodeRef, textMatches, truncate } from './outdoc';
 import { TreeItem, buildTree, findMdOwner, flattenTree, readStructure } from './notes';

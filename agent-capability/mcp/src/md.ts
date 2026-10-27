@@ -4,11 +4,11 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { extractFirstH1, parseAtxHeadingText } from '../../src/shared/md-h1-utils';
+import { extractFirstH1, parseAtxHeadingText } from '../../../src/shared/md-h1-utils';
 import { ToolError } from './guard';
 import { MatchMode, textMatches, truncate } from './outdoc';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const parser = require('../../src/shared/markdown-link-parser');
+const parser = require('../../../src/shared/markdown-link-parser');
 
 export interface Heading { level: number; text: string; line: number; path: string }
 

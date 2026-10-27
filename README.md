@@ -217,13 +217,13 @@ Translate a selection or the whole document with **Amazon Translate**, including
 
 ## 🤖 AI skills — make Fractal Note your agent's notebook
 
-Fractal Note publishes an **MCP server** (`mcp/`) that teaches AI agents the Fractal Note data model so they can search, read, and write your notes directly:
+Fractal Note ships everything AI agents need in [`agent-capability/`](agent-capability/README.md): an **MCP server** whose tools search, read, and edit notes / outliners / markdown with the same code as the extension, and a **skill** that teaches agents how to use them.
 
-- **fractal MCP** (`mcp/`) — Tools: `fractal_structure` (data model reference) / `fractal_list_folders`, `fractal_list_notes`, `fractal_search` (auto-detect Notes folders, full-text search across notes including attached PDF / Word / Excel / PowerPoint, filter by tag / task state / note name) / `fractal_add`, `fractal_modify`, `fractal_attach` (add / modify / delete / move nodes, import markdown pages, attach images and files, create outliners and markdown files) / `fractal_doctor` (integrity checks; read-only) / `fractal_summary` (bundle an outliner or markdown into one markdown)
+- **Tools**: `fractal_resolve` / `fractal_get` (identify and read notes, outliners, md) / `fractal_search` / `fractal_summary` / `fractal_add` / `fractal_modify` / `fractal_attach` / `fractal_tree` (nodes, pages, attachments, tree operations, moves) / `fractal_doctor` (integrity checks)
+- **Claude Code** installs it as a plugin; **Kiro** / **Cursor** get the MCP registered (Kiro also gets the skill)
 
 ```bash
-mcp/install.sh               # register the fractal MCP (Claude Code / Cursor / Kiro)
-./install-skills.sh          # Claude Code rules only (cleans up the old fractal-* skills)
+agent-capability/install.sh   # Claude Code: plugin / Kiro: MCP + skill / Cursor: MCP
 ```
 
 With the MCP registered, agents like Claude Code can organize research, summarize clips, and build knowledge bases by writing straight into Fractal Note — a practical **Obsidian alternative** with an AI-native workflow.

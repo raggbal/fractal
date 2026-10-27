@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# install.sh — fractal MCP サーバー（mcp/server.mjs を bundle した mcp/dist/server.mjs）を作って各 AI IDE に登録する
+# install.sh — Fractal の AI 向け機能（MCP サーバー + 使い方の skill）を各 AI IDE に入れる
 #
-# 依存を入れて（npm ci）bundle を作り（npm run build:mcp — ADR-0012）、各 IDE の MCP 設定に repo の mcp/dist/server.mjs を登録する:
-#   - Claude Code: claude mcp add -s user fractal（claude CLI があるとき）
-#   - Kiro:        ~/.kiro/settings/mcp.json
-#   - Cursor:      ~/.cursor/mcp.json
+# 依存を入れて（npm ci）bundle を作り（agent-capability/mcp/build.mjs — ADR-0012）、IDE ごとに:
+#   - Claude Code: plugin（agent-capability/plugin = MCP + skill）を marketplace（agent-capability）から入れる。
+#                  旧来の user scope の登録（claude mcp add fractal）は plugin を入れたあと外す（二重登録で plugin が隠れる）
+#   - Kiro:        ~/.kiro/settings/mcp.json に MCP を登録し、skill を ~/.kiro/skills/fractal に copy（Kiro は symlink の skill を認識しない）
+#   - Cursor:      ~/.cursor/mcp.json に MCP を登録（skill は置かない）
 #   - Antigravity: 自動登録しない（表示するコマンドを手で設定）
 #
 # 以前 ai_skills/install.sh が配置していた skill（今は無い）と ~/.fractal/fractal-mcp の symlink は毎回片付ける。
@@ -20,9 +21,12 @@
 set -eu
 
 # ─── 設定 ─────────────────────────────────────────────
-MCP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$MCP_DIR/.." && pwd)"
+CAP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MCP_DIR="$CAP_DIR/mcp"
+REPO_DIR="$(cd "$CAP_DIR/.." && pwd)"
 MCP_SERVER="$MCP_DIR/dist/server.mjs"
+SKILL_SRC="$CAP_DIR/plugin/skills/fractal"
+PLUGIN_ID="fractal@fractal-local"
 # 以前は skill として配置していたもの（install / uninstall のたびに片付ける）
 LEGACY_SKILLS="fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary fractal-mcp collect doc-md pptx-pages-md aws-doc-maker arxiv-md youtube-md web-crawler-md"
 # 以前 register-fractal.mjs 用に張っていた symlink
@@ -119,7 +123,7 @@ prepare_mcp() {
     fi
     [ "$UNINSTALL" -eq 1 ] && return 0
     if [ "$DRY_RUN" -eq 1 ]; then
-        echo "  [dry-run] (cd $MCP_DIR && npm ci) && (cd $REPO_DIR && npx tsc -p tsconfig.shared-emit.json && node mcp/build.mjs)"
+        echo "  [dry-run] (cd $MCP_DIR && npm ci) && (cd $REPO_DIR && npx tsc -p tsconfig.shared-emit.json && node agent-capability/mcp/build.mjs)"
         return 0
     fi
     if ! command -v npm >/dev/null 2>&1; then
@@ -128,7 +132,7 @@ prepare_mcp() {
     fi
     (cd "$MCP_DIR" && npm ci --no-fund --no-audit --loglevel=error) || { err "fractal-mcp: npm ci に失敗"; return 1; }
     # bundle（mcp/dist/server.mjs）は生成物。build は out/shared（shared emit）と repo の esbuild を使う
-    (cd "$REPO_DIR" && npx tsc -p tsconfig.shared-emit.json && node mcp/build.mjs) || { err "fractal-mcp: bundle の build に失敗（repo で npm install 済みか確認）"; return 1; }
+    (cd "$REPO_DIR" && npx tsc -p tsconfig.shared-emit.json && node agent-capability/mcp/build.mjs) || { err "fractal-mcp: bundle の build に失敗（repo で npm install 済みか確認）"; return 1; }
     [ -f "$MCP_SERVER" ] || { err "fractal-mcp: $MCP_SERVER がありません"; return 1; }
     ok "fractal-mcp → 依存を導入 ($MCP_DIR)"
 }
@@ -146,18 +150,33 @@ do_mcp_one() {
     fi
     case "$ide" in
         claude)
+            # Claude Code は plugin（MCP + skill）で入れる。marketplace は agent-capability（.claude-plugin/marketplace.json）
             if ! command -v claude >/dev/null 2>&1; then
-                warn "  MCP: claude CLI が無いので手で登録: claude mcp add -s user fractal -- $node_bin $server"
+                warn "  claude CLI が無いので Claude Code の中で: /plugin marketplace add $CAP_DIR → /plugin install $PLUGIN_ID"
                 return 0
             fi
             if [ "$DRY_RUN" -eq 1 ]; then
-                echo "  [dry-run] claude mcp $([ "$UNINSTALL" -eq 1 ] && echo "remove -s user fractal" || echo "add -s user fractal -- $node_bin $server")"
+                if [ "$UNINSTALL" -eq 1 ]; then
+                    echo "  [dry-run] claude plugin uninstall $PLUGIN_ID; claude plugin marketplace remove fractal-local; claude mcp remove -s user fractal"
+                else
+                    echo "  [dry-run] claude plugin marketplace add $CAP_DIR; claude plugin install $PLUGIN_ID; claude mcp remove -s user fractal"
+                fi
                 return 0
             fi
-            claude mcp remove -s user fractal >/dev/null 2>&1 || true
-            [ "$UNINSTALL" -eq 1 ] && { ok "  MCP: fractal ← 解除"; return 0; }
-            claude mcp add -s user fractal -- "$node_bin" "$server" >/dev/null
-            ok "  MCP: fractal → claude (user scope)"
+            if [ "$UNINSTALL" -eq 1 ]; then
+                claude plugin uninstall "$PLUGIN_ID" >/dev/null 2>&1 && ok "  plugin: $PLUGIN_ID ← 解除" || true
+                claude plugin marketplace remove fractal-local >/dev/null 2>&1 || true
+                claude mcp remove -s user fractal >/dev/null 2>&1 || true
+                return 0
+            fi
+            claude plugin marketplace add "$CAP_DIR" >/dev/null 2>&1 || claude plugin marketplace update fractal-local >/dev/null 2>&1 || true
+            if claude plugin install "$PLUGIN_ID" >/dev/null 2>&1 || claude plugin list 2>/dev/null | grep -q "fractal@fractal-local"; then
+                ok "  plugin: $PLUGIN_ID → Claude Code（新しいセッションか /reload-plugins で有効）"
+                # 旧来の user scope の登録が残っていると plugin の server が隠れる（同じ endpoint は user が勝つ）
+                claude mcp remove -s user fractal >/dev/null 2>&1 && ok "  旧来の user scope の fractal 登録を外した" || true
+            else
+                err "  plugin のインストールに失敗。Claude Code の中で /plugin marketplace add $CAP_DIR → /plugin install $PLUGIN_ID"
+            fi
             ;;
         kiro|cursor)
             cfg="$(ide_parent "$ide")/mcp.json"
@@ -178,9 +197,29 @@ do_mcp_one() {
     esac
 }
 
+# 使い方の skill（agent-capability/plugin/skills/fractal）を Kiro に copy する。Claude Code は plugin に入っている。
+# 置いてあるものが自分の skill（frontmatter が name: fractal）のときだけ上書き・削除する
+do_skill_one() {
+    ide=$1
+    [ "$ide" = "kiro" ] || return 0
+    dest="$HOME/.kiro/skills/fractal"
+    if [ -e "$dest" ] && ! grep -q '^name: fractal$' "$dest/SKILL.md" 2>/dev/null; then
+        warn "  skill: $dest は Fractal の skill ではないので触らない"
+        return 0
+    fi
+    if [ "$DRY_RUN" -eq 1 ]; then
+        [ "$UNINSTALL" -eq 1 ] && echo "  [dry-run] rm -rf $dest" || echo "  [dry-run] cp -R $SKILL_SRC $dest"
+        return 0
+    fi
+    rm -rf "$dest"
+    [ "$UNINSTALL" -eq 1 ] && { ok "  skill: fractal ← 削除 ($dest)"; return 0; }
+    mkdir -p "$(dirname "$dest")"
+    cp -R "$SKILL_SRC" "$dest" && ok "  skill: fractal → $dest"
+}
+
 # ─── メイン ────────────────────────────────────────
 echo ""
-echo "Fractal MCP installer"
+echo "Fractal agent-capability installer (MCP + skill)"
 echo "  server: $MCP_SERVER"
 _mode=$([ "$UNINSTALL" -eq 1 ] && echo uninstall || echo install)
 _suffix=$([ "$DRY_RUN" -eq 1 ] && echo ' (dry-run)' || true)
@@ -202,6 +241,7 @@ for ide in $TARGETS; do
         do_legacy_cleanup "$ide" "$legacy" || true
     done
     do_mcp_one "$ide" || true
+    do_skill_one "$ide" || true
     did_any=1
 done
 

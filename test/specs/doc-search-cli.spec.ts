@@ -18,9 +18,9 @@ import { extractDocText } from '../../src/shared/doc-text-extract';
 
 const ROOT = path.join(__dirname, '..', '..');
 const FIX = path.join(ROOT, 'test', 'fixtures', 'doc-search');
-const MJS = path.join(ROOT, 'mcp', 'scripts', 'ooxml-extract.mjs');
-const CLI = path.join(ROOT, 'mcp', 'scripts', 'fractal-search.mjs');
-const VENDOR = path.join(ROOT, 'mcp', 'vendor', 'pdfjs-bundle.cjs');
+const MJS = path.join(ROOT, 'agent-capability', 'mcp', 'scripts', 'ooxml-extract.mjs');
+const CLI = path.join(ROOT, 'agent-capability', 'mcp', 'scripts', 'fractal-search.mjs');
+const VENDOR = path.join(ROOT, 'agent-capability', 'mcp', 'vendor', 'pdfjs-bundle.cjs');
 
 /** note フォルダ fixture: outline.note の items 台帳 + files/ 実体 */
 function mkNoteWithAttachments(attachments: Array<{ id: string; filename: string; title?: string; bytesFrom?: string }>): string {
@@ -86,7 +86,7 @@ test.describe('extension⇄CLI ミラー同期（ADRL-0059）', () => {
     test('TC-DS-38: CLI 側ソースは node: builtins + 相対 import のみ（npm 依存 0）', () => {
         const files = [
             MJS,
-            path.join(ROOT, 'mcp', 'scripts', 'fractal-search.mjs'),
+            path.join(ROOT, 'agent-capability', 'mcp', 'scripts', 'fractal-search.mjs'),
         ];
         for (const file of files) {
             const src = fs.readFileSync(file, 'utf8');

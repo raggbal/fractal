@@ -11,8 +11,8 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { NotesFileManager } from '../../src/shared/notes-file-manager';
-import { scanSingleNoteCore } from '../../src/shared/cleanup-core';
+import { NotesFileManager } from '../../../src/shared/notes-file-manager';
+import { scanSingleNoteCore } from '../../../src/shared/cleanup-core';
 import { ToolError, hashOfFile, serialized, withAtomicWrites } from './guard';
 import { moveToOsTrash, requireTrash, trashBackend } from './trash';
 

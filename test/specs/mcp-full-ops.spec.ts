@@ -28,7 +28,7 @@ const OutlinerModel = require('../../src/webview/outliner-model.js');
 const linkParser = require('../../src/shared/markdown-link-parser.js');
 
 const ROOT = path.resolve(__dirname, '../..');
-const SERVER = path.join(ROOT, 'mcp', 'dist', 'server.mjs');
+const SERVER = path.join(ROOT, 'agent-capability', 'mcp', 'dist', 'server.mjs');
 
 let tmpRoot: string;
 let trashDir: string;

@@ -12,18 +12,18 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import { NotesFileManager } from '../../src/shared/notes-file-manager';
+import { NotesFileManager } from '../../../src/shared/notes-file-manager';
 import {
     createPageMdFile, pageH1TextFromNodeText, syncPageH1FromNodeText, importMdItemIntoOutCore,
     importOutPageNodeAsMdCore, moveOutNodesIntoOtherOutCore, transferOutNodesToOtherNoteCore,
     duplicateTreeItemEntity, buildFileLinkMarkdown, promoteLocalFileLinksToAttachments,
-} from '../../src/shared/notes-ops-core';
-import { importMdFilesCore } from '../../src/shared/markdown-import';
-import { importFiles } from '../../src/shared/file-import';
-import { saveImageBuffer } from '../../src/shared/drop-import';
-import { generateUniqueFileNamePreserving, sanitizeSubpageLabel } from '../../src/shared/paste-asset-handler';
-import { resolveImagesDirForMd, resolveFilesDirForMd } from '../../src/shared/flat-layout';
-import { extractFirstH1 } from '../../src/shared/md-h1-utils';
+} from '../../../src/shared/notes-ops-core';
+import { importMdFilesCore } from '../../../src/shared/markdown-import';
+import { importFiles } from '../../../src/shared/file-import';
+import { saveImageBuffer } from '../../../src/shared/drop-import';
+import { generateUniqueFileNamePreserving, sanitizeSubpageLabel } from '../../../src/shared/paste-asset-handler';
+import { resolveImagesDirForMd, resolveFilesDirForMd } from '../../../src/shared/flat-layout';
+import { extractFirstH1 } from '../../../src/shared/md-h1-utils';
 import {
     ToolError, assertInside, atomicWriteFile, checkExpectedHash, lockNote, requireAbs, requireDir, requireFile, requireNoteRoot,
 } from './guard';

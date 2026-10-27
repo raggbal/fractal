@@ -5,7 +5,7 @@
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as path from 'path';
 
-export const MCP_SERVER = path.resolve(__dirname, '../../mcp/dist/server.mjs');
+export const MCP_SERVER = path.resolve(__dirname, '../../agent-capability/mcp/dist/server.mjs');
 
 export class McpTestClient {
     private proc: ChildProcessWithoutNullStreams;

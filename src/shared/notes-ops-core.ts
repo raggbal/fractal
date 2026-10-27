@@ -5,7 +5,7 @@
  *   notesEditorProvider.ts / notes-message-handler.ts のクロージャの中にあった fs ロジックを
  *   DI 付き（fileManager 等を引数で受ける）の純関数としてここへ切り出した。
  *   拡張機能（provider / handler）はこの関数を呼んでから webview への通知だけを行い、
- *   MCP（mcp/dist/server.mjs）は同じ関数を呼んで JSON を返す。
+ *   MCP（agent-capability/mcp/dist/server.mjs）は同じ関数を呼んで JSON を返す。
  *
  * このファイルは vscode に依存しない（import しない）。vscode・webview に依存する処理
  * （postMessage / showErrorMessage / openFile による UI 反映）は呼び出し側に残す。

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * mcp/build.mjs — fractal MCP サーバーを 1 ファイルの bundle（mcp/dist/server.mjs）にする（spec 20261027-1700-mcp-full-ops D1 / ADR-0012）。
+ * mcp/build.mjs — fractal MCP サーバーを 1 ファイルの bundle（agent-capability/mcp/dist/server.mjs）にする（spec 20261027-1700-mcp-full-ops D1 / ADR-0012）。
  *
  * - 入口: mcp/server.mjs（ソース）。SDK（@modelcontextprotocol/sdk）・zod・src/shared の正典・
  *   src/webview/outliner-model.js・structure.md（text として埋め込む）を全部含める
@@ -23,7 +23,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const MCP_DIR = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(MCP_DIR, '..');
+const ROOT = path.resolve(MCP_DIR, '..', '..');
 const DIST = path.join(MCP_DIR, 'dist');
 const OUT = path.join(DIST, 'server.mjs');
 const require = createRequire(import.meta.url);
@@ -79,10 +79,16 @@ if (fs.existsSync(vendorSrc)) {
 } else {
     log('warning: mcp/vendor/pdfjs-bundle.cjs が無いので PDF の中身検索は pdf_unavailable になります（npm run build:pdfjs-vendor）');
 }
-// 6. 使い方の skill（skills/fractal）の参照 md はデータモデルの原本（mcp/structure.md）の写し — 二重に書かない
-const skillRef = path.join(ROOT, 'skills', 'fractal', 'references', 'structure.md');
+// 6. 使い方の skill（agent-capability/plugin/skills/fractal）の参照 md はデータモデルの原本（mcp/structure.md）の写し — 二重に書かない
+const PLUGIN_DIR = path.join(ROOT, 'agent-capability', 'plugin');
+const skillRef = path.join(PLUGIN_DIR, 'skills', 'fractal', 'references', 'structure.md');
 fs.mkdirSync(path.dirname(skillRef), { recursive: true });
 fs.copyFileSync(path.join(MCP_DIR, 'structure.md'), skillRef);
 fs.chmodSync(OUT, 0o755);
+
+// 7. Claude Code の plugin は自己完結が要る（copy されると plugin の外は見えない）ので、bundle と vendor を plugin/server へ複製する
+const pluginServer = path.join(PLUGIN_DIR, 'server');
+fs.rmSync(pluginServer, { recursive: true, force: true });
+fs.cpSync(DIST, pluginServer, { recursive: true });
 const kb = (fs.statSync(OUT).size / 1024).toFixed(0);
 log(`mcp/dist/server.mjs: ${kb} KB`);

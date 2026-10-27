@@ -1,0 +1,8 @@
+{
+  "name": "fractal",
+  "version": "1.3.20-rc.8",
+  "description": "Fractal notes (VS Code extension) for Claude Code: MCP tools that read, search and edit notes / outliners / md with the same code as the extension, plus a skill that teaches how to use them.",
+  "author": { "name": "imaken" },
+  "license": "MIT",
+  "keywords": ["fractal", "notes", "outliner", "markdown", "mcp"]
+}

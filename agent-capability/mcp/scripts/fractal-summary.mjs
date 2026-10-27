@@ -235,7 +235,7 @@ function __isCliInvocation() {
     try { entry = fs.realpathSync(entry); } catch { /* 存在しない等 → 素の argv[1] で比較 */ }
     return import.meta.url === pathToFileURL(entry).href;
 }
-// bundle（mcp/dist/server.mjs）の中では自動実行しない（--fractal-cli summary で main を呼ぶ）
+// bundle（agent-capability/mcp/dist/server.mjs）の中では自動実行しない（--fractal-cli summary で main を呼ぶ）
 if (!globalThis.__FRACTAL_MCP_BUNDLE__ && __isCliInvocation()) {
     main();
 }

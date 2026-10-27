@@ -14,7 +14,7 @@ import * as path from 'path';
 import { McpTestClient } from '../utils/mcp-client';
 import { resolvePagesDir, resolveImagesDir, resolveFilesDir, isFlatOut } from '../../src/shared/flat-layout';
 
-const searchMjs = path.resolve(__dirname, '../../mcp/scripts/fractal-search.mjs');
+const searchMjs = path.resolve(__dirname, '../../agent-capability/mcp/scripts/fractal-search.mjs');
 
 let tmpRoot: string;
 test.beforeAll(() => {

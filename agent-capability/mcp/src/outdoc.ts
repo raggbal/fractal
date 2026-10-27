@@ -7,8 +7,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 // @ts-ignore — CJS の素の JS（webview と共用。module.exports = Model）
-import OutlinerModelCjs from '../../src/webview/outliner-model.js';
-import { resolvePagesDir, resolveImagesDir, resolveFilesDir } from '../../src/shared/flat-layout';
+import OutlinerModelCjs from '../../../src/webview/outliner-model.js';
+import { resolvePagesDir, resolveImagesDir, resolveFilesDir } from '../../../src/shared/flat-layout';
 import { ToolError, atomicWriteFile, hashOfFile } from './guard';
 
 export interface OutNode {

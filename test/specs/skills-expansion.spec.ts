@@ -13,9 +13,9 @@ import * as path from 'path';
 
 import { McpTestClient } from '../utils/mcp-client';
 
-const doctorTs = path.resolve(__dirname, '../../mcp/src/doctor.ts');
-const summaryMjs = path.resolve(__dirname, '../../mcp/scripts/fractal-summary.mjs');
-const searchMjs = path.resolve(__dirname, '../../mcp/scripts/fractal-search.mjs');
+const doctorTs = path.resolve(__dirname, '../../agent-capability/mcp/src/doctor.ts');
+const summaryMjs = path.resolve(__dirname, '../../agent-capability/mcp/scripts/fractal-summary.mjs');
+const searchMjs = path.resolve(__dirname, '../../agent-capability/mcp/scripts/fractal-search.mjs');
 
 let tmpRoot: string;
 test.beforeAll(() => {
@@ -510,14 +510,14 @@ test.describe('E. fractal-search --tag/--checked', () => {
 
 test.describe('F. 配線', () => {
     test('TC-EX-20 fractal の scripts は fractal-mcp に集約され、mcp/install.sh は skill を配置しない', async () => {
-        const installSh = fs.readFileSync(path.resolve(__dirname, '../../mcp/install.sh'), 'utf-8');
+        const installSh = fs.readFileSync(path.resolve(__dirname, '../../agent-capability/install.sh'), 'utf-8');
         expect(installSh).not.toMatch(/^SKILLS=/m);
         expect(fs.existsSync(doctorTs)).toBe(true);
         expect(fs.existsSync(summaryMjs)).toBe(true);
         // 書き込みと doctor の mjs ミラーは廃止（正典 src/shared を呼ぶ mcp/src に一本化。spec 20261027-1700 D1）
         for (const f of ['fractal-md.mjs', 'fractal-modify.mjs', 'fractal-attach.mjs', 'fractal-doctor.mjs']) {
-            expect(fs.existsSync(path.resolve(__dirname, '../../mcp/scripts', f)), f).toBe(false);
+            expect(fs.existsSync(path.resolve(__dirname, '../../agent-capability/mcp/scripts', f)), f).toBe(false);
         }
-        expect(fs.existsSync(path.resolve(__dirname, '../../mcp/server.mjs'))).toBe(true);
+        expect(fs.existsSync(path.resolve(__dirname, '../../agent-capability/mcp/server.mjs'))).toBe(true);
     });
 });

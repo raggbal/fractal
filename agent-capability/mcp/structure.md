@@ -331,4 +331,4 @@ Electron 側は `~/Library/Application Support/fractal-desktop/config.json` の�
 - md を page として取り込むと、md 内の画像・📎 添付・ローカルファイルへのリンク・subpage は Notes フォルダへコピーされ相対パスに書き換わる（URL・anchor・存在しないファイル・md のフォルダより外の参照はそのまま）
 - `fractal_doctor` は書き込まない。孤児の判定は UI の Cleanup（Clean Unused Files）と同じ。修復は結果をユーザーと相談してから
 - `fractal_search` はバイナリ添付の中身を検索しない（パスだけ。docx / pptx / xlsx / pdf は抽出して検索）。`outline.note` のフォルダ階層は結果に反映しない
-- サーバーの実体は `mcp/dist/server.mjs`（`npm run compile` / `node mcp/build.mjs` で作る bundle。SDK・zod・src/shared の正典を含む）。`mcp/server.mjs` はソースの入口で、直接は起動できない
+- サーバーの実体は `agent-capability/mcp/dist/server.mjs`（`npm run compile` / `node agent-capability/mcp/build.mjs` で作る bundle。SDK・zod・src/shared の正典を含む）。`agent-capability/mcp/server.mjs` はソースの入口で、直接は起動できない
