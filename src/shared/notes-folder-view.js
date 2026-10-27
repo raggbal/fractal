@@ -493,26 +493,24 @@
      * | payload | dropEffect |
      * |---|---|
      * | `x-fractal-tree-file` / `x-fractal-tree-md`（note ツリー発 = 複製方向） | `'copy'` |
-     * | `x-fractal-md-filelink` / `x-fractal-md-subpage`（md 発 = 移動方向） | `'move'` |
+     * | `x-fractal-md-filelink` / `x-fractal-md-subpage`（md 発） | `'copy'` |
+     * | `x-fractal-out-node-*`（outliner 発） | `'copy'` |
      * | `x-fractal-folderview-entry`（fv 内 = 移動） | `'move'` |
      * | 外部 `Files` | `'copy'` |
+     *
+     * spec 20261027-1556-linkedfd-copy-only D3: linkedfd と Fractal の間はコピーしかしないので、
+     * fv 内の entry 以外はすべて `'copy'`。表示だけの話で、元を消すかどうかは host が決める（D2）。
+     * （同じ linkedfd の中の md から来たリンクは host では移動になるが、dragover では md の場所が読めないので copy 表示）
      */
     function resolveDropEffect(e) {
-        if (!e || !e.dataTransfer) { return 'move'; }
+        if (!e || !e.dataTransfer) { return 'copy'; }
         var types = Array.prototype.slice.call(e.dataTransfer.types || []);
         var has = function (t) { return types.indexOf(t) !== -1; };
-        // note ツリー発 = 複製（FR-DCP-02）
-        if (has('application/x-fractal-tree-md') || has('application/x-fractal-tree-file')) { return 'copy'; }
-        // md 発 = 移動（FR-DCP-03 不変）
-        if (has('application/x-fractal-md-filelink') || has('application/x-fractal-md-subpage')) { return 'move'; }
-        // fv 内 = 移動（ADRL-0102 不変）
+        // fv 内 = 移動（ADRL-0102 不変）。fv の entry は他の MIME と一緒に積まれないので先に見てよい
         if (has('application/x-fractal-folderview-entry')) { return 'move'; }
-        // 外部 = 複製（元のファイルシステムからは消えない）
-        if (has('Files') || has('application/vnd.code.uri-list')) { return 'copy'; }
-        // note ツリーの .out / folder item は text/plain しか積まない（MIME で判別できない）→
-        // one-shot グローバルで note ツリー発と分かるので複製扱い
-        if (window.__notesTreeDragKind) { return 'copy'; }
-        return 'move';
+        // それ以外（note ツリー / md / outliner / 外部）はすべて境界をまたぐ = 複製
+        //（spec linkedfd-copy-only D1/D3。旧: md 発は 'move' — 元 md のリンクと実体が消えていた）
+        return 'copy';
     }
 
     /**

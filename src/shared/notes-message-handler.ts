@@ -20,6 +20,7 @@ import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem, droppedUriToFsPath, DroppedFolderPayload, materializeDroppedFolder, expandDroppedPathsToFiles } from './drop-import';
 import { setFirstH1, writeFileIfChanged, extractFirstH1 } from './md-h1-utils';
 import { removeMdAnchorAndEcho } from './md-anchor-remove';
+import { linkedfdRootsOf, crossesLinkedfdBoundary } from './linkedfd-boundary';
 import { ExportOptions } from './md-export-core';
 import { t } from '../i18n/messages';
 
@@ -3082,7 +3083,8 @@ export function linkMdAsSubpageForSidePanelCore(
         }
         sender.postMessage({ type: 'insertSubpageLink', markdownPath, title, sidePanelFilePath });
         // FR-TF-18: 同一 note / 別 note とも元 tree item を除去（別 note の md 実体は温存 = orphan）
-        if (mdFileId) {
+        // spec linkedfd-copy-only D1/D2: linkedfd と Fractal の境界をまたぐなら元を残す（複製）
+        if (mdFileId && !crossesLinkedfd(fileManager, [filePath], sidePanelFilePath)) {
             fileManager.unregisterMdFromStructureOnly(mdFileId);
             sendFileListWithStructure(fileManager, sender);
         }
@@ -3123,6 +3125,8 @@ export function attachOutNodeFileToMd(
         if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
         sender.postMessage(msg);
         // 元 node の後始末（treeFileRegisterFromOutNode と同一規約）
+        // spec linkedfd-copy-only D1/D2: linkedfd と Fractal の境界をまたぐなら元を残す（複製）
+        if (crossesLinkedfd(fileManager, [fileAbs, outPath], target)) { return; }
         detachOutNodeFileOwnership(outData, payload.nodeId);
         fs.writeFileSync(outPath, JSON.stringify(outData, null, 2), 'utf8');
         if (fileManager.getCurrentFilePath() === outPath) {
@@ -3176,8 +3180,9 @@ export function importOutPageNodeToMd(
         if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
         sender.postMessage(msg);
         // 元 page node の後始末（notesImportOutPageNodeAsMd と同一: page 属性クリア・node/children 温存）
+        // spec linkedfd-copy-only D1/D2: linkedfd と Fractal の境界をまたぐなら元を残す（複製）
         const node = outData.nodes && outData.nodes[payload.nodeId];
-        if (node) {
+        if (node && !crossesLinkedfd(fileManager, [srcMdPath, outPath], target)) {
             node.isPage = false;
             node.pageId = null;
             node.text = '';
@@ -3233,6 +3238,8 @@ export function attachMdFileLinkToMd(
         const msg: Record<string, unknown> = { type: 'insertFileLink', markdownPath, fileName: title };
         if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
         sender.postMessage(msg);
+        // spec linkedfd-copy-only D1/D2: linkedfd と Fractal の境界をまたぐなら元を残す（複製）
+        if (crossesLinkedfd(fileManager, [payload.sourceMdPath, abs], target)) { return; }
         removeMdAnchorAndEcho(payload.sourceMdPath, payload.href, sender, 'file'); // fs 正典 + エコーの 2 段（TASK-03 集約）
     } catch (e) {
         console.error('[Notes] attachMdFileLinkToMd error:', e);
@@ -3276,6 +3283,8 @@ export function linkMdSubpageToMd(
         const msg: Record<string, unknown> = { type: 'insertSubpageLink', markdownPath, title };
         if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
         sender.postMessage(msg);
+        // spec linkedfd-copy-only D1/D2: linkedfd と Fractal の境界をまたぐなら元を残す（複製）
+        if (crossesLinkedfd(fileManager, [payload.sourceMdPath, abs], target)) { return; }
         removeMdAnchorAndEcho(payload.sourceMdPath, payload.href, sender, 'subpage'); // fs 正典 + エコーの 2 段（TASK-03 集約）
     } catch (e) {
         console.error('[Notes] linkMdSubpageToMd error:', e);
@@ -3304,6 +3313,8 @@ export function treeFileAttachToMdEditor(
         const msg: Record<string, unknown> = { type: 'insertFileLink', markdownPath, fileName: title };
         if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
         sender.postMessage(msg);
+        // spec linkedfd-copy-only D1/D2: linkedfd と Fractal の境界をまたぐなら元を残す（複製）
+        if (crossesLinkedfd(fileManager, [fileAbs], target)) { return true; }
         fileManager.unregisterTreeFileFromStructureOnly(id);
         sendFileListWithStructure(fileManager, sender);
         return true;
@@ -3434,6 +3445,8 @@ export function importMdFileLinkIntoOut(
             targetNodeId: targetNodeId ?? null,
             position: position ?? null,
         });
+        // spec linkedfd-copy-only D1/D2: linkedfd と Fractal の境界をまたぐなら元を残す（複製）
+        if (crossesLinkedfd(fileManager, [payload.sourceMdPath], outPath || fileManager.getMainFolderPath())) { return; }
         removeMdAnchorAndEcho(payload.sourceMdPath, payload.href, sender, 'file'); // fs 正典 + エコーの 2 段（TASK-03 集約）
     } catch (e) {
         console.error('[Notes] importMdFileLinkIntoOut error:', e);
@@ -3488,6 +3501,8 @@ export function importMdSubpageIntoOut(
             fileManager.openFile(outPath);
             sender.postMessage({ type: 'updateData', kind: 'out', data: outData, fileChangeId: fileManager.getFileChangeId(), outFileKey: outPath });
         }
+        // spec linkedfd-copy-only D1/D2: linkedfd と Fractal の境界をまたぐなら元を残す（複製）
+        if (crossesLinkedfd(fileManager, [payload.sourceMdPath, abs], outPath)) { return; }
         removeMdAnchorAndEcho(payload.sourceMdPath, payload.href, sender, 'subpage'); // fs 正典 + エコーの 2 段（TASK-03 集約）
     } catch (e) {
         console.error('[Notes] importMdSubpageIntoOut error:', e);
@@ -3531,6 +3546,8 @@ export function importMdFileLinkIntoOutFile(
             fileManager.openFile(outPath);
             sender.postMessage({ type: 'updateData', kind: 'out', data: outData, fileChangeId: fileManager.getFileChangeId(), outFileKey: outPath });
         }
+        // spec linkedfd-copy-only D1/D2: linkedfd と Fractal の境界をまたぐなら元を残す（複製）
+        if (crossesLinkedfd(fileManager, [payload.sourceMdPath], outPath)) { return true; }
         removeMdAnchorAndEcho(payload.sourceMdPath, payload.href, sender, 'file');
         return true;
     } catch (e) {
@@ -3577,6 +3594,8 @@ export function linkMdLinkIntoMdItem(
             line = buildFileLinkMarkdown(path.basename(entityAbs), path.relative(path.dirname(dstMd), entityAbs).replace(/\\/g, '/'));
         }
         appendLineToMd(dstMd, line);
+        // spec linkedfd-copy-only D1/D2: linkedfd と Fractal の境界をまたぐなら元を残す（複製）
+        if (crossesLinkedfd(fileManager, [payload.sourceMdPath], dstMd)) { return true; }
         removeMdAnchorAndEcho(payload.sourceMdPath, payload.href, sender, kind);
         return true;
     } catch (e) {
@@ -3912,6 +3931,15 @@ export function treeFileRegisterFromMdLink(
         const rel = path.relative(filesDir, abs);
         if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) { return; }
         if (!fs.existsSync(abs)) { return; }
+        // spec linkedfd-copy-only D1/D2: linkedfd の中の md（sidepanel で開いたもの）から来たら境界をまたぐ。
+        // 無コピー登録だと note の files/ に実体が無い項目になるので、note へ複製して登録し、元 md のリンクも残す
+        if (crossesLinkedfd(fileManager, [payload.sourceMdPath, abs], fileManager.getMainFolderPath())) {
+            const copiedName = NotesFileManager.copyTreeFileEntityTo(abs, fileManager.getMainFolderPath());
+            if (!copiedName) { return; }
+            rawInsertTreeFileEntry(fileManager, copiedName, copiedName, parentId, index);
+            sendFileListWithStructure(fileManager, sender);
+            return;
+        }
         const filename = path.basename(abs);
         rawInsertTreeFileEntry(fileManager, filename, filename, parentId, index);
         removeMdAnchorAndEcho(payload.sourceMdPath, payload.href, sender, 'file'); // fs 正典 + エコーの 2 段（TASK-03 集約）
@@ -4222,10 +4250,47 @@ export async function runBatchTransfer<T>(
  * どの方向が複製かが実行時にしか分からず、番人 TC が意味論を pin できなくなる。
  *
  * - `'duplicate'` … 何もしない（fv⇄note ツリーの 2 方向。両面に実体が残る）
- * - `'move'`      … 複製成功後に source を trash（fv 内 / fv⇄sidepanel md。ADRL-0102 / FR-DCP-03）
+ * - `'move'`      … 複製成功後に source を trash（fv 内 / fv⇄sidepanel md。ADRL-0102 / FR-DCP-03）。
+ *   ただし spec 20261027-1556-linkedfd-copy-only D1/D2 により、**linkedfd と Fractal の境界をまたぐなら
+ *   `'move'` でも何もしない**（`sourceSideCrossesLinkedfd`）。'move' が効くのは同じ linkedfd の中だけ
  *
  * @returns `removed` = source 側から取り除いた実体の件数（0 = 複製）
  */
+/**
+ * spec 20261027-1556-linkedfd-copy-only D2: `finalizeSourceSide` の境界判定。
+ * - fvSource: 転送先（`dstAbs`）が同じ linkedfd root の中なら linkedfd 内の移動。外（note / 別 linkedfd /
+ *   不明）なら境界をまたぐ
+ * - mdAnchorSource: 転送先 = `root`（linkedfd）。リンク先の実体と元 md の両方が同じ root の中なら
+ *   linkedfd 内の移動。どちらかが外（= Fractal 側の md）なら境界をまたぐ
+ * - noteSource: note 側の項目を linkedfd へ渡す経路だけなので、常に境界をまたぐ
+ */
+function sourceSideCrossesLinkedfd(ctx: {
+    fvSource?: { root: string; srcAbs: string };
+    noteSource?: unknown;
+    mdAnchorSource?: { root: string; srcAbs: string; sourceMdPath: string };
+    dstAbs?: string;
+}): boolean {
+    if (ctx.noteSource) { return true; }
+    if (ctx.fvSource && crossesLinkedfdBoundary([ctx.fvSource.root], ctx.fvSource.srcAbs, ctx.dstAbs)) { return true; }
+    if (ctx.mdAnchorSource) {
+        const a = ctx.mdAnchorSource;
+        if (crossesLinkedfdBoundary([a.root], a.srcAbs, a.root)) { return true; }
+        if (crossesLinkedfdBoundary([a.root], a.sourceMdPath, a.root)) { return true; }
+    }
+    return false;
+}
+
+/**
+ * spec 20261027-1556-linkedfd-copy-only D2: note の構造に登録された全 linkedfd を見て、
+ * srcs のどれかと dst が境界の別の側にあるかを返す（またぐなら source 側の後処理 = リンク除去 /
+ * ツリー項目の除去 / node の添付外しをしない）。webview の経路名や dropEffect は見ない。
+ */
+function crossesLinkedfd(fileManager: NotesFileManager, srcs: (string | null | undefined)[], dstAbs: string | null | undefined): boolean {
+    const roots = linkedfdRootsOf(fileManager);
+    if (roots.length === 0) { return false; }   // linkedfd が無い note = 境界が存在しない
+    return srcs.some((s) => !!s && crossesLinkedfdBoundary(roots, s, dstAbs));
+}
+
 async function finalizeSourceSide(
     mode: 'duplicate' | 'move',
     ctx: {
@@ -4234,11 +4299,27 @@ async function finalizeSourceSide(
         fvSource?: { root: string; srcAbs: string; mdReport: MdPasteAssetReport | null };
         /** note 側 source（tree→fv）。台帳除去 + 実体 trash */
         noteSource?: { fileManager: NotesFileManager; srcItemId: string; srcKind: TreeBatchKind; srcAbs: string };
+        /** md の 📎 / subpage リンク source（md → fv）。リンク除去 + 実体 trash。root = 転送先 linkedfd */
+        mdAnchorSource?: {
+            root: string; srcAbs: string; sourceMdPath: string; href: string; isSubpage: boolean; sender: NotesSender;
+        };
+        /** fvSource の転送先（境界判定に使う）。未指定は「境界をまたぐ」扱い（安全側） */
+        dstAbs?: string;
     }
 ): Promise<{ removed: number }> {
     if (mode === 'duplicate') { return { removed: 0 }; }   // ← 唯一の分岐点
+    // spec 20261027-1556-linkedfd-copy-only D1/D2: linkedfd と Fractal の境界をまたぐ転送は、
+    // 呼び出し側（webview の経路・mode の字面）が 'move' と言っても複製に倒す。判定は host のここで持つ
+    if (sourceSideCrossesLinkedfd(ctx)) { return { removed: 0 }; }
 
     let removed = 0;
+    if (ctx.mdAnchorSource) {
+        const a = ctx.mdAnchorSource;
+        // fs 正典でリンク除去 + 表示同期エコー（エコーだけで済ませない — generator_failures 2026-08-14）
+        removeMdAnchorAndEcho(a.sourceMdPath, a.href, a.sender, a.isSubpage ? 'subpage' : 'file');
+        await trashSourceBestEffort(ctx.deps, a.srcAbs);
+        removed += 1;
+    }
     if (ctx.fvSource) {
         if (ctx.fvSource.mdReport) {
             // FR-ACD-01: md 本体 + 随伴資産の削除フェーズ
@@ -4679,7 +4760,9 @@ export async function folderViewMoveIn(
  * FR-FLV-22 (#15): フォルダビュー → sidepanel md 移動 + リンク挿入。
  * 種別分岐: md = 対象 md の dir へ + subpage リンク / 画像 = 保存先 images/ + 画像挿入 / 他 = files/ + 📎。
  * 保存先解決は flat-layout の正典（note md = note 共有 / note 外 md = md の隣 — FR-SD-03 合流）。
- * 順序 = 移動（複製成功 → 元 trash）→ リンク挿入指示（INV-3）。
+ * 順序 = 複製 → source 側後処理（finalizeSourceSide）→ リンク挿入指示（INV-3）。
+ * spec 20261027-1556-linkedfd-copy-only: 対象 md が同じ linkedfd の中なら移動（元 trash）、
+ * note の md など linkedfd の外なら複製（linkedfd 側の元は残る）。
  */
 export async function folderViewMoveIntoMd(
     fileManager: NotesFileManager,
@@ -4728,7 +4811,8 @@ export async function folderViewMoveIntoMd(
                 notifyOperationFailed(deps, e);
                 return false; // 配置失敗 → 元実体・md 本文とも不変（INV-3/INV-5）
             }
-            await cleanupFvMoveSource(deps, root, srcAbs, noteReport); // FR-ACD-01
+            // spec linkedfd-copy-only D1/D2: note md 宛て = 境界をまたぐので複製（元は残る）。判定は finalizeSourceSide
+            await finalizeSourceSide('move', { deps, fvSource: { root, srcAbs, mdReport: noteReport }, dstAbs: path.join(targetDir, newName) });
             const spTitle = resolveSubpageTitle(content, newName);
             emit(`[[${spTitle}]](${newName})`, { type: 'insertSubpageLink', markdownPath: newName, title: spTitle, sidePanelFilePath: targetMdPath });
         } else {
@@ -4751,7 +4835,8 @@ export async function folderViewMoveIntoMd(
                     return false;
                 }
                 dstAbs = copied;
-                await cleanupFvMoveSource(deps, root, srcAbs, fvReport); // FR-ACD-01
+                // FR-ACD-01（同じ linkedfd の中の md 宛て = 移動）/ それ以外の場所の md 宛て = 複製（spec linkedfd-copy-only D2）
+                await finalizeSourceSide('move', { deps, fvSource: { root, srcAbs, mdReport: fvReport }, dstAbs: copied });
             }
             let title = '';
             try { title = extractFirstH1(fs.readFileSync(dstAbs, 'utf8')) || ''; } catch { /* fallback */ }
@@ -4768,7 +4853,7 @@ export async function folderViewMoveIntoMd(
             deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Move failed.');
             return false;
         }
-        await trashSourceBestEffort(deps, srcAbs);
+        await finalizeSourceSide('move', { deps, fvSource: { root, srcAbs, mdReport: null }, dstAbs }); // 境界をまたぐなら複製（D2）
         const markdownPath = path.relative(targetDir, dstAbs).replace(/\\/g, '/');
         emit(`![](${markdownPath})`, {
             type: 'insertImageHtml',
@@ -4785,7 +4870,7 @@ export async function folderViewMoveIntoMd(
             deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Move failed.');
             return false;
         }
-        await trashSourceBestEffort(deps, srcAbs);
+        await finalizeSourceSide('move', { deps, fvSource: { root, srcAbs, mdReport: null }, dstAbs }); // 境界をまたぐなら複製（D2）
         const markdownPath = path.relative(targetDir, dstAbs).replace(/\\/g, '/');
         emit(buildFileLinkMarkdown(path.basename(dstAbs), markdownPath), {
             type: 'insertFileLink',
@@ -4802,7 +4887,9 @@ export async function folderViewMoveIntoMd(
 /**
  * FR-FLV-24 (#16): sidepanel md の 📎/subpage アンカー → フォルダビュー移動 + リンク除去。
  * 実体解決は source md 基準（treeFileRegisterFromMdLink 同型の containment）。
- * 複製成功 → removeMdAnchorFromFile（fs 正典）+ webview エコー → 元実体 trash。
+ * 複製成功 → source 側後処理（finalizeSourceSide）。
+ * spec 20261027-1556-linkedfd-copy-only: 元 md が note 側（Fractal）なら境界をまたぐので複製
+ * （元 md のリンクも実体も残す）。元 md が同じ linkedfd の中のときだけ移動（リンク除去 + 元 trash）。
  */
 export async function folderViewMoveFromMd(
     fileManager: NotesFileManager,
@@ -4864,9 +4951,12 @@ export async function folderViewMoveFromMd(
         deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Move failed.');
         return false; // 複製失敗 → md 本文・元実体とも不変（INV-3/INV-5）
     }
-    // fs 正典でリンク除去 + 表示同期エコー（エコーだけで済ませない — generator_failures 2026-08-14）
-    removeMdAnchorAndEcho(payload.sourceMdPath, payload.href, sender, payload.isSubpage ? 'subpage' : 'file'); // fs 正典 + エコーの 2 段（TASK-03 集約）
-    await trashSourceBestEffort(deps, srcAbs);
+    // spec linkedfd-copy-only D1/D2: Fractal の md（note 側）から来たら境界をまたぐので複製 = リンクも実体も残す。
+    // 同じ linkedfd の中の md から来たときだけ従来どおり移動（リンク除去 + 元 trash）。判定は finalizeSourceSide
+    await finalizeSourceSide('move', {
+        deps,
+        mdAnchorSource: { root, srcAbs, sourceMdPath: payload.sourceMdPath, href: payload.href, isSubpage: !!payload.isSubpage, sender },
+    });
     sendFolderViewList(fileManager, folderLinkId, dstDirRelPath, sender);
     return true;
 }

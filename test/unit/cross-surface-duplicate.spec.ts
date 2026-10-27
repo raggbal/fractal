@@ -276,12 +276,18 @@ test.describe('FR-DCP-02: note ツリー → linkedfd は複製', () => {
 });
 
 test.describe('FR-DCP-03 / NFR-DCP-04: 移動のまま残る経路（過剰適用の検出器）', () => {
-    test('TC-DCP-07 fv → sidepanel md は移動のまま（随伴資産も削除される）', async () => {
+    // ⚠️ 期待値更新（spec 20261027-1556-linkedfd-copy-only / D1）: fv → note の md・note の md → fv は
+    // linkedfd と Fractal の境界をまたぐので**複製**になった（ユーザー報告「元が消える」の修正）。
+    // 移動が残るのは**同じ linkedfd の中**（fv → linkedfd の中の md / linkedfd の中の md → fv）だけなので、
+    // 過剰適用の検出器（TC-DCP-07/08/10）はその内側の経路に付け替えた。
+    // 境界をまたぐ側が複製であることの番人は test/specs/linkedfd-copy-only.spec.ts AC-1 / AC-2。
+    test('TC-DCP-07 fv → 同じ linkedfd の中の md（sidepanel）は移動のまま（随伴資産も削除される）', async () => {
         const s = setup();
         const { deps, calls } = makeMoveDeps();
         const { sender, messages } = makeSender();
         mkAssetSet(s.root);
-        const target = path.join(s.noteDir, 'target.md');
+        fs.mkdirSync(path.join(s.root, 'tdir'), { recursive: true });
+        const target = path.join(s.root, 'tdir', 'target.md');
         fs.writeFileSync(target, '# Target\n', 'utf8');
         try {
             expect(await s.mod.folderViewMoveIntoMd(s.m, s.id, 'main.md', target, deps as any, sender as any)).toBe(true);
@@ -296,23 +302,23 @@ test.describe('FR-DCP-03 / NFR-DCP-04: 移動のまま残る経路（過剰適�
         } finally { s.cleanup(); }
     });
 
-    test('TC-DCP-08 sidepanel md → fv は移動のまま', async () => {
+    test('TC-DCP-08 sidepanel で開いた linkedfd の中の md → 同じ fv は移動のまま', async () => {
         const s = setup();
         const { deps, calls } = makeMoveDeps();
         const { sender } = makeSender();
-        // note 側の md に 📎 リンクを持たせ、その添付を fv へ移す
-        fs.mkdirSync(path.join(s.noteDir, 'files'), { recursive: true });
-        fs.writeFileSync(path.join(s.noteDir, 'files', 'att.pdf'), 'ATT', 'utf8');
-        const srcMd = path.join(s.noteDir, 'doc.md');
+        // linkedfd の中の md に 📎 リンクを持たせ、その添付を同じ fv の root へ移す
+        fs.mkdirSync(path.join(s.root, 'docs', 'files'), { recursive: true });
+        fs.writeFileSync(path.join(s.root, 'docs', 'files', 'att.pdf'), 'ATT', 'utf8');
+        const srcMd = path.join(s.root, 'docs', 'doc.md');
         fs.writeFileSync(srcMd, '# Doc\n[📎 att.pdf](files/att.pdf)\n', 'utf8');
         try {
             const ok = await s.mod.folderViewMoveFromMd(s.m, s.id, '',
                 { href: 'files/att.pdf', sourceMdPath: srcMd }, deps as any, sender as any);
             expect(ok, 'folderViewMoveFromMd が失敗した').toBe(true);
             expect(fs.existsSync(path.join(s.root, 'att.pdf')), 'fv に複製が無い').toBe(true);
-            // ★ note 側の実体が消える（移動）
-            expect(calls.trash.length, 'md→fv が複製になった（過剰適用）').toBeGreaterThan(0);
-            expect(fs.existsSync(path.join(s.noteDir, 'files', 'att.pdf')),
+            // ★ 元の実体が消える（linkedfd の中の移動）
+            expect(calls.trash.length, 'linkedfd 内の md→fv が複製になった（過剰適用）').toBeGreaterThan(0);
+            expect(fs.existsSync(path.join(s.root, 'docs', 'files', 'att.pdf')),
                 'md→fv で元実体が残った（移動でなくなった）').toBe(false);
         } finally { s.cleanup(); }
     });
@@ -344,7 +350,8 @@ test.describe('FR-DCP-03 / NFR-DCP-04: 移動のまま残る経路（過剰適�
             const { deps } = makeMoveDeps();
             const { sender } = makeSender();
             mkAssetSet(s.root);
-            const target = path.join(s.noteDir, 'target.md');
+            fs.mkdirSync(path.join(s.root, 'tdir'), { recursive: true });
+            const target = path.join(s.root, 'tdir', 'target.md');   // 同じ linkedfd の中（spec linkedfd-copy-only）
             fs.writeFileSync(target, '# T\n', 'utf8');
             await s.mod.folderViewMoveIntoMd(s.m, s.id, 'main.md', target, deps as any, sender as any);
             results.push({ name: 'folderViewMoveIntoMd', removed: !fs.existsSync(path.join(s.root, 'main.md')) });
@@ -355,13 +362,13 @@ test.describe('FR-DCP-03 / NFR-DCP-04: 移動のまま残る経路（過剰適�
             const s = setup();
             const { deps } = makeMoveDeps();
             const { sender } = makeSender();
-            fs.mkdirSync(path.join(s.noteDir, 'files'), { recursive: true });
-            fs.writeFileSync(path.join(s.noteDir, 'files', 'att.pdf'), 'ATT', 'utf8');
-            const srcMd = path.join(s.noteDir, 'doc.md');
+            fs.mkdirSync(path.join(s.root, 'docs', 'files'), { recursive: true });   // linkedfd の中の md（spec linkedfd-copy-only）
+            fs.writeFileSync(path.join(s.root, 'docs', 'files', 'att.pdf'), 'ATT', 'utf8');
+            const srcMd = path.join(s.root, 'docs', 'doc.md');
             fs.writeFileSync(srcMd, '# Doc\n[📎 att.pdf](files/att.pdf)\n', 'utf8');
             await s.mod.folderViewMoveFromMd(s.m, s.id, '',
                 { href: 'files/att.pdf', sourceMdPath: srcMd }, deps as any, sender as any);
-            results.push({ name: 'folderViewMoveFromMd', removed: !fs.existsSync(path.join(s.noteDir, 'files', 'att.pdf')) });
+            results.push({ name: 'folderViewMoveFromMd', removed: !fs.existsSync(path.join(s.root, 'docs', 'files', 'att.pdf')) });
             s.cleanup();
         }
         // ③ folderViewMove

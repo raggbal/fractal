@@ -53,8 +53,11 @@ function setup(): any {
     m.loadStructure();
     const id = m.registerFolderLink(root);
     fs.writeFileSync(path.join(root, 'doc.md'), '# Doc\n', 'utf8');
-    // 移設先経路（folderViewMoveIntoMd）の drop 先 md。note 直下に置く（本番と同じ座標）
-    const targetMd = path.join(noteDir, 'target.md');
+    // 移設先経路（folderViewMoveIntoMd）の drop 先 md。
+    // ⚠️ 期待値更新（spec 20261027-1556-linkedfd-copy-only / D1）: fv → note の md は複製になり trash を呼ばない。
+    // trash フォールバック（FR-FLV-34）が効くのは移動が残る「同じ linkedfd の中の md 宛て」なので、drop 先を root/tdir/ に移した
+    fs.mkdirSync(path.join(root, 'tdir'), { recursive: true });
+    const targetMd = path.join(root, 'tdir', 'target.md');
     fs.writeFileSync(targetMd, '# Target\n', 'utf8');
     m.openFile(targetMd);
     const messages: any[] = [];
@@ -63,7 +66,7 @@ function setup(): any {
 }
 
 test('TC-FLV-74a trash throw + deleteFile 成功 → 移動成立・エラー通知なし（フォールバック）', async () => {
-    const { mod, m, id, root, noteDir, sender, targetMd } = setup();
+    const { mod, m, id, root, sender, targetMd } = setup();
     const errors: string[] = [];
     const deleted: string[] = [];
     const deps = {
@@ -74,14 +77,14 @@ test('TC-FLV-74a trash throw + deleteFile 成功 → 移動成立・エラー通
         toDisplayUri: (p: string) => p,
     };
     expect(await mod.folderViewMoveIntoMd(m, id, 'doc.md', targetMd, deps as any, sender as any)).toBe(true);
-    expect(fs.existsSync(path.join(noteDir, 'doc.md'))).toBe(true);   // 複製成立（subpage として note へ）
+    expect(fs.existsSync(path.join(root, 'tdir', 'doc.md'))).toBe(true);   // 複製成立（同じ linkedfd の中の md の隣へ）
     expect(deleted).toEqual([path.join(root, 'doc.md')]);              // フォールバックが srcAbs で発火
     expect(fs.existsSync(path.join(root, 'doc.md'))).toBe(false);      // 移動成立（元は消える）
     expect(errors.length).toBe(0);                                     // エラー通知なし
 });
 
 test('TC-FLV-74b trash + deleteFile 両方 throw → 従来トースト + source 温存', async () => {
-    const { mod, m, id, root, noteDir, sender, targetMd } = setup();
+    const { mod, m, id, root, sender, targetMd } = setup();
     const errors: string[] = [];
     const deps = {
         showErrorMessage: (msg: string) => { errors.push(msg); },
@@ -91,14 +94,14 @@ test('TC-FLV-74b trash + deleteFile 両方 throw → 従来トースト + source
         toDisplayUri: (p: string) => p,
     };
     expect(await mod.folderViewMoveIntoMd(m, id, 'doc.md', targetMd, deps as any, sender as any)).toBe(true);
-    expect(fs.existsSync(path.join(noteDir, 'doc.md'))).toBe(true);    // 複製は成立
+    expect(fs.existsSync(path.join(root, 'tdir', 'doc.md'))).toBe(true);    // 複製は成立
     expect(fs.existsSync(path.join(root, 'doc.md'))).toBe(true);       // source 温存（データロスなし）
     expect(errors.length).toBeGreaterThanOrEqual(1);                   // 従来トースト
     expect(errors[0]).toContain('doc.md');
 });
 
 test('TC-FLV-74c deleteFile 未注入（後方互換）→ 従来どおりトースト + 温存', async () => {
-    const { mod, m, id, root, noteDir, sender, targetMd } = setup();
+    const { mod, m, id, root, sender, targetMd } = setup();
     const errors: string[] = [];
     const deps = {
         showErrorMessage: (msg: string) => { errors.push(msg); },
@@ -107,7 +110,7 @@ test('TC-FLV-74c deleteFile 未注入（後方互換）→ 従来どおりトー
         toDisplayUri: (p: string) => p,
     };
     expect(await mod.folderViewMoveIntoMd(m, id, 'doc.md', targetMd, deps as any, sender as any)).toBe(true);
-    expect(fs.existsSync(path.join(noteDir, 'doc.md'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'tdir', 'doc.md'))).toBe(true);
     expect(fs.existsSync(path.join(root, 'doc.md'))).toBe(true);
     expect(errors.length).toBeGreaterThanOrEqual(1);
 });

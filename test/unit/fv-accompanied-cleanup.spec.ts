@@ -175,10 +175,16 @@ function hostSetup(): any {
     // ⚠️ 経路付け替え（sprint 20260901-075849 / TASK-19）用の drop 先 md。
     // fv→note ツリーが複製化（ADRL-0106）して trash 経路が消えたため、FR-ACD-01（随伴資産の
     // source 削除）の番人は移動のまま残る `folderViewMoveIntoMd` で張る。
-    const targetMd = path.join(noteDir, 'acd-target.md');
+    // ⚠️ 期待値更新（spec 20261027-1556-linkedfd-copy-only / D1）: fv → note の md も複製になった
+    // （境界をまたぐ転送は元を消さない）。移動が残るのは**同じ linkedfd の中の md 宛て**だけなので、
+    // drop 先を linkedfd の中（root/tdir/）に移した。fv → note md が複製であることの番人は
+    // TC-ACD-06 (a) と test/specs/linkedfd-copy-only.spec.ts AC-1。
+    const destDir = path.join(root, 'tdir');
+    fs.mkdirSync(destDir, { recursive: true });
+    const targetMd = path.join(destDir, 'acd-target.md');
     fs.writeFileSync(targetMd, '# ACD Target\n', 'utf8');
     m.openFile(targetMd);
-    return { mod, m, id, root, noteDir, deps, trash, errors, sender, targetMd };
+    return { mod, m, id, root, noteDir, destDir, deps, trash, errors, sender, targetMd };
 }
 /** root に資産持ち md 一式（隣接 images//files/ + subpage） */
 function mkFvAssetSet(root: string): void {
@@ -202,10 +208,10 @@ function mkFvAssetSet(root: string): void {
  * **丸ごと無検証**になる。fv→tree が複製であることの番人は TC-DCP-01/03（新規）が持つ。
  */
 test('TC-ACD-03 MoveIntoMd 全成功（旧 MoveToTree 経路から移設）: md + 全随伴資産が source から消える・dir 自体は残る', async () => {
-    const { mod, m, id, root, noteDir, deps, trash, errors, sender, targetMd } = hostSetup();
+    const { mod, m, id, root, destDir, deps, trash, errors, sender, targetMd } = hostSetup();
     mkFvAssetSet(root);
     expect(await mod.folderViewMoveIntoMd(m, id, 'main.md', targetMd, deps as any, sender as any)).toBe(true);
-    expect(fs.existsSync(path.join(noteDir, 'main.md'))).toBe(true); // 複製成立
+    expect(fs.existsSync(path.join(destDir, 'main.md'))).toBe(true); // 複製成立
     // source 側: md + pic + deep + a.pdf + sub.md 全部消える
     for (const rel of ['main.md', 'sub.md', 'images/pic.png', 'images/deep.png', 'files/a.pdf']) {
         expect(fs.existsSync(path.join(root, rel)), `${rel} が source に残留`).toBe(false);
@@ -254,12 +260,12 @@ test('TC-ACD-05 全成功条件（MoveIntoMd 経路へ移設）: 複製失敗 �
     }
     // (c) スキャナ上限超過（大量 md fixture）→ 資産温存・md のみ削除・移動は成立
     {
-        const { mod, m, id, root, noteDir, deps, sender, targetMd } = hostSetup();
+        const { mod, m, id, root, destDir, deps, sender, targetMd } = hostSetup();
         mkFvAssetSet(root);
         fs.mkdirSync(path.join(root, 'many'), { recursive: true });
         for (let i = 0; i < 2005; i++) { fs.writeFileSync(path.join(root, 'many', `f${i}.md`), '# x\n', 'utf8'); }
         expect(await mod.folderViewMoveIntoMd(m, id, 'main.md', targetMd, deps as any, sender as any)).toBe(true);
-        expect(fs.existsSync(path.join(noteDir, 'main.md'))).toBe(true);
+        expect(fs.existsSync(path.join(destDir, 'main.md'))).toBe(true);
         expect(fs.existsSync(path.join(root, 'main.md')), 'md は従来どおり削除').toBe(false);
         expect(fs.existsSync(path.join(root, 'images', 'pic.png')), '上限超過時は資産温存（安全側）').toBe(true);
     }
@@ -267,14 +273,18 @@ test('TC-ACD-05 全成功条件（MoveIntoMd 経路へ移設）: 複製失敗 �
 
 test('TC-ACD-06 経路網羅: MoveIntoMd（note md 宛て / fv→fv）は削除フェーズ発火・note 起点（MoveIn）は温存のまま', async () => {
     // (a) fv → note md（sidepanel 相当）
+    // ⚠️ 期待値更新（spec 20261027-1556-linkedfd-copy-only / D1）: linkedfd → note の md は境界をまたぐので
+    // **複製**（削除フェーズは発火しない）。旧期待値（資産が消える）はユーザー報告「元が消える」そのもの。
     {
-        const { mod, m, id, root, noteDir, deps, sender, targetMd } = hostSetup();
+        const { mod, m, id, root, noteDir, deps, trash, sender } = hostSetup();
         mkFvAssetSet(root);
         const target = path.join(noteDir, 'target.md');
         fs.writeFileSync(target, '# T\n', 'utf8');
         expect(await mod.folderViewMoveIntoMd(m, id, 'main.md', target, deps as any, sender as any)).toBe(true);
-        expect(fs.existsSync(path.join(root, 'images', 'pic.png')), 'MoveIntoMd で資産が残留').toBe(false);
-        expect(fs.existsSync(path.join(root, 'sub.md'))).toBe(false);
+        expect(fs.existsSync(path.join(root, 'images', 'pic.png')), 'fv → note md で元の資産が消えた').toBe(true);
+        expect(fs.existsSync(path.join(root, 'sub.md'))).toBe(true);
+        expect(fs.existsSync(path.join(root, 'main.md'))).toBe(true);
+        expect(trash.length, 'fv → note md で削除フェーズが発火した').toBe(0);
     }
     // (b) fv → fv（同一 root 内別 dir）: dest 側複製は残り source 側だけ消える
     {
@@ -309,7 +319,7 @@ test('TC-ACD-06 経路網羅: MoveIntoMd（note md 宛て / fv→fv）は削除�
 });
 
 test('TC-ACD-07 trash fallback 合成（MoveIntoMd 経路へ移設）: trash throw + deleteFile で資産も削除される', async () => {
-    const { mod, m, id, root, noteDir, sender, targetMd } = hostSetup();
+    const { mod, m, id, root, destDir, sender, targetMd } = hostSetup();
     mkFvAssetSet(root);
     const errors: string[] = [];
     const deleted: string[] = [];
@@ -321,7 +331,7 @@ test('TC-ACD-07 trash fallback 合成（MoveIntoMd 経路へ移設）: trash thr
         toDisplayUri: (p: string) => p,
     };
     expect(await mod.folderViewMoveIntoMd(m, id, 'main.md', targetMd, deps as any, sender as any)).toBe(true);
-    expect(fs.existsSync(path.join(noteDir, 'main.md'))).toBe(true);
+    expect(fs.existsSync(path.join(destDir, 'main.md'))).toBe(true);
     for (const rel of ['main.md', 'sub.md', 'images/pic.png', 'files/a.pdf']) {
         expect(fs.existsSync(path.join(root, rel)), `${rel} が fallback で消えていない`).toBe(false);
     }
@@ -346,13 +356,13 @@ test('TC-ACD-08 画像 copy 失敗の検知（QUAL-1 — データロス経路�
     }
     // (b) 経路: fv 移動で dest images 書込不能 → 全成功ゲートが閉じ source 完全不触 + トースト
     {
-        const { mod, m, id, root, noteDir, deps, trash, errors, sender, targetMd } = hostSetup();
+        const { mod, m, id, root, destDir, deps, trash, errors, sender, targetMd } = hostSetup();
         mkFvAssetSet(root);
-        fs.mkdirSync(path.join(noteDir, 'images'), { recursive: true });
-        fs.chmodSync(path.join(noteDir, 'images'), 0o555);
+        fs.mkdirSync(path.join(destDir, 'images'), { recursive: true });
+        fs.chmodSync(path.join(destDir, 'images'), 0o555);
         try {
             await mod.folderViewMoveIntoMd(m, id, 'main.md', targetMd, deps as any, sender as any);
-        } finally { fs.chmodSync(path.join(noteDir, 'images'), 0o755); }
+        } finally { fs.chmodSync(path.join(destDir, 'images'), 0o755); }
         expect(fs.existsSync(path.join(root, 'main.md')), '部分失敗で md が消された').toBe(true);
         expect(fs.existsSync(path.join(root, 'images', 'pic.png')), '部分失敗で画像が消された（データロス）').toBe(true);
         expect(trash.length).toBe(0);

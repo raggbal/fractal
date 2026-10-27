@@ -1,7 +1,7 @@
 /**
  * 2026-09-05 R24..R28 — host 側
  * TC-RC-07 registerFolderIntoTree / registerExternalDroppedUris(dir) / TC-RC-08 buildExportNodesFromOutData / TC-RC-09 expandDroppedPathsToFiles
- * TC-RC-10 folderViewMoveIntoMd({writeToDisk}) = 対象 md 末尾へ 📎 行・元は trash
+ * TC-RC-10 folderViewMoveIntoMd({writeToDisk}) = 対象 md 末尾へ 📎 行・元は残る（spec 20261027-1556-linkedfd-copy-only で複製に）
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
@@ -80,7 +80,8 @@ test('TC-RC-09 expandDroppedPathsToFiles: dir を再帰展開（名前順・dotf
     } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
 
-test('TC-RC-10 folderViewMoveIntoMd({writeToDisk}): 対象 md（開いていない）末尾へ 📎 行、実体は note の files/ へ、元は trash', async () => {
+// ⚠️ 期待値更新（spec 20261027-1556-linkedfd-copy-only / D1）: linkedfd → note の md は境界をまたぐので複製（旧: 元は trash）
+test('TC-RC-10 folderViewMoveIntoMd({writeToDisk}): 対象 md（開いていない）末尾へ 📎 行、実体は note の files/ へ、元は残る', async () => {
     const mh = req('../../src/shared/notes-message-handler');
     const { NotesFileManager } = req('../../src/shared/notes-file-manager');
     const note = tmp('rc-note2-'); const root = tmp('rc-fv-');
@@ -96,6 +97,7 @@ test('TC-RC-10 folderViewMoveIntoMd({writeToDisk}): 対象 md（開いていな�
         expect(fs.readFileSync(dst, 'utf8')).toBe('# Dst\n[📎 doc.pdf](files/doc.pdf)\n');
         expect(posted.filter((m) => m.type === 'insertFileLink').length, '開いていない md へ editor 挿入を post してはいけない').toBe(0);
         expect(fs.existsSync(path.join(note, 'files', 'doc.pdf'))).toBe(true);
-        expect(trashed).toEqual([path.join(root, 'doc.pdf')]);
+        expect(trashed, 'linkedfd 側の元が trash された').toEqual([]);
+        expect(fs.readFileSync(path.join(root, 'doc.pdf'), 'utf8')).toBe('PDF');
     } finally { fs.rmSync(note, { recursive: true, force: true }); fs.rmSync(root, { recursive: true, force: true }); }
 });

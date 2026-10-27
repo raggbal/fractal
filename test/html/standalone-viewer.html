@@ -5,7 +5,7 @@
 <!-- 本番 fileViewerContent.ts の CSP を忠実に再現（cspSource → 'self'）。blob iframe はこの CSP を
      policy container 継承する — ユーザー script 抑止の実体（script-src nonce）・外部送信遮断
      （connect-src）・外部 URL への iframe 遷移抑止（frame-src — TC-FV-03）が全てここに依存する -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'nonce-RReUJAMnk93AoLLsWOTHXg==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; font-src 'self' blob: data:; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'nonce-Prjeza9Tk5aQNbI2UQvBaw==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; font-src 'self' blob: data:; form-action 'none'">
 <title>Standalone File Viewer Test</title>
 <style>
 /* Copyright 2014 Mozilla Foundation
@@ -7147,14 +7147,14 @@ html, body { margin: 0; height: 100%; }
 </head>
 <body>
 <div id="viewer-root"></div>
-<script nonce="RReUJAMnk93AoLLsWOTHXg==">
+<script nonce="Prjeza9Tk5aQNbI2UQvBaw==">
 // TASK-13（不変条件7）: 本番 fileViewerContent.ts と同じ "null" origin capture 遮断を
 // bootstrap 最初期（全 message listener 登録より前）に再現 — TC-FV-47/48 の検証対象
 window.addEventListener('message', function (e) {
     if (e.origin === 'null') { e.stopImmediatePropagation(); }
 }, true);
 </script>
-<script type="module" nonce="RReUJAMnk93AoLLsWOTHXg==">
+<script type="module" nonce="Prjeza9Tk5aQNbI2UQvBaw==">
 // テストハーネス: vscode webview API のスタブ + postMessage 記録
 // （ハーネス bootstrap 自身も nonce 必須 — script-src に 'self'/'unsafe-inline' だけでは inline module が動かない）
 window.__postedMessages = [];
@@ -7182,7 +7182,7 @@ window.__viewerConfig = {
         viewerStatic: './drawio-viewer/viewer-static.min.js',
         stencils: './drawio-viewer/stencils.min.js',
     },
-    nonce: 'RReUJAMnk93AoLLsWOTHXg==',
+    nonce: 'Prjeza9Tk5aQNbI2UQvBaw==',
 };
 /**
  * file-viewer.js — file viewer webview 本体（PDF レンダ + HTML sandbox 表示 + 読み込み失敗 UI）
@@ -8197,9 +8197,12 @@ window.__viewerConfig = {
         if (!mount) { return; }
         ensureViewerStyle();               // 3 面共通の見た目を自己完結で保証
         destroy(mount);                    // 前回分のリソースを解放してから再構築
-        // script オプトインの state（FR-FV-11）は open 呼び出しローカル = 非永続。
-        // 別ファイルを開く / 同じファイルを開き直すと必ず allowScripts:false から始まる
-        const state = { allowScripts: false, rerenderHtml: null, onToggleScripts: null };
+        // script の state（FR-FV-11）は open 呼び出しローカル = 非永続。開くたびに既定値から始まる。
+        // 既定値は設定 fractal.viewerHtmlAllowScripts（既定 ON — 2026-10-27 ユーザー要望で ADRL-0067 決定 3 の
+        // 「明示オプトイン」を上書き）。host が __viewerConfig.htmlScriptsDefault で渡す。false のときだけ従来どおり OFF。
+        // ON でも防御は変わらない: sandbox=allow-scripts のみ（allow-same-origin なし = opaque origin）+ 継承 CSP の connect-src
+        const liveConfig = window.__viewerConfig || config;
+        const state = { allowScripts: kind === 'html' && liveConfig.htmlScriptsDefault !== false, rerenderHtml: null, onToggleScripts: null };
         state.onToggleScripts = () => {
             if (typeof state.rerenderHtml !== 'function') { return; }
             state.allowScripts = !state.allowScripts;

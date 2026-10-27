@@ -513,7 +513,9 @@ test.describe('面間 D&D host 端（TASK-05）', () => {
         fs.writeFileSync(path.join(root, 'p2.png'), 'png2');
         fs.writeFileSync(path.join(root, 'n2.md'), '# SameDir\n');
 
-        // (a) md → note md: 対象 md dir へ移動 + insertSubpageLink（title = H1 正典）
+        // (a) md → note md: 対象 md dir へ複製 + insertSubpageLink（title = H1 正典）
+        // ⚠️ 期待値更新（spec 20261027-1556-linkedfd-copy-only / D1）: linkedfd → note の md は境界をまたぐので
+        // 複製（linkedfd 側の元を trash しない）。旧期待値は「元 trash」= ユーザー報告「元が消える」
         expect(await mod.folderViewMoveIntoMd(m, id, 'n.md', noteMd, deps as any, sender as any)).toBe(true);
         expect(fs.existsSync(path.join(path.dirname(noteMd), 'n.md'))).toBe(true);
         let msg = messages.find((x) => x.type === 'insertSubpageLink');
@@ -521,7 +523,8 @@ test.describe('面間 D&D host 端（TASK-05）', () => {
         expect(msg.title).toBe('NoteDoc');
         expect(msg.markdownPath).toBe('n.md');
         expect(msg.sidePanelFilePath).toBe(noteMd);
-        expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'n.md'))).toBe(true);
+        expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'n.md')), 'linkedfd 側の元が trash された').toBe(false);
+        expect(fs.existsSync(path.join(root, 'n.md'))).toBe(true);
 
         // (b) md → linked md（同一 dir）: 移動なし・リンクのみ・trash 不発
         const trashCount = calls.trash.length;
@@ -584,22 +587,26 @@ test.describe('面間 D&D host 端（TASK-05）', () => {
             'body [📎 a.txt](files/a.txt) and [[Sub]](subpage-1.md) end\n', 'Src', null, 0);
         const srcMd = m.getMdFilePath(srcMdId);
 
-        // (a) 📎 file リンク → dst へ複製 + fs 正典でリンク除去 + 元実体 trash + エコー
+        // ⚠️ 期待値更新（spec 20261027-1556-linkedfd-copy-only / D1）: note の md → fv は境界をまたぐので
+        // **複製**（リンク除去・元 trash をしない）。旧期待値は「リンク除去 + 元 trash」= ユーザー報告「元が消える」。
+        // linkedfd の中の md がソースのとき（(c)）は従来どおり移動。
+        // (a) 📎 file リンク → dst へ複製。note の md のリンクも実体も残る
         expect(await mod.folderViewMoveFromMd(m, id, 'dst',
             { href: 'files/a.txt', sourceMdPath: srcMd, isSubpage: false }, deps as any, sender as any)).toBe(true);
         expect(fs.readFileSync(path.join(root, 'dst', 'a.txt'), 'utf8')).toBe('attach');
-        expect(fs.readFileSync(srcMd, 'utf8')).not.toContain('files/a.txt'); // fs 正典（エコーだけで済ませない）
-        expect(messages.some((x) => x.type === 'removeFileLink' && x.href === 'files/a.txt')).toBe(true);
-        expect(calls.trash.some((t: any) => t.absPath === path.join(filesDir, 'a.txt'))).toBe(true);
-        expect(fs.existsSync(path.join(filesDir, 'a.txt'))).toBe(true); // recorder no-op = 直接削除なし
+        expect(fs.readFileSync(srcMd, 'utf8')).toContain('files/a.txt');
+        expect(messages.some((x) => x.type === 'removeFileLink')).toBe(false);
+        expect(calls.trash.some((t: any) => t.absPath === path.join(filesDir, 'a.txt'))).toBe(false);
+        expect(fs.existsSync(path.join(filesDir, 'a.txt'))).toBe(true);
 
-        // (b) subpage リンク → md 実体を dst へ + リンク除去 + trash + removeSubpageLink エコー
+        // (b) subpage リンク → md 実体を dst へ複製。リンク・元とも残る
         expect(await mod.folderViewMoveFromMd(m, id, 'dst',
             { href: 'subpage-1.md', sourceMdPath: srcMd, isSubpage: true }, deps as any, sender as any)).toBe(true);
         expect(fs.existsSync(path.join(root, 'dst', 'subpage-1.md'))).toBe(true);
-        expect(fs.readFileSync(srcMd, 'utf8')).not.toContain('subpage-1.md');
-        expect(messages.some((x) => x.type === 'removeSubpageLink' && x.href === 'subpage-1.md')).toBe(true);
-        expect(calls.trash.some((t: any) => t.absPath === path.join(noteDir, 'subpage-1.md'))).toBe(true);
+        expect(fs.readFileSync(srcMd, 'utf8')).toContain('subpage-1.md');
+        expect(messages.some((x) => x.type === 'removeSubpageLink')).toBe(false);
+        expect(calls.trash.some((t: any) => t.absPath === path.join(noteDir, 'subpage-1.md'))).toBe(false);
+        expect(fs.existsSync(path.join(noteDir, 'subpage-1.md'))).toBe(true);
 
         // (c) linked-folder md がソースでも同経路（md 隣接 files/ の実体）
         fs.mkdirSync(path.join(root, 'files'));
@@ -791,7 +798,11 @@ test.describe('TC-FLV-60 — trash 失敗の可視化（W2 / D&D 統一原則改
         const { sender, messages } = makeSender();
         fs.writeFileSync(path.join(root, 'x.txt'), 'data');
         // 移設先経路（fv → sidepanel md）の drop 先
-        const targetMd = path.join(noteDir, 'target.md');
+        // ⚠️ 期待値更新（spec 20261027-1556-linkedfd-copy-only / D1）: fv → note の md は複製になり trash を呼ばない。
+        // trash 失敗の可視化は移動が残る「同じ linkedfd の中の md 宛て」で検証する
+        void noteDir;
+        fs.mkdirSync(path.join(root, 'tdir'), { recursive: true });
+        const targetMd = path.join(root, 'tdir', 'target.md');
         fs.writeFileSync(targetMd, '# Target\n', 'utf8');
         m.openFile(targetMd);
         // trash が throw する deps（クラウドドライブ / 権限エラーの再現）
@@ -839,8 +850,9 @@ test.describe('TC-FLV-59 — W4: note md 宛て md 移動の precedent 合流と
         const resolved = path.resolve(path.dirname(targetMd), ins.markdownPath);
         expect(fs.existsSync(resolved), '挿入された markdownPath が click 解決で実ファイルに到達').toBe(true);
         expect(fs.readFileSync(resolved, 'utf8')).toContain('# Moved Doc');
-        // ⑤ 移動元は trash（recorder）
-        expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'moved.md'))).toBe(true);
+        // ⑤ 移動元は残る（⚠️ 期待値更新 spec 20261027-1556-linkedfd-copy-only / D1: linkedfd → note md は複製。旧: trash）
+        expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'moved.md')), 'linkedfd 側の元が trash された').toBe(false);
+        expect(fs.existsSync(path.join(root, 'moved.md'))).toBe(true);
         // ③ Clean Notes の orphan-md 候補に現れない（subpage リンク closure による live 化）
         // 対象 md に実際にリンク行を書いてから scan（実運用では webview 挿入 → 保存で本文に入る）
         fs.writeFileSync(targetMd, `# Target\n\n[[${ins.title}]](${ins.markdownPath})\n`);

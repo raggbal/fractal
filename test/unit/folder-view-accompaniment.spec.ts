@@ -166,7 +166,9 @@ test('TC-ACC-22 folderViewMoveIntoMd（md 分岐）: note md 宛て随伴 + fv �
     assertAccompanied(path.join(root2, 'tdir'), 'main.md');
 });
 
-test('TC-ACC-23 folderViewMoveFromMd（subpage）: note 共有 → fv 隣接変換 + アンカー除去 + md 本体 trash', async () => {
+// ⚠️ 期待値更新（spec 20261027-1556-linkedfd-copy-only / D1）: note の md → fv は境界をまたぐので複製。
+// 随伴転送（fv 隣接座標への変換）は従来どおり、アンカー除去と md 本体 trash はしない（旧: 除去 + trash）
+test('TC-ACC-23 folderViewMoveFromMd（subpage）: note 共有 → fv 隣接変換 + 元 md のアンカーと md 本体は残る', async () => {
     const { mod, m, id, root, noteDir } = setup();
     const { deps, calls } = makeMoveDeps();
     const { sender, messages } = makeSender();
@@ -176,10 +178,11 @@ test('TC-ACC-23 folderViewMoveFromMd（subpage）: note 共有 → fv 隣接変�
 
     expect(await mod.folderViewMoveFromMd(m, id, '', { href: 'main.md', sourceMdPath: sourceMd, isSubpage: true }, deps as any, sender as any)).toBe(true);
     assertAccompanied(root, 'main.md'); // fv 隣接座標（root/images 等が作成される）
-    // 既存契約: アンカー除去 2 段 + md 本体のみ trash
-    expect(fs.readFileSync(sourceMd, 'utf8')).not.toContain('(main.md)');
-    expect(messages.some((x) => x.type === 'removeSubpageLink')).toBe(true);
-    expect(calls.trash.length).toBe(1);
+    // 境界をまたぐので元は残る（アンカー・md 本体とも）
+    expect(fs.readFileSync(sourceMd, 'utf8')).toContain('(main.md)');
+    expect(messages.some((x) => x.type === 'removeSubpageLink')).toBe(false);
+    expect(calls.trash.length).toBe(0);
+    expect(fs.existsSync(path.join(noteDir, 'main.md'))).toBe(true);
     expect(fs.existsSync(path.join(noteDir, 'images', 'pic.png'))).toBe(true); // note 側資産温存
 });
 

@@ -40,6 +40,7 @@ import { DropStreamHost } from './shared/drop-stream-host';
 import { parseDataUrl, mimeToExt } from './shared/data-url-image-extractor';
 import { safeResolveUnderDir, safeResolveUnderFolderRoot } from './shared/path-safety';
 import { removeMdAnchorAndEcho } from './shared/md-anchor-remove';
+import { linkedfdRootsOf, crossesLinkedfdBoundary } from './shared/linkedfd-boundary';
 import { transferMdWithAssets, noteCoords, mdCoords, makeTransferCoords, copyMdPasteAssets, generateUniqueFileNamePreserving } from './shared/paste-asset-handler';
 import { createFolderViewAutoReload } from './shared/folder-view-autoreload';
 import { openFileExternalOrDownload } from './shared/open-external-or-download';
@@ -4011,6 +4012,8 @@ export function registerSubpageFromMdCore(
         });
         // 元 md からアンカー除去 = fs 正典 + webview エコーの 2 段（兄弟 3 経路と同型 —
         // エコーのみだと source md の EditorInstance 非生存時にアンカーが残留する。TASK-03 集約）
+        // spec linkedfd-copy-only D1/D2: linkedfd の中の md から来たら境界をまたぐので、元 md のリンクは残す（複製）
+        if (crossesLinkedfdBoundary(linkedfdRootsOf(fileManager), payload.sourceMdPath, mainFolder)) { return; }
         removeMdAnchorAndEcho(payload.sourceMdPath, payload.href, senderRef, 'subpage');
     } catch (e) {
         console.error('[Notes] notesRegisterSubpageFromMd error:', e);
