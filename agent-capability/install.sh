@@ -5,6 +5,10 @@
 #   - Claude Code: plugin（agent-capability/plugin = MCP + skill）を marketplace（agent-capability）から入れる。
 #                  旧来の user scope の登録（claude mcp add fractal）は plugin を入れたあと外す（二重登録で plugin が隠れる）
 #   - Kiro:        ~/.kiro/settings/mcp.json に MCP を登録し、skill を ~/.kiro/skills/fractal に copy（Kiro は symlink の skill を認識しない）
+#   - Kiro Crew:   main と worker の agent 定義（~/.kiro/crew/mcp-gateway/agents/ と ~/.kiro/agents/ の kirocrew.json・kirocrew-worker.json。
+#                  ほかの agent は fractal を既に持つときだけ path を直す）に
+#                  MCP（mcpServers.fractal・tools の @fractal）と skill（resources の skill://~/.kiro/skills/fractal/SKILL.md）を入れる
+#                  （custom agent は skill を自動で読まない）。skill の実体は Kiro と同じ ~/.kiro/skills/fractal
 #   - Cursor:      ~/.cursor/mcp.json に MCP を登録（skill は置かない）
 #   - Antigravity: 自動登録しない（表示するコマンドを手で設定）
 #
@@ -31,13 +35,14 @@ PLUGIN_ID="fractal@fractal-local"
 LEGACY_SKILLS="fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary fractal-mcp collect doc-md pptx-pages-md aws-doc-maker arxiv-md youtube-md web-crawler-md"
 # 以前 register-fractal.mjs 用に張っていた symlink
 LEGACY_LINK="$HOME/.fractal/fractal-mcp"
-IDE_LIST="claude cursor kiro antigravity"
+IDE_LIST="claude cursor kiro kirocrew antigravity"
 
 ide_parent() {
     case "$1" in
         claude)      echo "$HOME/.claude" ;;
         cursor)      echo "$HOME/.cursor" ;;
         kiro)        echo "$HOME/.kiro" ;;
+        kirocrew)    echo "$HOME/.kiro/crew" ;;
         antigravity) echo "$HOME/.antigravity" ;;
         *) return 1 ;;
     esac
@@ -178,6 +183,26 @@ do_mcp_one() {
                 err "  plugin のインストールに失敗。Claude Code の中で /plugin marketplace add $CAP_DIR → /plugin install $PLUGIN_ID"
             fi
             ;;
+        kirocrew)
+            # Kiro Crew の agent 定義（gateway の元と ~/.kiro/agents の写しの両方）。無ければ何もしない
+            set -- "$HOME"/.kiro/crew/mcp-gateway/agents/kirocrew*.json "$HOME"/.kiro/agents/kirocrew*.json
+            files=""
+            for f in "$@"; do [ -f "$f" ] && files="$files $f"; done
+            if [ -z "$files" ]; then
+                dim "  Kiro Crew の agent 定義が見つからないのでスキップ"
+                return 0
+            fi
+            if [ "$DRY_RUN" -eq 1 ]; then
+                echo "  [dry-run] Kiro Crew の agent 定義に fractal を$([ "$UNINSTALL" -eq 1 ] && echo 削除 || echo "設定 (${server} / @fractal / skill://~/.kiro/skills/fractal/SKILL.md)"):$files"
+                return 0
+            fi
+            # shellcheck disable=SC2086
+            if [ "$UNINSTALL" -eq 1 ]; then
+                "$node_bin" "$MCP_DIR/register-kirocrew.mjs" --remove $files >/dev/null && ok "  Kiro Crew: fractal ← 解除（kirocrew restart で反映）"
+            else
+                "$node_bin" "$MCP_DIR/register-kirocrew.mjs" "$server" --node "$node_bin" $files >/dev/null && ok "  Kiro Crew: MCP + skill → agent 定義（kirocrew restart で反映）"
+            fi
+            ;;
         kiro|cursor)
             cfg="$(ide_parent "$ide")/mcp.json"
             [ "$ide" = "kiro" ] && cfg="$HOME/.kiro/settings/mcp.json"
@@ -201,7 +226,8 @@ do_mcp_one() {
 # 置いてあるものが自分の skill（frontmatter が name: fractal）のときだけ上書き・削除する
 do_skill_one() {
     ide=$1
-    [ "$ide" = "kiro" ] || return 0
+    # Kiro Crew も Kiro と同じ ~/.kiro/skills/fractal を読む（外すのは kiro のときだけ — Kiro と共有）
+    case "$ide" in kiro) ;; kirocrew) [ "$UNINSTALL" -eq 1 ] && return 0 ;; *) return 0 ;; esac
     dest="$HOME/.kiro/skills/fractal"
     if [ -e "$dest" ] && ! grep -q '^name: fractal$' "$dest/SKILL.md" 2>/dev/null; then
         warn "  skill: $dest は Fractal の skill ではないので触らない"

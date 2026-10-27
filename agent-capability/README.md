@@ -25,6 +25,7 @@ agent-capability/
     ├── structure.md              … データモデルの原本（fractal_structure と skill の references はこの写し）
     ├── build.mjs                 … bundle を作る（dist/ と plugin/server/ と skill の references を更新）
     ├── register.mjs              … Kiro / Cursor の mcp.json に登録する
+    ├── register-kirocrew.mjs     … Kiro Crew の agent 定義に MCP と skill を入れる
     ├── vendor/pdfjs-bundle.cjs   … PDF の中身検索（commit する生成物）
     └── dist/                     … bundle（生成物・git 管理外）
 ```
@@ -52,7 +53,7 @@ agent-capability/
 agent-capability/install.sh              # 検出した IDE 全部に入れる
 agent-capability/install.sh --dry-run    # 何をするかだけ表示
 agent-capability/install.sh --uninstall  # 外す
-agent-capability/install.sh --only kiro  # IDE を絞る（claude,kiro,cursor,antigravity）
+agent-capability/install.sh --only kiro  # IDE を絞る（claude,kiro,kirocrew,cursor,antigravity）
 ```
 
 IDE ごとの入り方:
@@ -61,8 +62,11 @@ IDE ごとの入り方:
 |---|---|---|
 | Claude Code | plugin `fractal@fractal-local`（`plugin/.mcp.json`） | plugin に同梱（`/fractal:fractal`、話題に応じて自動で読み込む） |
 | Kiro | `~/.kiro/settings/mcp.json` に登録 | `~/.kiro/skills/fractal` に copy |
+| Kiro Crew | main / worker の agent 定義（`~/.kiro/crew/mcp-gateway/agents/` と `~/.kiro/agents/` の `kirocrew.json`・`kirocrew-worker.json`）の `mcpServers` と `tools`（`@fractal`）。ほかの agent は既に fractal を持つときだけ path を直す | 同じ agent 定義の `resources` に `skill://~/.kiro/skills/fractal/SKILL.md`（custom agent は skill を自動で読まない）。実体は Kiro と共有 |
 | Cursor | `~/.cursor/mcp.json` に登録 | 置かない |
 | Antigravity | 自動登録しない（表示されるコマンドを手で設定） | 置かない |
+
+Kiro Crew は書き換えたあと `kirocrew restart` で反映する。
 
 Claude Code を手で入れるとき（install.sh を使わない場合）:
 
