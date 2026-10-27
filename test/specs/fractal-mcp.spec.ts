@@ -95,8 +95,9 @@ test.describe('fractal-mcp', () => {
     test.beforeEach(async () => { c = new Client(); await c.init(); });
     test.afterEach(() => c.close());
 
-    // spec 20261027-1700-mcp-full-ops D5: 既存 9 本の名前はそのまま、resolve / get / tree / md_edit の 4 本を足して 13 本
-    test('AC-1 initialize → tools/list で 13 本の tool（既存 9 本 + resolve / get / tree / md_edit）が inputSchema つきで返る', async () => {
+    // spec 20261027-1700-mcp-full-ops D5: 既存 9 本の名前はそのまま、resolve / get / tree の 3 本を足して 12 本
+    //（md 本文の編集 tool fractal_md_edit はユーザー判断 2026-10-27 で廃止 = 本文はエージェントが直接編集する）
+    test('AC-1 initialize → tools/list で 12 本の tool（既存 9 本 + resolve / get / tree）が inputSchema つきで返る', async () => {
         const c2 = new Client();
         const init = await c2.init();
         expect(init.result.protocolVersion).toBe('2025-06-18');   // クライアントが求めた版で返す
@@ -106,7 +107,7 @@ test.describe('fractal-mcp', () => {
         const names = list.result.tools.map((t: any) => t.name).sort();
         expect(names).toEqual([
             'fractal_add', 'fractal_attach', 'fractal_doctor', 'fractal_get', 'fractal_list_folders', 'fractal_list_notes',
-            'fractal_md_edit', 'fractal_modify', 'fractal_resolve', 'fractal_search', 'fractal_structure', 'fractal_summary', 'fractal_tree',
+            'fractal_modify', 'fractal_resolve', 'fractal_search', 'fractal_structure', 'fractal_summary', 'fractal_tree',
         ]);
         for (const t of list.result.tools) {
             expect(t.inputSchema.type).toBe('object');

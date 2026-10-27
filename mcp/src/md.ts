@@ -1,5 +1,5 @@
 /**
- * md.ts — md 本文の読み取り（見出し・subpage・添付）と、位置を決めた挿入・置換。
+ * md.ts — md 本文の読み取り（見出し・subpage・添付）と、位置を決めた挿入（fractal_attach / fractal_add の md へのリンク挿入）。
  * 見出しの解釈は正典 src/shared/md-h1-utils.ts（D9: mjs の H1 ミラーは廃止）。
  */
 import * as fs from 'node:fs';
@@ -93,22 +93,6 @@ export function insertBlock(body: string, block: string, opts: { heading?: strin
     let out = outLines.join(eol);
     if (!afterTrim.length) { out += eol; }
     return { body: out, insertedAtLine: insertedAtLine + 1 };
-}
-
-/** 完全一致の置換。old が無ければ NOT_FOUND、2 か所以上で all でなければ AMBIGUOUS（行番号付き） */
-export function replaceExact(body: string, oldText: string, newText: string, all: boolean): { body: string; count: number } {
-    if (!oldText) { throw new ToolError('INVALID', 'replace には old（置き換える前の文字列。空は不可）が必要です'); }
-    const idxs: number[] = [];
-    for (let i = body.indexOf(oldText); i !== -1; i = body.indexOf(oldText, i + oldText.length)) { idxs.push(i); }
-    if (idxs.length === 0) {
-        throw new ToolError('NOT_FOUND', 'old に完全一致する文字列が本文にありません（空白・改行も含めて完全一致です）。fractal_get で本文を読み直してください。', {});
-    }
-    if (idxs.length > 1 && !all) {
-        const lineOf = (i: number) => body.slice(0, i).split('\n').length;
-        throw new ToolError('AMBIGUOUS', `old が ${idxs.length} か所にあります。前後の文字を含めて 1 か所に絞るか、all: true で全部置き換えてください。`,
-            { count: idxs.length, lines: idxs.slice(0, 30).map(lineOf) });
-    }
-    return { body: all ? body.split(oldText).join(newText) : body.slice(0, idxs[0]) + newText + body.slice(idxs[0] + oldText.length), count: all ? idxs.length : 1 };
 }
 
 // ─── md の参照（get 用） ─────────────────────────────

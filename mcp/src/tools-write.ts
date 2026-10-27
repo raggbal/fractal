@@ -1,5 +1,9 @@
 /**
- * tools-write.ts — 書き込み系 tool の実体（fractal_add / fractal_modify / fractal_attach / fractal_tree / fractal_md_edit）
+ * tools-write.ts — 書き込み系 tool の実体（fractal_add / fractal_modify / fractal_attach / fractal_tree）
+ *
+ * md の本文はエージェントが直接編集する（ユーザー判断 2026-10-27。拡張機能は入力中の外部変更を 3-way で合成する）ので
+ * md 本文の編集 tool（旧 fractal_md_edit）は持たない。H1 とタイトルの同期は fractal_tree rename（md item）/
+ * fractal_modify set-text（page ノード）が正典の経路で行う
  *
  * spec 20261027-1700-mcp-full-ops: 処理は src/shared の正典（NotesFileManager / notes-ops-core /
  * markdown-import / file-import / drop-import / paste-asset-handler / md-h1-utils）と、webview と同じ
@@ -19,16 +23,16 @@ import { importFiles } from '../../src/shared/file-import';
 import { saveImageBuffer } from '../../src/shared/drop-import';
 import { generateUniqueFileNamePreserving, sanitizeSubpageLabel } from '../../src/shared/paste-asset-handler';
 import { resolveImagesDirForMd, resolveFilesDirForMd } from '../../src/shared/flat-layout';
-import { extractFirstH1, setFirstH1 } from '../../src/shared/md-h1-utils';
+import { extractFirstH1 } from '../../src/shared/md-h1-utils';
 import {
     ToolError, assertInside, atomicWriteFile, checkExpectedHash, lockNote, requireAbs, requireDir, requireFile, requireNoteRoot,
 } from './guard';
 import {
-    LoadedOut, MatchMode, OutNode, Position, addNodeAt, filesDirOf, imagesDirOf, loadOut, moveNodeTo, pagePathOf, pagesDirOf,
+    MatchMode, OutNode, Position, addNodeAt, filesDirOf, imagesDirOf, loadOut, moveNodeTo, pagePathOf, pagesDirOf,
     resolveNodeRef, saveOut,
 } from './outdoc';
-import { NoteStructureView, TreeItem, buildTree, flattenTree, itemKind, parentFolderOf, readStructure, resolveTreeItem, findMdOwner } from './notes';
-import { MdPosition, insertBlock, replaceExact } from './md';
+import { NoteStructureView, TreeItem, buildTree, flattenTree, itemKind, parentFolderOf, readStructure, resolveTreeItem } from './notes';
+import { MdPosition, insertBlock } from './md';
 import { WriteOutcome, dryRunNote, runWrite } from './runtime';
 
 type Json = Record<string, unknown>;
@@ -649,72 +653,3 @@ export async function toolTree(a: TreeArgs): Promise<Json> {
     });
     return finish(out, destructive);
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// fractal_md_edit
-// ═══════════════════════════════════════════════════════════════════════════
-
-export interface MdEditArgs {
-    md: string; op: 'replace' | 'insert-at' | 'set-h1'; old?: string; new?: string; all?: boolean;
-    text?: string; heading?: string; position?: MdPosition; title?: string;
-    match?: MatchMode; expectedHash?: string; dryRun?: boolean;
-}
-
-/** page node の本文の先頭行を H1 に合わせる（残りの行は保つ） */
-function setFirstLine(text: string, line: string): string {
-    const rest = String(text || '').split('\n').slice(1);
-    return [line, ...rest].join('\n');
-}
-
-export async function toolMdEdit(a: MdEditArgs): Promise<Json> {
-    const md = requireAbs(a.md, 'md');
-    requireFile(md, 'md', '.md');
-    const root = requireNoteRoot(md, 'md');
-    if (a.op === 'replace' && (a.old === undefined || a.new === undefined)) { throw new ToolError('INVALID', 'replace には old と new が必要です'); }
-    if (a.op === 'insert-at' && a.text === undefined) { throw new ToolError('INVALID', 'insert-at には text（入れる md）が必要です'); }
-    if (a.op === 'set-h1' && !a.title) { throw new ToolError('INVALID', 'set-h1 には title が必要です'); }
-    const out = await runWrite({ roots: [root], dryRun: a.dryRun }, { md, root }, (x) => {
-        const lock = checkExpectedHash(x.md, a.expectedHash);
-        const body = fs.readFileSync(x.md, 'utf8');
-        const h1Before = extractFirstH1(body);
-        const owner = findMdOwner(x.root, x.md);
-        let next: string;
-        const extra: Json = {};
-        if (a.op === 'replace') {
-            const r = replaceExact(body, String(a.old), String(a.new), !!a.all);
-            next = r.body; extra.count = r.count;
-        } else if (a.op === 'insert-at') {
-            const r = insertBlock(body, String(a.text), { heading: a.heading, match: a.match, position: a.position });
-            next = r.body; extra.insertedAtLine = r.insertedAtLine;
-        } else {
-            next = setFirstH1(body, String(a.title));
-        }
-        const fm = openFm(x.root);
-        if (a.op === 'set-h1' && owner.kind === 'item') {
-            // 正典 NotesFileManager.renameTitle（md の H1 と outline.note の title を一緒に変える。UI のツリーの rename と同じ）
-            fm.renameTitle(x.md, String(a.title));
-        } else if (next !== body) {
-            atomicWriteFile(x.md, next);
-        }
-        // H1 が変わったら持ち主のタイトルも同期する（tree の md item = outline.note の title / page md = node の本文の先頭行）
-        const h1After = extractFirstH1(next);
-        if (h1After && h1After !== h1Before) {
-            if (owner.kind === 'item' && a.op !== 'set-h1') { fm.syncTitleFromH1(x.md, next); extra.titleSynced = { itemId: owner.itemId }; }
-            if (owner.kind === 'item' && a.op === 'set-h1') { extra.titleSynced = { itemId: owner.itemId }; }
-            if (owner.kind === 'page' && owner.outPath && owner.nodeId) {
-                checkInsideOut(x.root, owner.outPath);
-                const doc: LoadedOut = loadOut(owner.outPath);
-                const n = doc.model.nodes[owner.nodeId];
-                if (n) {
-                    doc.model.updateText(owner.nodeId, setFirstLine(n.text, h1After));
-                    saveOut(doc);
-                    extra.titleSynced = { outPath: owner.outPath, nodeId: owner.nodeId };
-                }
-            }
-        }
-        return { op: a.op, absPath: x.md, h1: h1After, owner, unchanged: next === body, ...extra, ...lockNote(lock) };
-    });
-    return finish(out);
-}
-
-function checkInsideOut(root: string, outPath: string): void { assertInside(root, outPath, 'page の持ち主の .out'); }

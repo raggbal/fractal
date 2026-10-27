@@ -4,8 +4,12 @@ Fractal は VSCode 拡張 (`imaken.fractal`) と Electron 単体アプリ (`frac
 
 関連 tools（fractal MCP。返り値はどれも JSON。`fractal_structure` / `fractal_summary` だけ Markdown）:
 - 探す・読む: `fractal_list_folders`（Notes フォルダ）/ `fractal_list_notes`（note とツリーの項目）/ `fractal_resolve`（タイトル → 絶対パス・id・contentHash）/ `fractal_get`（.out のノード木・md の本文と H1・見出し・subpage・ツリー）/ `fractal_search`（全文 + tags / checked）/ `fractal_summary`（全内容を 1 本の md に）
-- 書く: `fractal_add`（ノード・page・新しい .out / md・subpage）/ `fractal_modify`（ノードの変更・ページ化 / 解除 / md との変換・別の .out / note への移動）/ `fractal_attach`（画像・添付）/ `fractal_tree`（ツリーの rename / delete / move / create-folder / duplicate / move-to-note）/ `fractal_md_edit`（md の replace / insert-at / set-h1）
+- 書く: `fractal_add`（ノード・page・新しい .out / md・subpage）/ `fractal_modify`（ノードの変更・ページ化 / 解除 / md との変換・別の .out / note への移動）/ `fractal_attach`（画像・添付）/ `fractal_tree`（ツリーの rename / delete / move / create-folder / duplicate / move-to-note）
 - 検査: `fractal_doctor`（読むだけ。参照切れ・孤児（UI の Cleanup と同じ判定）・ツリーの整合）
+- **md の本文は直接編集してよい**（自分の Read / Edit で。Fractal の画面は入力中の外部変更を合成して取り込む）。ただし:
+  - (a) **H1（タイトル）は tool で変える**: ツリーの md item は `fractal_tree` の rename、page md は page ノードの `fractal_modify` set-text（ツリー / ノードのタイトルと H1 を一緒に変える）。tree にも page にも属さない md（subpage 等）の H1 は同期先が無いので直接編集でよい
+  - (b) **画像・添付・subpage は tool で足す**: `fractal_attach`（`![](images/..)` / `[📎 名前](files/..)`）・`fractal_add` の targetMd（`[[タイトル]](xxx.md)`）。実体を images/ files/ へコピーし、Cleanup が参照として数える書式で書く（手で `[名前](files/..)` と書くと孤児と判定されて消される）
+  - (c) **`.out` / `outline.note` は直接書かない**（ノード・ツリーの操作は必ず tool）
 
 ### MCP で書くときの決まり（spec 20261027-1700-mcp-full-ops）
 
@@ -297,7 +301,7 @@ Electron 側は `~/Library/Application Support/fractal-desktop/config.json` の�
 ## 10. Claude Code がファイル操作する時のチェックリスト
 
 1. 対象 Notes フォルダを確定（§1 の順で解決、曖昧ならユーザーに確認）。`fractal_resolve` / `fractal_list_notes` で絶対パスを得る
-2. **書き込みは JSON 手編集より fractal MCP の tool を使う**（`fractal_add` / `fractal_attach` / `fractal_modify` / `fractal_tree` / `fractal_md_edit` が相互排他・ID 採番・パス規約・タイトル同期・ゴミ箱を守ってくれる）。手編集はしない
+2. **書き込みは JSON 手編集より fractal MCP の tool を使う**（`fractal_add` / `fractal_attach` / `fractal_modify` / `fractal_tree` が相互排他・ID 採番・パス規約・タイトル同期・ゴミ箱を守ってくれる）。`.out` / `outline.note` は手編集しない。md の本文は直接編集してよい（H1・画像・添付・subpage は上の規約どおり tool で）
 3. 書く前に `fractal_get` で contentHash を取り、`expectedHash` に付ける（CONFLICT なら読み直す）
 4. 未移行の可能性がある note は先に `fractal_doctor` でプリフライト（layout WARN が出たら本体の移行ゲートでフラット化してもらう）
 5. 削除・移動・ページ解除は `dryRun: true` で何が変わるか（trashed）を確かめてから

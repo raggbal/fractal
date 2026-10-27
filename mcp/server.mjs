@@ -24,7 +24,7 @@ import { main as searchMain } from './scripts/fractal-search.mjs';
 import { main as summaryMain } from './scripts/fractal-summary.mjs';
 import { ToolError } from './src/guard.ts';
 import { toolGet, toolResolve, toolListNotes, toolDoctor, resolveSummaryNode } from './src/tools-read.ts';
-import { toolAdd, toolModify, toolAttach, toolTree, toolMdEdit } from './src/tools-write.ts';
+import { toolAdd, toolModify, toolAttach, toolTree } from './src/tools-write.ts';
 import STRUCTURE_MD from './structure.md';
 
 const SELF = fileURLToPath(import.meta.url);
@@ -114,7 +114,7 @@ async function startServer() {
             instructions: [
                 'Fractal（アウトライナー .out / outline.note / page md）を読み書きする tools。初めて触るときは fractal_structure を読む。',
                 '手順: (1) 対象を fractal_resolve（タイトル → 絶対パス / id）か fractal_get（中身と contentHash）で特定する。Notes フォルダが分からなければ fractal_list_folders / fractal_list_notes。候補が複数ならユーザーに選んでもらう',
-                '(2) 書き込み（fractal_add / fractal_modify / fractal_attach / fractal_tree / fractal_md_edit）は expectedHash に読んだときの contentHash を付ける。CONFLICT なら読み直してやり直す',
+                '(2) 書き込み（fractal_add / fractal_modify / fractal_attach / fractal_tree）は expectedHash に読んだときの contentHash を付ける。CONFLICT なら読み直してやり直す。md の本文は自分で直接編集してよい（H1 を変えるときは fractal_tree rename（md item）/ fractal_modify set-text（page）。画像・添付・subpage は fractal_attach / fractal_add。.out / outline.note は直接書かない）',
                 '(3) 返り値の JSON（nodeId / pageId / absPath / contentHash）で次の操作を続ける。本文で指定して AMBIGUOUS になったら candidates の id を使う',
                 '削除・移動・ページ解除の前は dryRun で確かめられる。削除は OS のゴミ箱へ移す。',
             ].join('\n'),
@@ -342,30 +342,6 @@ async function startServer() {
         },
         annotations: { destructiveHint: true },
     }, async (a) => json(await toolTree(a)));
-
-    reg('fractal_md_edit', {
-        description: [
-            'md の本文を編集する（page md / 独立 md / subpage）。op:',
-            'replace（old を new に置き換える。old は空白・改行も含めた完全一致で、1 か所だけにあるとき（all: true なら全部）。無ければ NOT_FOUND、複数なら AMBIGUOUS と行番号）/',
-            'insert-at（text の md を heading の節の末尾 / 見出しの直後（position）に入れる。heading 無しなら本文の末尾 / 先頭 H1 の直後）/',
-            'set-h1（先頭 H1 を title に。ツリーの md item ならツリーのタイトルも、page md なら page ノードの本文の先頭行も一緒に変わる）。',
-            'replace / insert-at で H1 が変わったときも同じように同期する。expectedHash に fractal_get の contentHash を付ける。返り値 JSON: { op, absPath, h1, owner, count / insertedAtLine, titleSynced?, changed: [{ absPath, contentHash }] }。',
-        ].join('\n'),
-        inputSchema: {
-            md: noDash('パス').describe('編集する md の絶対パス'),
-            op: z.enum(['replace', 'insert-at', 'set-h1']).describe('操作'),
-            old: T('replace: 置き換える前の文字列（完全一致）'),
-            new: T('replace: 置き換えた後の文字列'),
-            all: B('replace: 一致する所を全部置き換える'),
-            text: T('insert-at: 入れる md'),
-            heading: T('insert-at: 見出し（テキストか "親 > 子" のパス。match で一致のしかた）'),
-            position: MD_POS,
-            title: T('set-h1: 新しい H1'),
-            match: MATCH,
-            dryRun: DRY,
-            expectedHash: HASH('md'),
-        },
-    }, async (a) => json(await toolMdEdit(a)));
 
     await server.connect(new StdioServerTransport());
 }

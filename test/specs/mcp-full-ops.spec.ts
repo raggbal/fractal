@@ -387,7 +387,7 @@ test.describe('AC-2 書き込みのたびに doctor と cleanup-core が一致�
         }
     });
 
-    test('AC-2 別の .out・別の note への move / tree（rename・delete・move・create-folder・duplicate・move-to-note）/ md_edit', async () => {
+    test('AC-2 別の .out・別の note への move / tree（rename・delete・move・create-folder・duplicate・move-to-note）/ md への添付・subpage', async () => {
         const f = mkNote('ac2b');
         const g = mkNote('ac2b-dst');
         // page と画像・添付を持つノードを用意する
@@ -401,9 +401,11 @@ test.describe('AC-2 書き込みのたびに doctor と cleanup-core が一致�
             ['fractal_tree', { noteDir: f.dir, op: 'move', item: 'Other', parentFolder: 'フォルダ' }, [f.dir]],
             ['fractal_tree', { noteDir: f.dir, op: 'rename', item: 'ドキュメント', title: '文書' }, [f.dir]],
             ['fractal_tree', { noteDir: f.dir, op: 'duplicate', item: 'Other' }, [f.dir]],
-            ['fractal_md_edit', { md: f.md, op: 'insert-at', heading: '結論', text: '追記の段落' }, [f.dir]],
-            ['fractal_md_edit', { md: f.md, op: 'replace', old: '背景の本文', new: '背景（改）' }, [f.dir]],
-            ['fractal_md_edit', { md: f.md, op: 'set-h1', title: '文書 v2' }, [f.dir]],
+            // md の本文はエージェントが直接編集する（fractal_md_edit は廃止）。md への書き込みは添付・subpage を見出しの下へ
+            ['fractal_attach', { targetMd: f.md, files: [srcFile('m4.pdf', 'PDF')], heading: '結論' }, [f.dir]],
+            ['fractal_add', { targetMd: f.md, text: '背景の subpage', heading: '背景', mdPosition: 'start' }, [f.dir]],
+            // H1 は md item なら fractal_tree rename で変える（ツリーの title と一緒に）
+            ['fractal_tree', { noteDir: f.dir, op: 'rename', item: '文書', title: '文書 v2' }, [f.dir]],
             ['fractal_tree', { noteDir: f.dir, op: 'move-to-note', item: '文書 v2', toNoteDir: g.dir }, [f.dir, g.dir]],
             ['fractal_tree', { noteDir: f.dir, op: 'delete', item: 'Main' }, [f.dir]],
             ['fractal_tree', { noteDir: f.dir, op: 'delete', item: 'フォルダ' }, [f.dir]],
@@ -412,6 +414,16 @@ test.describe('AC-2 書き込みのたびに doctor と cleanup-core が一致�
         for (const [tool, args, dirs] of steps) {
             results.push(await c.ok(tool, args));
             for (const d of dirs) { await expectClean(c, d, `${tool} ${JSON.stringify(args)} @ ${path.basename(d)}`); }
+            if (tool === 'fractal_tree' && (args as any).title === '文書 v2') {
+                // rename で md の H1 とツリーの title が同期している（旧 md_edit set-h1 の観点）
+                expect(fs.readFileSync(f.md, 'utf8').split('\n')[0]).toBe('# 文書 v2');
+                expect(readJson(path.join(f.dir, 'outline.note')).items.doc.title).toBe('文書 v2');
+                // 添付は「結論」の節、subpage は「背景」の直後に入っている
+                const body = fs.readFileSync(f.md, 'utf8');
+                expect(body.indexOf('[📎 m4.pdf](files/m4.pdf)')).toBeGreaterThan(body.indexOf('## 結論'));
+                expect(body.indexOf('[[背景の subpage]]')).toBeGreaterThan(body.indexOf('## 背景'));
+                expect(body.indexOf('[[背景の subpage]]')).toBeLessThan(body.indexOf('背景の本文'));
+            }
         }
         // 別の note へ移した page は、画像・添付ごと移動先で生きている
         expect(results[1].crossNote).toBe(true);
@@ -614,9 +626,14 @@ test.describe('AC-4 resolve / get / 書き込みの JSON', () => {
         const tr = await c.ok('fractal_tree', { noteDir: f.dir, op: 'create-folder', title: 'F' });
         expect(tr.itemId).toBeTruthy();
         expect(tr.type).toBe('folder');
-        const ed = await c.ok('fractal_md_edit', { md: f.md, op: 'insert-at', text: '末尾' });
+        const ed = await c.ok('fractal_attach', { targetMd: f.md, files: [srcFile('w2.pdf')] });
+        expect(ed.op).toBe('attach-md');
         expect(ed.changed[0].absPath).toBe(f.md);
-        expect(ed.changed[0].contentHash).toMatch(/^[0-9a-f]{16}$/);
+        expect(ed.changed[0].contentHash).toBe((await c.ok('fractal_get', { path: f.md })).contentHash);
+        expect(ed.assets[0].absPath).toBe(path.join(f.dir, 'files', 'w2.pdf'));
+        const sp = await c.ok('fractal_add', { targetMd: f.md, text: 'サブ' });
+        expect(sp.op).toBe('add-subpage');
+        expect(fs.existsSync(sp.subpages[0].absPath)).toBe(true);
         // 書く前に読んだ contentHash を付けなければ「ロック無し」と出る
         expect(ed.lock).toBe('none');
         const dry = await c.ok('fractal_modify', { note: f.out, target: 'nA', op: 'delete', dryRun: true });
@@ -651,8 +668,13 @@ test.describe('AC-5 競合・原子的な書き込み・境界', () => {
         expect(fs.existsSync(path.join(f.dir, 'files'))).toBe(false);
         const md = await c.ok('fractal_get', { path: f.md });
         fs.appendFileSync(f.md, '\n外部の追記\n');
-        const r = await c.call('fractal_md_edit', { md: f.md, op: 'insert-at', text: 'x', expectedHash: md.contentHash });
+        const md2 = fs.readFileSync(f.md, 'utf8');
+        const r = await c.call('fractal_attach', { targetMd: f.md, files: [srcFile('c2.pdf')], expectedHash: md.contentHash });
         expect(r.json.error.code).toBe('CONFLICT');
+        const r1 = await c.call('fractal_add', { targetMd: f.md, text: 'x', expectedHash: md.contentHash });
+        expect(r1.json.error.code).toBe('CONFLICT');
+        expect(fs.readFileSync(f.md, 'utf8')).toBe(md2);
+        expect(fs.existsSync(path.join(f.dir, 'files'))).toBe(false);
         const tree = await c.ok('fractal_get', { path: f.dir });
         await c.ok('fractal_tree', { noteDir: f.dir, op: 'create-folder', title: 'A', expectedHash: tree.contentHash });
         const r2 = await c.call('fractal_tree', { noteDir: f.dir, op: 'create-folder', title: 'B', expectedHash: tree.contentHash });
@@ -670,7 +692,7 @@ test.describe('AC-5 競合・原子的な書き込み・境界', () => {
         const mdIno = ino(f.md);
         const noteIno = ino(path.join(f.dir, 'outline.note'));
         await c.ok('fractal_add', { note: f.out, text: 'x' });
-        await c.ok('fractal_md_edit', { md: f.md, op: 'insert-at', text: 'y' });
+        await c.ok('fractal_add', { targetMd: f.md, text: 'y' }); // md への書き込み（subpage のリンク挿入）
         await c.ok('fractal_tree', { noteDir: f.dir, op: 'rename', item: 'Other', title: 'Other2' }); // NotesFileManager が書く
         expect(ino(f.out)).not.toBe(outIno);
         expect(ino(f.md)).not.toBe(mdIno);
@@ -703,7 +725,7 @@ test.describe('AC-5 競合・原子的な書き込み・境界', () => {
         const outside = fs.mkdtempSync(path.join(tmpRoot, 'outside-'));
         const loose = path.join(outside, 'loose.md');
         fs.writeFileSync(loose, '# loose\n');
-        const r1 = await c.call('fractal_md_edit', { md: loose, op: 'insert-at', text: 'x' });
+        const r1 = await c.call('fractal_add', { targetMd: loose, text: 'x' });
         expect(r1.json.error.code).toBe('OUTSIDE_NOTES');
         expect(fs.readFileSync(loose, 'utf8')).toBe('# loose\n');
         const r2 = await c.call('fractal_attach', { targetMd: loose, files: [srcFile('o.pdf')] });

@@ -79,7 +79,7 @@ export function toolGet(a: GetArgs): Json {
             length: body.length,
             body: body.length > max ? body.slice(0, max) : body,
             ...(body.length > max ? { truncated: true } : {}),
-            hint: '書き換えは fractal_md_edit（replace / insert-at / set-h1）。expectedHash に contentHash を付けてください。',
+            hint: '本文は直接編集してよい。H1 を変えるときは fractal_tree rename（md item）/ fractal_modify set-text（page）。添付・画像・subpage は fractal_attach / fractal_add（expectedHash に contentHash）。',
         };
     }
     throw new ToolError('INVALID', `fractal_get は Notes フォルダ / outline.note / .out / .md を読みます: ${abs}`);

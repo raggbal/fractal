@@ -79,6 +79,10 @@ if (fs.existsSync(vendorSrc)) {
 } else {
     log('warning: mcp/vendor/pdfjs-bundle.cjs が無いので PDF の中身検索は pdf_unavailable になります（npm run build:pdfjs-vendor）');
 }
+// 6. 使い方の skill（skills/fractal）の参照 md はデータモデルの原本（mcp/structure.md）の写し — 二重に書かない
+const skillRef = path.join(ROOT, 'skills', 'fractal', 'references', 'structure.md');
+fs.mkdirSync(path.dirname(skillRef), { recursive: true });
+fs.copyFileSync(path.join(MCP_DIR, 'structure.md'), skillRef);
 fs.chmodSync(OUT, 0o755);
 const kb = (fs.statSync(OUT).size / 1024).toFixed(0);
 log(`mcp/dist/server.mjs: ${kb} KB`);
