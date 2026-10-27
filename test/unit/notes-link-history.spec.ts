@@ -21,7 +21,7 @@ import { NotesFileManager } from '../../src/shared/notes-file-manager';
 // 実 callback は SidePanelManager が openFile 成功時に fp を渡して呼ぶ。
 function dispatchOnFileOpened(fm: NotesFileManager, fp: string): void {
     if (!fp) return;
-    fm.recordFileHistory(fp);
+    fm.recordFileHistory(fp, 'side'); // spec 20261027-1142 D2: sidepanel で開いた md = side
 }
 
 // Recent クリックの解決ルールをミラー（全 kind が絶対パス openFile。id 自体が絶対パス）。
@@ -177,8 +177,9 @@ test.describe('FR-HP-08/09 — link/subpage 遷移の Recent 記録', () => {
         expect(fm.getHistory().find((e) => e.id === noH1)!.title).toBe('my-note'); // basename（拡張子なし）
     });
 
-    // TC-LH-05（重複先頭移動・回帰）: 同じ md を 2 回開くと 1 エントリで先頭に移動
-    test('TC-LH-05 同一 md 2 回で 1 エントリ・先頭移動', () => {
+    // TC-LH-05（改訂 spec 20261027-1142-recent-history-nav D1）: 旧「重複先頭移動」を supersede。
+    // a→b→a は a>b>a（同じものも積む）。直前と同じときだけ 1 件にまとまる
+    test('TC-LH-05 同一 md の再 open は積む（a>b>a）・直前と同じなら 1 件', () => {
         const fm = new NotesFileManager(tempDir);
         fm.createFile('Host');
         const a = path.join(otherDir, 'a.md');
@@ -189,10 +190,13 @@ test.describe('FR-HP-08/09 — link/subpage 遷移の Recent 記録', () => {
 
         dispatchOnFileOpened(fm, a);
         dispatchOnFileOpened(fm, b);
-        dispatchOnFileOpened(fm, a); // a を再度 → 先頭へ移動、重複しない
-        const hist = fm.getHistory();
-        expect(hist.filter((e) => e.id === a).length, 'a は 1 件').toBe(1);
-        expect(hist[0].id, '最新 open の a が先頭').toBe(a);
+        dispatchOnFileOpened(fm, a); // a を再度 → 先頭に積む（古い a も残る）
+        let hist = fm.getHistory();
+        expect(hist.map((e) => e.id)).toEqual([a, b, a]);
+        expect(hist[0].pane, 'sidepanel open は side').toBe('side');
+        dispatchOnFileOpened(fm, a); // 直前と同じ → まとまる
+        hist = fm.getHistory();
+        expect(hist.map((e) => e.id)).toEqual([a, b, a]);
     });
 
     // ===== 再オープン・バグ修正 2026-07-23: page-md Recent の cross-note 解決 =====

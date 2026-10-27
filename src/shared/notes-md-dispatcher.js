@@ -81,7 +81,14 @@
                     initialContent: text || '',
                     filePath: filePath || null,
                     documentBaseUri: documentBaseUri || '',
-                    sidebarHidden: true,
+                    // spec 20261027-1142 D6: outline は note ごとに「一度開いたら次の md でも開く」。既定は閉
+                    sidebarHidden: !window.__notesMdOutlineOpen,
+                    onOutlineToggle: function(open) {
+                        window.__notesMdOutlineOpen = !!open;
+                        if (window.notesHostBridge && typeof window.notesHostBridge.saveMdOutlineOpen === 'function') {
+                            window.notesHostBridge.saveMdOutlineOpen(!!open);
+                        }
+                    },
                 }
             );
             // sprint 20260723-233506: タブ復帰の main scroll 復元（§3b・ADRL-TABS-SCROLL）。

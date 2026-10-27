@@ -267,6 +267,9 @@ export interface WebviewMessages {
   saveDirReset: string;
   recentFilesLabel: string;
   toggleRecent: string;
+  /** spec 20261027-1142-recent-history-nav D3: Notes パネル最上段の Recent Back / Forward */
+  notesHistoryBack: string;
+  notesHistoryForward: string;
   imageDirSourceFile: string;
   imageDirSourceSettings: string;
   imageDirSourceDefault: string;

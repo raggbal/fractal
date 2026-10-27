@@ -4,7 +4,7 @@ import * as flatLayout from './flat-layout';
 import * as assetMover from './notes-asset-mover';
 import { isUnderNoteDir, collectMdLinkClosure, applyLinkUrlRewrites, extractAllAssetRefs, generateUniqueFileNamePreserving, copyEntityWithUniquify } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
-import { HistoryEntry, pushHistoryEntry } from './history-store';
+import { HistoryEntry, HistoryPane, historyPaneOf, pushHistoryEntry } from './history-store';
 import { extractFirstH1, parseAtxHeadingText, setFirstH1, writeFileIfChanged } from './md-h1-utils';
 import { DocExtractCache } from './doc-extract-cache';
 import { DocBacklinksResolver, BacklinkRef } from './doc-backlinks';
@@ -791,7 +791,7 @@ export class NotesFileManager {
     }
 
     // ── FR-HP: 最近開いたファイル履歴（outline.note に永続化） ──
-    /** history に entry を push（重複先頭移動 + 20 件トリム）して保存。 */
+    /** history に entry を push（開いた順に積む・直前と同じものだけまとめる + 50 件トリム = D1）して保存。 */
     pushHistory(entry: HistoryEntry): void {
         const structure = this.getStructure();
         structure.history = pushHistoryEntry(structure.history, entry);
@@ -807,19 +807,25 @@ export class NotesFileManager {
      * webview へ送出する時にこれを通すことで、ファイル切替（再描画）タイミングで最新 title が出る。
      * 解決元（kind 別）: note-md → items[basename].title（items 外の絶対パス md は先頭 H1）、out → .out disk data.title。
      * 解決不可（ファイル無し等）は stored title/id にフォールバック。
+     * spec 20261027-1142-recent-history-nav: pane を正規化（無い旧 entry は main = D2）し、開けない entry
+     * （消えたファイル / 消えた folder link）に missing:true を付ける（D5: Back / Forward が飛ばす。保存はしない派生値）。
      */
     getHistoryWithFreshTitles(): HistoryEntry[] {
         const history = this.getStructure().history || [];
         return history.map((entry) => {
             let fresh: string | null = null;
+            let missing = false;
             try {
                 if (entry.kind === 'folder') {
                     // FR-RCT-01: folder link は items の現在 title（rename 追従）
-                    const it = this.getStructure().items?.[entry.id] as { title?: string } | undefined;
+                    const it = this.getStructure().items?.[entry.id] as { title?: string; folderPath?: string } | undefined;
                     if (it && it.title) { fresh = it.title; }
+                    missing = !it || !NotesFileManager.isExistingDirectory(it.folderPath);
                 } else if (entry.kind === 'file') {
                     // FR-RCT-02: file は保存 title（basename）のまま — 読み込み不要
+                    missing = !fs.existsSync(entry.id);
                 } else if (entry.kind === 'out') {
+                    missing = !fs.existsSync(entry.id);
                     // .out の disk data.title（listFiles と同じ）
                     if (fs.existsSync(entry.id)) {
                         const data = JSON.parse(fs.readFileSync(entry.id, 'utf8'));
@@ -837,10 +843,13 @@ export class NotesFileManager {
                     } else if (/\.md$/i.test(entry.id) && fs.existsSync(entry.id)) {
                         fresh = extractFirstH1(fs.readFileSync(entry.id, 'utf8'));
                     }
+                    missing = !fs.existsSync(entry.id);
                 }
             } catch { /* 解決失敗はフォールバック */ }
             // fresh が取れたらそれを、無ければ stored title（さらに無ければ id）
-            return { ...entry, title: fresh || entry.title || entry.id };
+            const out: HistoryEntry = { ...entry, title: fresh || entry.title || entry.id, pane: historyPaneOf(entry) };
+            if (missing) { out.missing = true; } else { delete out.missing; }
+            return out;
         });
     }
 
@@ -881,16 +890,19 @@ export class NotesFileManager {
      * title は structure.items[id].title（human-readable）優先・無ければ basename。
      * 全 open 経路（ツリークリック / 検索ジャンプ / Today / アプリ内リンク等）から呼ぶ。
      */
-    /** FR-RCT-02/03: viewer 対象・外部起動 file の Recent 記録（kind='file'・title=basename）。 */
-    recordViewerFileHistory(absPath: string): void {
+    /**
+     * FR-RCT-02/03: viewer 対象・外部起動 file の Recent 記録（kind='file'・title=basename）。
+     * pane（D2）は呼び出し側が「開いた場所」で必ず決める（main = note 面 viewer / file タブ、side = viewer sidepanel）。
+     */
+    recordViewerFileHistory(absPath: string, pane: HistoryPane): void {
         if (!absPath) return;
-        this.pushHistory({ kind: 'file', id: absPath, title: absPath.replace(/^.*[/\\]/, ''), ts: Date.now() });
+        this.pushHistory({ kind: 'file', id: absPath, title: absPath.replace(/^.*[/\\]/, ''), ts: Date.now(), pane });
     }
-    /** FR-RCT-01: folder link の Recent 記録（id = folderLinkId — 絶対パス不含 = ADRL-0071）。 */
+    /** FR-RCT-01: folder link の Recent 記録（id = folderLinkId — 絶対パス不含 = ADRL-0071）。folder view は常にメイン。 */
     recordFolderLinkHistory(folderLinkId: string): void {
         const item = this.getStructure().items?.[folderLinkId] as { title?: string } | undefined;
         if (!item) return;
-        this.pushHistory({ kind: 'folder', id: folderLinkId, title: item.title || 'Folder', ts: Date.now() });
+        this.pushHistory({ kind: 'folder', id: folderLinkId, title: item.title || 'Folder', ts: Date.now(), pane: 'main' });
     }
     /** FR-RCT click clamp: 絶対パスが note フォルダ or 登録済み folder link root の配下か。 */
     isUnderNoteOrFolderLinkRoots(absPath: string): boolean {
@@ -904,7 +916,7 @@ export class NotesFileManager {
         }
         return false;
     }
-    recordFileHistory(filePath: string): void {
+    recordFileHistory(filePath: string, pane: HistoryPane): void {
         if (!filePath) return;
         const isMd = /\.md$/i.test(filePath);
         const isOut = /\.out$/i.test(filePath);
@@ -915,6 +927,7 @@ export class NotesFileManager {
             id: filePath,
             title: this.resolveTitleForPath(filePath) || id,
             ts: Date.now(),
+            pane, // D2: main = メインペイン / side = md sidepanel
         });
     }
     /**

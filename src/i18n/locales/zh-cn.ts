@@ -206,6 +206,8 @@ export const webviewMessages = {
   saveDirReset: '重置为默认（images/ · files/）',
   recentFilesLabel: '最近打开',
   toggleRecent: '切换最近文件',
+  notesHistoryBack: '后退（最近打开）',
+  notesHistoryForward: '前进（最近打开）',
   imageDirSourceFile: '按文件设置',
   imageDirSourceSettings: '按设置',
   imageDirSourceDefault: '按默认',

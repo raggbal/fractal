@@ -1,6 +1,9 @@
 // notes-history-panel.js — note sidepanel 下部の「最近開いたファイル履歴」パネル（FR-HP-01/04/05/06/07）
 //
 // 描画（最新順リスト）・開閉トグル（collapsed 小バー）・縦 D&D resize・クリック開き分け（kind 別）を担う。
+// spec 20261027-1142-recent-history-nav（D3-D5）: Back / Forward（Notes パネル最上段の右端のボタン）も担う。
+//   現在位置（cursor = history 配列の index。0 = 先頭 = 最新）はこの webview のメモリにだけ持つ。
+//   Back / Forward は entry の pane で開き直し、host には noHistory で頼む（移動は Recent に記録しない）。
 // notesWebviewContent.ts（本番）と build-standalone-notes.js（standalone）の両方に inline される。
 // 永続化は host（outline.note）が担い、本 JS は DOM 操作 + bridge 呼び出しのみ。
 (function() {
@@ -22,8 +25,11 @@
     /**
      * @param deps {
      *   panelEl, listEl, toggleEl, resizeHandleEl,  // DOM 要素
-     *   bridge,                                     // { openFile(id),
+     *   backEl, forwardEl,                          // D3: Back / Forward ボタン（無ければ Back / Forward なし）
+     *   bridge,                                     // { openFile(id, opts?), historyOpenFile(absPath, opts?),
+     *                                               //   historyOpenInSidePanel(absPath),
      *                                               //   saveHistoryPanelCollapsed(bool), saveHistoryPanelHeight(px) }
+     *                                               //   opts = { noHistory: true }（Back / Forward のときだけ）
      *   initialHistory, initialHeight, initialCollapsed,
      * }
      */
@@ -43,20 +49,100 @@
             panelEl.classList.add('collapsed');
         }
 
+        var backEl = deps.backEl || null;
+        var forwardEl = deps.forwardEl || null;
+
+        // ── D3: 現在位置（webview メモリのみ） ──
+        // items = 最後に描画した history。cursor = 現在位置の index（0 = 最新）。
+        // lastSig = 先頭 entry と件数の署名。新しく開いた（host が記録した）ときだけ変わる → cursor を先頭に戻す。
+        // Back / Forward の移動は記録されないので、その後に届く再描画では署名が変わらず cursor を保つ。
+        var items = [];
+        var cursor = 0;
+        var lastSig = null;
+
+        function sigOf(list) {
+            var top = list[0];
+            return list.length + '|' + (top ? (top.kind + '|' + top.id + '|' + top.ts + '|' + (top.pane || '')) : '');
+        }
+
+        // D5: step 方向（+1 = Back = 古い方 / -1 = Forward = 新しい方）で開ける entry の index。無ければ -1。
+        // 開けない entry（host が missing を付けた = 消えたファイル等）は飛ばす。
+        function findTarget(step) {
+            for (var i = cursor + step; i >= 0 && i < items.length; i += step) {
+                if (items[i] && !items[i].missing) return i;
+            }
+            return -1;
+        }
+
+        // D5: 端（開ける entry が無い方向）は押せない。現在位置を Recent で強調表示
+        function updateNav() {
+            if (backEl) backEl.disabled = findTarget(1) < 0;
+            if (forwardEl) forwardEl.disabled = findTarget(-1) < 0;
+            var els = listEl.querySelectorAll('.side-panel-history-item');
+            for (var i = 0; i < els.length; i++) {
+                var cur = i === cursor;
+                els[i].classList.toggle('is-current', cur);
+                if (cur) { els[i].setAttribute('aria-current', 'true'); } else { els[i].removeAttribute('aria-current'); }
+            }
+        }
+
+        // D4: entry の pane で開き直す（side → sidepanel、main → メイン）。noHistory = 記録しない（D3）
+        function openForNav(entry) {
+            var noRec = { noHistory: true };
+            if (entry.pane === 'side' && (entry.kind === 'note-md' || entry.kind === 'file')) {
+                if (typeof bridge.historyOpenInSidePanel === 'function') bridge.historyOpenInSidePanel(entry.id);
+                return;
+            }
+            if (entry.kind === 'folder') {
+                // 一覧 click と同じ webview 内 dispatcher（opts.noHistory は host への folderViewOpened に載る）
+                if (window.__folderViewDispatcher && typeof window.__folderViewDispatcher.showFolderView === 'function') {
+                    window.__folderViewDispatcher.showFolderView(entry.id, entry.title || 'Folder', noRec);
+                }
+                return;
+            }
+            if (entry.kind === 'file') {
+                if (typeof bridge.historyOpenFile === 'function') bridge.historyOpenFile(entry.id, noRec);
+                return;
+            }
+            if (typeof bridge.openFile === 'function') bridge.openFile(entry.absPath || entry.id, noRec);
+        }
+
+        function navigate(step) {
+            var target = findTarget(step);
+            if (target < 0) return false;
+            cursor = target;
+            updateNav();
+            openForNav(items[target]);
+            return true;
+        }
+        function back() { return navigate(1); }
+        function forward() { return navigate(-1); }
+        if (backEl) backEl.addEventListener('click', function(e) { e.preventDefault(); back(); });
+        if (forwardEl) forwardEl.addEventListener('click', function(e) { e.preventDefault(); forward(); });
+
         // ── 描画（最新順・FR-HP-04） ──
         function render(history) {
             listEl.innerHTML = '';
-            var items = Array.isArray(history) ? history : [];
+            items = Array.isArray(history) ? history : [];
+            var sig = sigOf(items);
+            // D3: 新しく開いた（先頭が変わった）→ 位置を先頭に戻す。先の履歴は消さない（host は積むだけ）
+            if (lastSig !== null && sig !== lastSig) cursor = 0;
+            lastSig = sig;
+            // 50 件トリム等で cursor が範囲外になったら末尾に寄せる
+            if (cursor > items.length - 1) cursor = Math.max(0, items.length - 1);
             for (var i = 0; i < items.length; i++) {
                 (function(entry) {
                     var el = document.createElement('div');
                     el.className = 'side-panel-history-item';
                     el.dataset.kind = entry.kind;
                     el.dataset.id = entry.id;
+                    el.dataset.pane = entry.pane === 'side' ? 'side' : 'main';
+                    if (entry.missing) el.classList.add('is-missing');
                     el.innerHTML = (ICON[entry.kind] || ICON['note-md'])
                         + '<span class="side-panel-history-item-title">' + escapeHtml(entry.title || entry.id) + '</span>';
                     el.title = entry.id;
                     el.addEventListener('click', function() {
+                        // D4: 一覧から選んだときは pane によらず常にメイン（従来どおり・記録する = 新しく開いた扱い）。
                         // FR-RCT: kind 分岐（folder = webview 内 dispatcher / file = host clamp 付き open）。
                         if (entry.kind === 'folder') {
                             if (window.__folderViewDispatcher && typeof window.__folderViewDispatcher.showFolderView === 'function') {
@@ -75,6 +161,7 @@
                     listEl.appendChild(el);
                 })(items[i]);
             }
+            updateNav();
         }
         render(deps.initialHistory);
 
@@ -129,6 +216,6 @@
         }
 
         // structure 更新（notesFileListChanged）で history が来たら再描画するための外部 API
-        return { render: render };
+        return { render: render, back: back, forward: forward, getCursor: function() { return cursor; } };
     };
 })();

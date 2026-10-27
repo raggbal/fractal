@@ -515,13 +515,15 @@
     // ── notes-file-panel.js 用ブリッジ ──
     window.notesHostBridge = {
         // ファイル操作
-        openFile: function(filePath, searchQuery, searchOccurrence) {
+        // opts.noHistory: Recent の Back / Forward からの open（host は Recent に記録しない — spec 20261027-1142 D3）
+        openFile: function(filePath, searchQuery, searchOccurrence, opts) {
             flushOutlinerSync();
             api.postMessage({
                 type: 'notesOpenFile',
                 filePath: filePath,
                 searchQuery: searchQuery || null,
                 searchOccurrence: typeof searchOccurrence === 'number' ? searchOccurrence : null,
+                noHistory: (opts && opts.noHistory) ? true : undefined,
             });
         },
         // sprint 20260725: 左ツリー右クリック「Open in new tab」→ webview 内タブで開く（md/.out 両対応）
@@ -572,6 +574,10 @@
         },
         togglePanel: function(collapsed) {
             api.postMessage({ type: 'notesTogglePanel', collapsed: collapsed });
+        },
+        // spec 20261027-1142 D6: main md の outline 開閉を note ごとに覚える
+        saveMdOutlineOpen: function(open) {
+            api.postMessage({ type: 'notesSaveMdOutlineOpen', open: !!open });
         },
 
         // フォルダ操作
@@ -852,11 +858,15 @@
         folderViewClosed: function(id) {
             api.postMessage({ type: 'folderViewClosed', id: id });
         },
-        folderViewOpened: function(id) {
-            api.postMessage({ type: 'folderViewOpened', id: id });
+        folderViewOpened: function(id, opts) {
+            api.postMessage({ type: 'folderViewOpened', id: id, noHistory: (opts && opts.noHistory) ? true : undefined });
         },
-        historyOpenFile: function(absPath) {
-            api.postMessage({ type: 'historyOpenFile', filePath: absPath });
+        historyOpenFile: function(absPath, opts) {
+            api.postMessage({ type: 'historyOpenFile', filePath: absPath, noHistory: (opts && opts.noHistory) ? true : undefined });
+        },
+        // spec 20261027-1142-recent-history-nav D4: Back / Forward で pane='side' の entry を sidepanel に開き直す（記録しない）
+        historyOpenInSidePanel: function(absPath) {
+            api.postMessage({ type: 'historyOpenInSidePanel', filePath: absPath });
         },
         folderViewToggleHidden: function(id) {
             api.postMessage({ type: 'folderViewToggleHidden', id: id });

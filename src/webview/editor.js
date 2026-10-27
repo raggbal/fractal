@@ -1476,6 +1476,10 @@ class EditorInstance {
 
         function undo() {
             if (!undoStack.length) return;
+            // undo = 編集の区切り。タイピング debounce を打ち切る(残っていると undo 直後の
+            // 編集が snapshot を積まず、次の undo でその編集を飛ばして戻せない + redo が
+            // 消されず残る。リスト内の選択置換が undo で戻らないデータ消失の一因)
+            if (typingTimer) { clearTimeout(typingTimer); typingTimer = null; }
             _isUndoRedo = true;
             try {
                 clearTimeout(syncTimeout);
@@ -1522,6 +1526,8 @@ class EditorInstance {
 
         function redo() {
             if (!redoStack.length) return;
+            // undo と対称: redo 直後の編集が snapshot を積めるようにする
+            if (typingTimer) { clearTimeout(typingTimer); typingTimer = null; }
             _isUndoRedo = true;
             try {
                 clearTimeout(syncTimeout);
@@ -9668,30 +9674,7 @@ class EditorInstance {
                     e.preventDefault();
 
                     // Before deleteContents, collect endLi and all <li> elements in between
-                    let endLi = null;
-                    let endNode = range.endContainer;
-                    while (endNode && endNode !== editor) {
-                        if (endNode.nodeType === 1 && endNode.tagName.toLowerCase() === 'li') {
-                            endLi = endNode;
-                            break;
-                        }
-                        endNode = endNode.parentNode;
-                    }
-
-                    // Collect all <li> elements between startLi and endLi (exclusive of startLi)
-                    const affectedLis = [];
-                    if (endLi && endLi !== liElement) {
-                        const allLis = Array.from(editor.querySelectorAll('li'));
-                        const startIdx = allLis.indexOf(liElement);
-                        const endIdx = allLis.indexOf(endLi);
-                        if (startIdx !== -1 && endIdx !== -1) {
-                            const minIdx = Math.min(startIdx, endIdx);
-                            const maxIdx = Math.max(startIdx, endIdx);
-                            for (let i = minIdx + 1; i <= maxIdx; i++) {
-                                affectedLis.push(allLis[i]);
-                            }
-                        }
-                    }
+                    const affectedLis = collectLisAffectedByRange(range, liElement);
 
                     // Get nested list before deletion
                     const nestedList = liElement.querySelector(':scope > ul, :scope > ol');
@@ -9702,45 +9685,7 @@ class EditorInstance {
                     range.deleteContents();
 
                     // Clean up empty <li> elements that were in the selection (excluding startLi)
-                    for (const affectedLi of affectedLis) {
-                        if (!affectedLi.isConnected) continue;
-                        // Check if this li is now empty (no direct text content)
-                        let hasContent = false;
-                        for (const child of affectedLi.childNodes) {
-                            if (child.nodeType === 3 && child.textContent.trim()) {
-                                hasContent = true;
-                                break;
-                            }
-                            if (child.nodeType === 1) {
-                                const tag = child.tagName?.toLowerCase();
-                                if (tag === 'ul' || tag === 'ol' || tag === 'br' || tag === 'input') continue;
-                                if (child.textContent.trim()) {
-                                    hasContent = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (!hasContent) {
-                            const parentList = affectedLi.parentNode;
-                            // Promote nested list children to parent list before removing
-                            const nestedLists = Array.from(affectedLi.querySelectorAll(':scope > ul, :scope > ol'));
-                            for (const nl of nestedLists) {
-                                while (nl.firstChild) {
-                                    parentList.insertBefore(nl.firstChild, affectedLi);
-                                }
-                                nl.remove();
-                            }
-                            affectedLi.remove();
-                            // Clean up empty parent list
-                            if (parentList && parentList.isConnected &&
-                                (parentList.tagName?.toLowerCase() === 'ul' || parentList.tagName?.toLowerCase() === 'ol') &&
-                                parentList.children.length === 0) {
-                                const jPrevR = parentList.previousElementSibling, jNextR = parentList.nextElementSibling;
-                                parentList.remove();
-                                joinAdjacentOlsAfterListRemoval(jPrevR, jNextR); // TASK-08: 範囲削除/cut で ul 消滅 → ol 再結合
-                            }
-                        }
-                    }
+                    removeEmptiedLisAfterRangeDelete(affectedLis);
 
                     // After deleteContents, the selection range is collapsed at the deletion point.
                     // We preserve this cursor position for partial text deletions.
@@ -15088,6 +15033,120 @@ class EditorInstance {
         }
     });
 
+    // ========== リスト内の範囲削除（Backspace / 要素境界の選択置換 / paste で共用） ==========
+    // range が startLi から別の li まで及ぶとき、startLi より後ろで影響を受ける li を集める
+    //（deleteContents の後に空殻になったものを removeEmptiedLisAfterRangeDelete で掃除する）
+    function collectLisAffectedByRange(range, startLi) {
+        let endLi = null;
+        let endNode = range.endContainer;
+        while (endNode && endNode !== editor) {
+            if (endNode.nodeType === 1 && endNode.tagName.toLowerCase() === 'li') {
+                endLi = endNode;
+                break;
+            }
+            endNode = endNode.parentNode;
+        }
+
+        // Collect all <li> elements between startLi and endLi (exclusive of startLi)
+        const affectedLis = [];
+        if (endLi && endLi !== startLi) {
+            const allLis = Array.from(editor.querySelectorAll('li'));
+            const startIdx = allLis.indexOf(startLi);
+            const endIdx = allLis.indexOf(endLi);
+            if (startIdx !== -1 && endIdx !== -1) {
+                const minIdx = Math.min(startIdx, endIdx);
+                const maxIdx = Math.max(startIdx, endIdx);
+                for (let i = minIdx + 1; i <= maxIdx; i++) {
+                    affectedLis.push(allLis[i]);
+                }
+            }
+        }
+        return affectedLis;
+    }
+
+    // deleteContents で中身が空になった li（startLi 以外）を消す。子リストは親リストへ繰り上げる
+    function removeEmptiedLisAfterRangeDelete(affectedLis) {
+        for (const affectedLi of affectedLis) {
+            if (!affectedLi.isConnected) continue;
+            // Check if this li is now empty (no direct text content)
+            let hasContent = false;
+            for (const child of affectedLi.childNodes) {
+                if (child.nodeType === 3 && child.textContent.trim()) {
+                    hasContent = true;
+                    break;
+                }
+                if (child.nodeType === 1) {
+                    const tag = child.tagName?.toLowerCase();
+                    if (tag === 'ul' || tag === 'ol' || tag === 'br' || tag === 'input') continue;
+                    if (child.textContent.trim()) {
+                        hasContent = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasContent) {
+                const parentList = affectedLi.parentNode;
+                // Promote nested list children to parent list before removing
+                const nestedLists = Array.from(affectedLi.querySelectorAll(':scope > ul, :scope > ol'));
+                for (const nl of nestedLists) {
+                    while (nl.firstChild) {
+                        parentList.insertBefore(nl.firstChild, affectedLi);
+                    }
+                    nl.remove();
+                }
+                affectedLi.remove();
+                // Clean up empty parent list
+                if (parentList && parentList.isConnected &&
+                    (parentList.tagName?.toLowerCase() === 'ul' || parentList.tagName?.toLowerCase() === 'ol') &&
+                    parentList.children.length === 0) {
+                    const jPrevR = parentList.previousElementSibling, jNextR = parentList.nextElementSibling;
+                    parentList.remove();
+                    joinAdjacentOlsAfterListRemoval(jPrevR, jNextR); // TASK-08: 範囲削除/cut で ul 消滅 → ol 再結合
+                }
+            }
+        }
+    }
+
+    // li 内の要素境界の選択（トリプルクリック / li 全体 / 次の li の先頭まで）を、選択した範囲だけ消す。
+    // ブラウザ標準に任せない理由: 次の li の先頭までの選択だと次の li が結合され、li 全体の選択だと
+    // チェックボックスや子リストまで消える（li 構造が壊れる）。以前は li の文字を丸ごと消していたため、
+    // li の途中から始まる選択で選択の外の文字まで消えていた（データ消失）。
+    // - 選択の終わりが「次の行の先頭」（間に文字が無い）なら、この li の行末（子リストの手前）で止める
+    // - チェックボックスと、この li の子リストは消さない
+    // 戻り値: 削除後の挿入位置（collapsed range）
+    function deleteLiSelectionKeepStructure(range, liElement) {
+        const r = range.cloneRange();
+        const checkbox = liElement.querySelector(':scope > input[type="checkbox"]');
+        const nestedList = liElement.querySelector(':scope > ul, :scope > ol');
+        if (checkbox && r.intersectsNode(checkbox)) r.setStartAfter(checkbox);
+
+        // 選択の終わりが属する li（この li の外、またはこの li の子リスト内の li）
+        let endLi = null;
+        for (let n = r.endContainer; n && n !== editor; n = n.parentNode) {
+            if (n.nodeType === 1 && n.tagName.toLowerCase() === 'li') { endLi = n; break; }
+        }
+        const endOutsideLine = !liElement.contains(r.endContainer) || (endLi && endLi !== liElement);
+        const endInOwnTail = nestedList && r.endContainer === liElement &&
+            r.endOffset > Array.prototype.indexOf.call(liElement.childNodes, nestedList);
+        if (endOutsideLine || endInOwnTail) {
+            // この li の行末から選択の終わりまでに文字が無ければ「次の行の先頭まで」の選択
+            const probe = document.createRange();
+            if (nestedList) probe.setStartBefore(nestedList);
+            else probe.setStart(liElement, liElement.childNodes.length);
+            probe.setEnd(r.endContainer, r.endOffset);
+            if (endInOwnTail || probe.collapsed || probe.toString() === '') {
+                if (nestedList) r.setEndBefore(nestedList);
+                else r.setEnd(liElement, liElement.childNodes.length);
+            }
+        }
+
+        const affectedLis = collectLisAffectedByRange(r, liElement);
+        r.deleteContents();
+        removeEmptiedLisAfterRangeDelete(affectedLis);
+        r.collapse(true);
+        return r;
+    }
+
     // BeforeInput handler - handle triple-click selection replacement
     // sprint 20260724-160000 再オープン②(TASK-14): inline 要素（strong/em/del/code）の末尾境界に
     // collapsed caret がある状態で printable 文字を入力すると、contenteditable が要素内に文字を挿入し
@@ -15199,36 +15258,18 @@ class EditorInstance {
         if (e.inputType === 'insertText' || e.inputType === 'insertReplacementText') {
             logger.log('BeforeInput: Triple-click selection detected in li, handling insertText');
             e.preventDefault();
-            
-            // Get nested list and checkbox before deletion
-            const nestedList = liElement.querySelector(':scope > ul, :scope > ol');
-            const checkbox = liElement.querySelector(':scope > input[type="checkbox"]');
-            
-            // Clear the li content but preserve structure
-            // Remove all direct text and inline elements, keep nested list and checkbox
-            const nodesToRemove = [];
-            for (const child of liElement.childNodes) {
-                if (child.nodeType === 3) {
-                    nodesToRemove.push(child);
-                } else if (child.nodeType === 1) {
-                    const tag = child.tagName?.toLowerCase();
-                    if (tag !== 'ul' && tag !== 'ol' && tag !== 'input') {
-                        nodesToRemove.push(child);
-                    }
-                }
-            }
-            nodesToRemove.forEach(n => n.remove());
-            
-            // Insert the new text
+
+            // 選択した範囲だけ消して（li 構造は保つ）、そこへ入力文字を入れる
+            const insertAt = deleteLiSelectionKeepStructure(range, liElement);
             const textNode = document.createTextNode(e.data || '');
-            if (checkbox) {
-                checkbox.after(textNode);
-            } else if (nestedList) {
-                liElement.insertBefore(textNode, nestedList);
-            } else {
-                liElement.appendChild(textNode);
+            insertAt.insertNode(textNode);
+            // 空 li の cursor 用 <br> が残っていれば外す（文字が入ったので不要）
+            const strayBr = textNode.nextSibling;
+            if (strayBr && strayBr.nodeType === 1 && strayBr.tagName.toLowerCase() === 'br' && strayBr.parentNode === liElement &&
+                !(strayBr.nextSibling && strayBr.nextSibling.nodeType === 3 && strayBr.nextSibling.textContent)) {
+                strayBr.remove();
             }
-            
+
             // Set cursor after the inserted text
             const newRange = document.createRange();
             newRange.setStartAfter(textNode);
@@ -15244,53 +15285,40 @@ class EditorInstance {
         if (e.inputType === 'deleteContentBackward' || e.inputType === 'deleteContentForward') {
             logger.log('BeforeInput: Triple-click selection detected in li, handling delete');
             e.preventDefault();
-            
-            // Get nested list and checkbox before deletion
+
+            // 選択した範囲だけ消す（li 構造は保つ）
+            const deletedAt = deleteLiSelectionKeepStructure(range, liElement);
             const nestedList = liElement.querySelector(':scope > ul, :scope > ol');
             const checkbox = liElement.querySelector(':scope > input[type="checkbox"]');
-            
-            // Clear the li content but preserve structure
-            const nodesToRemove = [];
-            for (const child of liElement.childNodes) {
-                if (child.nodeType === 3) {
-                    nodesToRemove.push(child);
-                } else if (child.nodeType === 1) {
-                    const tag = child.tagName?.toLowerCase();
-                    if (tag !== 'ul' && tag !== 'ol' && tag !== 'input') {
-                        nodesToRemove.push(child);
-                    }
-                }
-            }
-            nodesToRemove.forEach(n => n.remove());
-            
-            // Add a br if li is now empty (no text, no nested list)
+
+            // li の直下に文字が残っていなければ cursor 用の <br> を置く（子リストの手前・チェックボックスの後ろ）
             let hasContent = false;
             for (const child of liElement.childNodes) {
                 if (child.nodeType === 3 && child.textContent.trim()) {
                     hasContent = true;
                     break;
                 }
-                if (child.nodeType === 1 && child.tagName?.toLowerCase() !== 'input') {
-                    hasContent = true;
-                    break;
+                if (child.nodeType === 1) {
+                    const tag = child.tagName?.toLowerCase();
+                    if (tag !== 'input' && tag !== 'ul' && tag !== 'ol' && tag !== 'br') {
+                        hasContent = true;
+                        break;
+                    }
                 }
             }
-            
-            if (!hasContent) {
-                const br = document.createElement('br');
-                if (checkbox) {
-                    checkbox.after(br);
-                } else {
-                    liElement.appendChild(br);
-                }
-            }
-            
-            // Set cursor in the li
+
             const newRange = document.createRange();
-            if (checkbox && checkbox.nextSibling) {
-                newRange.setStartBefore(checkbox.nextSibling);
-            } else if (liElement.firstChild) {
-                newRange.setStart(liElement, 0);
+            if (!hasContent) {
+                let br = liElement.querySelector(':scope > br');
+                if (!br) {
+                    br = document.createElement('br');
+                    if (checkbox) checkbox.after(br);
+                    else if (nestedList) liElement.insertBefore(br, nestedList);
+                    else liElement.appendChild(br);
+                }
+                newRange.setStartBefore(br);
+            } else {
+                newRange.setStart(deletedAt.startContainer, deletedAt.startOffset);
             }
             newRange.collapse(true);
             sel.removeAllRanges();
@@ -15303,6 +15331,9 @@ class EditorInstance {
 
     // beforeinput: undo snapshot 用に「編集前の cursor」を記録(markdown 変数と同時点。
     // 再オープン⑩ — input 後の cursor と旧 markdown の不整合ペアが undo カーソル迷子の真因)
+    // capture で登録する: 上の beforeinput ハンドラ(リスト選択置換 / inline 境界脱出)は
+    // preventDefault して DOM を手で書き換えるため、bubble で後から記録すると「書き換え後」を
+    // 変化前として拾ってしまう(リスト内の選択置換が undo で戻らないデータ消失の原因)。
     editor.addEventListener('beforeinput', function(e) {
         if (isSourceMode) return;
         // IME 合成中(insertCompositionText)は _preEdit を上書きしない — 合成開始前の
@@ -15310,6 +15341,16 @@ class EditorInstance {
         // カーソル/内容が合成途中に飛ぶ(再オープン⑭・日本語入力での undo 乱れ)。
         if (e && (e.isComposing || e.inputType === 'insertCompositionText')) return;
         undoManager.notePreEditCursor();
+    }, true);
+    // beforeinput を preventDefault して手で DOM を書き換えた経路は input が来ない
+    // = input 由来の snapshot が積まれない。ここ(全 beforeinput ハンドラの後)で拾い、
+    // capture で記録した「変化前」を input と同じ規則(debounce)で積む。
+    editor.addEventListener('beforeinput', function(e) {
+        if (isSourceMode) return;
+        if (!e || !e.defaultPrevented) return;
+        if (e.isComposing || e.inputType === 'insertCompositionText') return;
+        if (e.inputType && e.inputType.indexOf('history') === 0) return;
+        undoManager.saveSnapshotDebounced();
     });
     // 合成開始の直前状態を「変化前」として確保(compositionstart は beforeinput より先)
     editor.addEventListener('compositionstart', function() {
@@ -15871,7 +15912,7 @@ class EditorInstance {
                 host.requestSetImageDir();
                 break;
             case 'openOutline':
-                openSidebar();
+                openSidebarByUser();
                 break;
             case 'openInTextEditor':
                 host.openInTextEditor();
@@ -17201,10 +17242,22 @@ class EditorInstance {
         if (sidebar) sidebar.style.width = '';
         if (openSidebarBtn) openSidebarBtn.classList.remove('hidden');
     }
-    
+
+    // spec 20261027-1142 D6: ユーザーが outline を開閉したときだけ呼び出し側（Notes の main md）へ知らせる。
+    // sidepanel を開くときの自動の閉じ / 復帰と初期状態の適用は知らせない（覚える値を変えない）
+    const onOutlineToggle = this.options && typeof this.options.onOutlineToggle === 'function' ? this.options.onOutlineToggle : null;
+    function openSidebarByUser() {
+        openSidebar();
+        if (onOutlineToggle) onOutlineToggle(true);
+    }
+    function closeSidebarByUser() {
+        closeSidebar();
+        if (onOutlineToggle) onOutlineToggle(false);
+    }
+
     // Close sidebar button handler
     if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', function() {
-        closeSidebar();
+        closeSidebarByUser();
     });
 
     // Apply initial sidebar state from options (e.g. notes md pane defaults to closed)
@@ -18904,9 +18957,9 @@ class EditorInstance {
                 }
             } else {
                 if (sidebar && sidebar.classList.contains('hidden')) {
-                    openSidebar();
+                    openSidebarByUser();
                 } else {
-                    closeSidebar();
+                    closeSidebarByUser();
                 }
             }
             return;
@@ -18925,6 +18978,16 @@ class EditorInstance {
             if (isActivelyEditing) {
                 queuedExternalContent = incomingContent;
                 logger.log('[Any MD] update queued: user is actively editing');
+                return;
+            }
+
+            // 自分の保存のはね返り（今の内容と同じ）は外部変更ではない — 再描画も undo 履歴の
+            // 消去もしない。host 側の「自分の書き込み中」フラグは boolean で、保存が重なると
+            // 後の保存の onDidChangeTextDocument がフラグ解除後に届き externalUpdate として
+            // 戻ってくる（notesMdMainManager / sidePanelManager）。idle で届くと undo が消えていた。
+            var _currentMd = isSourceMode ? sourceEditor.value : htmlToMarkdown();
+            if (_currentMd.replace(/\n+$/, '') === incomingContent.replace(/\n+$/, '')) {
+                logger.log('[Any MD] update skipped: same as current content (self-write echo)');
                 return;
             }
 
@@ -22640,35 +22703,9 @@ class EditorInstance {
         // Handle triple-click selection in list item for paste
         if (isTripleClickSelection && pasteTargetLi && !range.collapsed) {
             logger.log('Paste: Triple-click selection detected in li');
-            
-            // Get nested list and checkbox before deletion
-            const nestedList = pasteTargetLi.querySelector(':scope > ul, :scope > ol');
-            const checkbox = pasteTargetLi.querySelector(':scope > input[type="checkbox"]');
-            
-            // Clear the li content but preserve structure
-            const nodesToRemove = [];
-            for (const child of pasteTargetLi.childNodes) {
-                if (child.nodeType === 3) {
-                    nodesToRemove.push(child);
-                } else if (child.nodeType === 1) {
-                    const tag = child.tagName?.toLowerCase();
-                    if (tag !== 'ul' && tag !== 'ol' && tag !== 'input') {
-                        nodesToRemove.push(child);
-                    }
-                }
-            }
-            nodesToRemove.forEach(n => n.remove());
-            
-            // Set range to insert position
-            const newRange = document.createRange();
-            if (checkbox) {
-                newRange.setStartAfter(checkbox);
-            } else if (nestedList) {
-                newRange.setStart(pasteTargetLi, 0);
-            } else {
-                newRange.setStart(pasteTargetLi, 0);
-            }
-            newRange.collapse(true);
+
+            // 選択した範囲だけ消す（li 構造は保つ。以前は li の文字を丸ごと消していた）
+            const newRange = deleteLiSelectionKeepStructure(range, pasteTargetLi);
             sel.removeAllRanges();
             sel.addRange(newRange);
             range.setStart(newRange.startContainer, newRange.startOffset);

@@ -450,6 +450,7 @@ export class NotesEditorProvider {
                     fileList,
                     currentFilePath,
                     panelCollapsed,
+                    mdOutlineOpen: this.context.globalState.get<boolean>(`notesMdOutlineOpen:${folderPath}`, false),
                     structure: fileManager.getStructure(),
                     panelWidth: fileManager.getPanelWidth(),
                     noteSidePanelWidth: fileManager.getSidePanelWidth(),
@@ -523,7 +524,9 @@ export class NotesEditorProvider {
                     // ★reopen 2026-07-23: page md も含め全て note-md（絶対パス）で記録する（page-md kind 廃止）。
                     //   Recent クリックは kind によらず bridge.openFile(絶対パス) でメインペインに開くため、
                     //   記録も 1 種（note-md・絶対パス）に統一する。cross-note でも id が絶対パスなので自己完結。
-                    fileManager.recordFileHistory(fp);
+                    // spec 20261027-1142-recent-history-nav D2: sidepanel で開いた md = side。
+                    //   D3 の Back / Forward で開き直したとき（noHistory）は sidePanel.openFile がここを呼ばない。
+                    fileManager.recordFileHistory(fp, 'side');
                     // 履歴パネル再描画（provider 既存の notesFileListChanged パターン）
                     panel.webview.postMessage({
                         type: 'notesFileListChanged',
@@ -1096,6 +1099,9 @@ export class NotesEditorProvider {
                 this.context.globalState.update(
                     `notesPanelCollapsed:${folderPath}`, collapsed
                 );
+            },
+            saveMdOutlineOpen: (open: boolean) => {
+                this.context.globalState.update(`notesMdOutlineOpen:${folderPath}`, open);
             },
             saveNoteSidePanelWidth: (width: number) => {
                 fileManager.saveSidePanelWidth(width);
@@ -2003,7 +2009,7 @@ export class NotesEditorProvider {
                     // FR-VSP-01（sprint 20260822-051129）: Notes md 📎 → **sidepanel viewer**（md subpage と対称）。
                     // 旧 = note 面 viewer（FR-FV-01 行6）を改訂。viewer 不能は openExternal 縮退（ARCH-5 不変）
                     if (fs.existsSync(resolvedUri.fsPath)) {
-                        fileManager.recordViewerFileHistory(resolvedUri.fsPath); // FR-RCT-02/03
+                        fileManager.recordViewerFileHistory(resolvedUri.fsPath, 'side'); // FR-RCT-02/03（viewer sidepanel = side）
                     }
                     await openNotesMdAttachmentViaSidePanel({
                         tryOpenSidePanelViewer: (abs) => sidePanel.tryOpenViewerPanel(abs),
@@ -2609,7 +2615,7 @@ export class NotesEditorProvider {
                     vscode.window.showErrorMessage(t('fileNotFound'));
                     return;
                 }
-                fileManager.recordViewerFileHistory(p); // FR-RCT-02/03: tree file open を Recent に記録
+                fileManager.recordViewerFileHistory(p, 'main'); // FR-RCT-02/03: tree file open を Recent に記録（note 面 viewer = main）
                 if (this.tryShowNoteViewer(panel, senderRef, p)) { return; }
                 await openLocalFileSmart(p);
             },
@@ -2622,7 +2628,7 @@ export class NotesEditorProvider {
                     vscode.window.showErrorMessage(t('fileNotFound'));
                     return;
                 }
-                fileManager.recordViewerFileHistory(p); // 既存 openTreeFileExternal と同じ Recent 記録
+                fileManager.recordViewerFileHistory(p, 'main'); // 既存 openTreeFileExternal と同じ Recent 記録（file タブ = main）
                 if (openFileInWebviewTabImpl(p, 'file')) { return; }
                 await openLocalFileSmart(p);
             },
@@ -2652,6 +2658,21 @@ export class NotesEditorProvider {
                 if (this.tryShowNoteViewer(panel, senderRef, absPath)) { return; }
                 await openLocalFileSmart(absPath);
             },
+            // spec 20261027-1142-recent-history-nav D4: Back / Forward で pane='side' の entry を sidepanel に開き直す。
+            // D3: 記録しない（sidePanel.openFile の noHistory で onFileOpened を止める / viewer は記録経路を通らない）。
+            // 他 note / note 外の md・file もあるので resource root を足してから開く（folderViewOpen と同じ）
+            historyOpenInSidePanel: async (absPath: string, _senderRef: NotesSender) => {
+                this.ensureResourceRootForFile(panel, absPath);
+                if (/\.(md|markdown)$/i.test(absPath)) {
+                    await sidePanel.openFile(absPath, true, false, { noHistory: true });
+                    refreshDrawioRefsForMd(absPath);
+                    return;
+                }
+                try {
+                    if (await sidePanel.tryOpenViewerPanel(absPath)) { return; }
+                } catch { /* 縮退 */ }
+                await openLocalFileSmart(absPath);
+            },
             // FR-DS-05 rev.2: 検索 Files ヒット click（files/ 相対パス — 台帳未登録の添付も開ける）。
             // relPath は webview 由来の外部入力なので safeResolveUnderDir で files/ 配下に clamp（NFR-DS-07）
             openNoteFilesExternal: async (relPath: string, senderRef: NotesSender, findQuery?: string, locHint?: string) => {
@@ -2661,7 +2682,7 @@ export class NotesEditorProvider {
                     vscode.window.showErrorMessage(t('fileNotFound'));
                     return;
                 }
-                fileManager.recordViewerFileHistory(p); // FR-RCT-02/03: 検索ヒット open を Recent に記録
+                fileManager.recordViewerFileHistory(p, 'main'); // FR-RCT-02/03: 検索ヒット open を Recent に記録（note 面 viewer = main）
                 if (this.tryShowNoteViewer(panel, senderRef, p, { findQuery, locHint })) { return; }
                 await openLocalFileSmart(p);
             },

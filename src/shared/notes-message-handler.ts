@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ExportNode } from './folder-export';
 import { NotesFileManager } from './notes-file-manager';
+import { historyPaneOf } from './history-store';
 import { resolveSubpageTitle, saveDroppedMdAsSubpage } from './md-subpage-utils';
 import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
@@ -97,6 +98,8 @@ export interface NotesPlatformActions {
     requestInsertImage(sidePanelFilePath: string): void;
     /** パネル折り畳み状態を永続化 */
     savePanelCollapsed(collapsed: boolean): void;
+    /** spec 20261027-1142 D6: main md の outline を開いているかを note ごとに永続化 */
+    saveMdOutlineOpen?(open: boolean): void;
     /** ノート共通の sidepanel md 幅を outline.note に保存 */
     saveNoteSidePanelWidth?(width: number): void;
     /** ノート共通の sidepanel TOC 幅を outline.note に保存 */
@@ -449,6 +452,12 @@ export interface NotesPlatformActions {
     folderViewToggleHidden?(id: string, sender: NotesSender): Promise<void> | void;
     folderViewClosed?(id: string): void;
     historyOpenFile?(absPath: string, sender: NotesSender): Promise<void> | void;
+    /**
+     * spec 20261027-1142-recent-history-nav D4: Back / Forward で pane='side' の entry を sidepanel に開き直す
+     * （md → md sidepanel / 他 → viewer sidepanel、viewer 不能は外部起動）。Recent に記録しないこと（D3）。
+     * absPath は nmh が history 内の side entry + 実在で clamp 済み。
+     */
+    historyOpenInSidePanel?(absPath: string, sender: NotesSender): Promise<void> | void;
     /** FR-FLV-15 (#9): New Markdown / New Folder */
     folderViewCreate?(id: string, parentRelPath: string, kind: string, sender: NotesSender): Promise<void> | void;
     /** FR-FLV-15 (#10): rename */
@@ -1469,7 +1478,8 @@ export async function handleNotesMessage(
 
                 const isMd = message.filePath.endsWith('.md');
                 // FR-HP-03: 履歴に記録（sendFileListWithStructure が structure ごと送るので、その前に）。
-                fileManager.recordFileHistory(message.filePath);
+                // spec 20261027-1142-recent-history-nav D3: Back / Forward からの open（noHistory）は記録しない。
+                if (!message.noHistory) { fileManager.recordFileHistory(message.filePath, 'main'); }
                 if (isMd) {
                     sendFileListWithStructure(fileManager, sender, message.filePath);
                     sender.postMessage({
@@ -1625,6 +1635,10 @@ export async function handleNotesMessage(
 
         case 'notesTogglePanel':
             platform.savePanelCollapsed(message.collapsed);
+            break;
+
+        case 'notesSaveMdOutlineOpen':
+            platform.saveMdOutlineOpen?.(!!message.open);
             break;
 
         case 'notesSetSidePanelWidth':
@@ -2060,7 +2074,8 @@ export async function handleNotesMessage(
         }
         case 'folderViewOpened': {
             // FR-RCT-01: fv 表示（dispatcher showFolderView）を Recent に記録（id = folderLinkId）
-            fileManager.recordFolderLinkHistory(String(message.id ?? ''));
+            // D3: Back / Forward からの表示（noHistory）は記録しない
+            if (!message.noHistory) { fileManager.recordFolderLinkHistory(String(message.id ?? '')); }
             sendFileListWithStructure(fileManager, sender);
             break;
         }
@@ -2072,8 +2087,23 @@ export async function handleNotesMessage(
                 sendFileListWithStructure(fileManager, sender);
                 break;
             }
-            fileManager.recordViewerFileHistory(histAbs);
+            // Recent click はメインで開く（D4）。D3: Back / Forward からの open（noHistory）は記録しない
+            if (!message.noHistory) { fileManager.recordViewerFileHistory(histAbs, 'main'); }
             await platform.historyOpenFile?.(histAbs, sender);
+            break;
+        }
+        case 'historyOpenInSidePanel': {
+            // spec 20261027-1142-recent-history-nav D4: Back / Forward で pane='side' の entry を sidepanel に開き直す。
+            // 記録しない（D3 — platform 側が sidePanel.openFile の記録を止める）。webview 由来の絶対パスなので
+            // 「この note の history に side で載っている md / file」だけを許す（任意パスを開かせない）
+            const sideAbs = String(message.filePath ?? '');
+            const known = !!sideAbs && fileManager.getHistory().some((e) =>
+                e.id === sideAbs && (e.kind === 'note-md' || e.kind === 'file') && historyPaneOf(e) === 'side');
+            if (!known || !fs.existsSync(sideAbs)) {
+                sendFileListWithStructure(fileManager, sender);
+                break;
+            }
+            await platform.historyOpenInSidePanel?.(sideAbs, sender);
             break;
         }
         case 'folderViewOpen': {
@@ -2206,7 +2236,7 @@ export async function handleNotesMessage(
             const dailyFilePath = fileManager.ensureDailyNotesFile();
             const dailyContent = fileManager.openFile(dailyFilePath);
             if (dailyContent === null) break;
-            fileManager.recordFileHistory(dailyFilePath); // FR-HP-03
+            fileManager.recordFileHistory(dailyFilePath, 'main'); // FR-HP-03
 
             const dailyData = JSON.parse(dailyContent);
             const today = new Date();
@@ -2240,7 +2270,7 @@ export async function handleNotesMessage(
             const navDailyFilePath = fileManager.ensureDailyNotesFile();
             const navContent = fileManager.openFile(navDailyFilePath);
             if (navContent === null) break;
-            fileManager.recordFileHistory(navDailyFilePath); // FR-HP-03
+            fileManager.recordFileHistory(navDailyFilePath, 'main'); // FR-HP-03
 
             const navData = JSON.parse(navContent);
 
@@ -2283,7 +2313,7 @@ export async function handleNotesMessage(
             const navDateFilePath = fileManager.ensureDailyNotesFile();
             const navDateContent = fileManager.openFile(navDateFilePath);
             if (navDateContent === null) break;
-            fileManager.recordFileHistory(navDateFilePath); // FR-HP-03
+            fileManager.recordFileHistory(navDateFilePath, 'main'); // FR-HP-03
 
             const navDateData = JSON.parse(navDateContent);
             const targetDate = new Date(message.targetDate);
@@ -2536,7 +2566,7 @@ export async function handleNotesMessage(
             const jumpFilePath = fileManager.getFilePathById(message.fileId);
             const jumpContent = fileManager.openFile(jumpFilePath);
             if (jumpContent !== null) {
-                fileManager.recordFileHistory(jumpFilePath); // FR-HP-03（検索から .out へジャンプ）
+                fileManager.recordFileHistory(jumpFilePath, 'main'); // FR-HP-03（検索から .out へジャンプ）
                 if (platform.saveLastOpenedFile) {
                     platform.saveLastOpenedFile(jumpFilePath);
                 }
@@ -2591,7 +2621,9 @@ export async function handleNotesMessage(
                 const pagePath = fileManager.getPageFilePath(message.pageId);
                 if (platform.openPageInSidePanel) {
                     platform.openPageInSidePanel(pagePath, message.lineNumber, message.query, message.occurrence);
-                    fileManager.recordFileHistory(pagePath); // ★reopen 2026-07-23: page md も note-md（絶対パス）で統一記録
+                    // ★reopen 2026-07-23: page md も note-md（絶対パス）で統一記録。sidepanel で開くので side（D2）
+                    //   （sidePanel.openFile の onFileOpened も side で記録する — 直前と同じなので 1 件にまとまる = D1）
+                    fileManager.recordFileHistory(pagePath, 'side');
                 }
             }
             break;
@@ -2614,7 +2646,7 @@ export async function handleNotesMessage(
             if (navFilePath.endsWith('.md')) break;
             const navContent = fileManager.openFile(navFilePath);
             if (navContent === null) break;
-            fileManager.recordFileHistory(navFilePath); // FR-HP-03（アプリ内リンク）
+            fileManager.recordFileHistory(navFilePath, 'main'); // FR-HP-03（アプリ内リンク）
 
             if (platform.saveLastOpenedFile) {
                 platform.saveLastOpenedFile(navFilePath);
@@ -5200,7 +5232,9 @@ export async function folderViewOpen(
     const base = path.basename(abs);
     const isMdOpen = /\.md$/i.test(base);
     if (!isMdOpen) {
-        fileManager.recordViewerFileHistory(abs); // FR-RCT-02: fv からの file open を Recent に記録
+        // FR-RCT-02: fv からの file open を Recent に記録。viewer sidepanel / 外部起動 = side（D2。md は
+        // openMdInSidePanel → sidePanel.openFile の onFileOpened が side で記録する）
+        fileManager.recordViewerFileHistory(abs, 'side');
     }
     if (isMdOpen) {
         await deps.openMdInSidePanel(abs);

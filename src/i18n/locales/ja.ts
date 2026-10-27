@@ -224,6 +224,8 @@ export const webviewMessages = {
   saveDirReset: 'デフォルトに戻す（images/ · files/）',
   recentFilesLabel: '最近開いたファイル',
   toggleRecent: '履歴パネルの開閉',
+  notesHistoryBack: '戻る（最近開いたファイル）',
+  notesHistoryForward: '進む（最近開いたファイル）',
   imageDirSourceFile: 'by ファイル個別設定',
   imageDirSourceSettings: 'by 設定',
   imageDirSourceDefault: 'by デフォルト',

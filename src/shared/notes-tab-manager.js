@@ -435,7 +435,9 @@
         }
 
         // ── 公開: 現タブで開く（Recent・FR-TAB-07。新タブを増やさない） ──
-        function openInActiveTab(filePath, kind) {
+        // opts.noHistory: Recent の Back / Forward（host は Recent に記録しない — spec 20261027-1142 D3）。
+        //   bridge.openFile の第 2 引数で host bridge まで通す。
+        function openInActiveTab(filePath, kind, opts) {
             if (!filePath) return;
             var cur = getActive();
             if (!cur) { openInNewTab(filePath, kind); return; }
@@ -459,7 +461,7 @@
             // サイドパネルは現タブのものを維持（Recent はメインペインのみ差し替え）
             pendingMainRestore = { mainScrollTop: 0, outlinerView: null, kind: cur.kind };
             pendingSidePanelRestore = null;
-            if (typeof bridge.openFile === 'function') bridge.openFile(filePath);
+            if (typeof bridge.openFile === 'function') bridge.openFile(filePath, opts && opts.noHistory ? { noHistory: true } : undefined);
             renderTabBar();
         }
 

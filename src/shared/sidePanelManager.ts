@@ -323,8 +323,10 @@ export class SidePanelManager {
      * @param filePath  開くファイルの絶対パス
      * @param freshOpen  true: navigation history を clear (= 新規 open)。default false (= navigation 経由)。
      *                    新規 open 時は webview の back/forward state を初期化するため必ず true で呼ぶ。
+     * @param opts.noHistory true = onFileOpened（Recent 記録）を呼ばない。Notes の Recent Back / Forward で
+     *                    開き直すとき用（spec 20261027-1142-recent-history-nav D3 — 移動は記録しない）。
      */
-    async openFile(filePath: string, freshOpen: boolean = false, restoreForTab: boolean = false): Promise<void> {
+    async openFile(filePath: string, freshOpen: boolean = false, restoreForTab: boolean = false, opts?: { noHistory?: boolean }): Promise<void> {
         if (freshOpen) {
             // 新規 open (outliner click 等) では history を clear → webview の back ボタン無効化
             this.clearNavigationHistory();
@@ -357,7 +359,7 @@ export class SidePanelManager {
             this.sendNavStateUpdate();
             // FR-HP-08: 実際に開けた後にだけ通知（リンク/subpage 遷移・他 note / note 外を含む sidepanel open を
             // 単一 choke point で Recent 記録に載せる。read 失敗時は catch に落ちるのでここには来ない）。
-            this.config.onFileOpened?.(filePath);
+            if (!(opts && opts.noHistory)) { this.config.onFileOpened?.(filePath); }
         } catch (e) {
             vscode.window.showErrorMessage(`Cannot open file: ${filePath}`);
         }

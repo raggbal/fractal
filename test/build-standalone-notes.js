@@ -312,6 +312,10 @@ const testNotesHostBridge = `
         togglePanel: function(collapsed) {
             window.__testApi.notesMessages.push({ type: 'togglePanel', collapsed: collapsed });
         },
+        // spec 20261027-1142 D6: main md の outline 開閉（本番 notes-host-bridge.js のミラー）
+        saveMdOutlineOpen: function(open) {
+            window.__testApi.notesMessages.push({ type: 'saveMdOutlineOpen', open: !!open });
+        },
         createFolder: function(title, parentId) {
             window.__testApi.notesMessages.push({ type: 'createFolder', title: title, parentId: parentId });
         },
@@ -377,6 +381,10 @@ const testNotesHostBridge = `
             window.__testApi.notesMessages.push({ type: 'notesImportTreeItemsBatch', items: items, outFileId: outFileId, targetNodeId: targetNodeId || null, position: position || null });
         },
         // FR-MSEL-02 / NFR-MSEL-02 (TASK-29): 複数選択は配列 bridge を 1 回（件数ゲートは host 側）
+        // FR-RCT-01 / spec 20261027-1142-recent-history-nav D3: fv 表示の通知（本番 notes-host-bridge.js のミラー）
+        folderViewOpened: function(id, opts) {
+            window.__testApi.notesMessages.push({ type: 'folderViewOpened', id: id, noHistory: (opts && opts.noHistory) ? true : undefined });
+        },
         folderViewMoveToTreeBatch: function(id, items, parentId, index) {
             window.__testApi.notesMessages.push({ type: 'folderViewMoveToTreeBatch', id: id, items: items, parentId: parentId, index: index });
         },
@@ -841,8 +849,14 @@ const html = `<!DOCTYPE html>
             listEl: document.getElementById('sidePanelHistoryList'),
             toggleEl: document.getElementById('sidePanelHistoryToggle'),
             resizeHandleEl: document.getElementById('sidePanelHistoryResizeHandle'),
+            // spec 20261027-1142-recent-history-nav D3: 最上段の Back / Forward（本番 notesWebviewContent.ts と同じ id）
+            backEl: document.getElementById('notesHistoryBack'),
+            forwardEl: document.getElementById('notesHistoryForward'),
             bridge: {
-                openFile: function(id) { window.__testApi.messages.push({ type: 'notesOpenFile', filePath: id }); },
+                // 本番の bridge（notesWebviewContent.ts）のミラー。noHistory = Back / Forward（host は記録しない）
+                openFile: function(id, opts) { window.__testApi.messages.push({ type: 'notesOpenFile', filePath: id, noHistory: (opts && opts.noHistory) ? true : undefined }); },
+                historyOpenFile: function(absPath, opts) { window.__testApi.messages.push({ type: 'historyOpenFile', filePath: absPath, noHistory: (opts && opts.noHistory) ? true : undefined }); },
+                historyOpenInSidePanel: function(absPath) { window.__testApi.messages.push({ type: 'historyOpenInSidePanel', filePath: absPath }); },
                 saveHistoryPanelCollapsed: function(c) { window.__testApi.messages.push({ type: 'notesSaveHistoryPanelCollapsed', collapsed: c }); },
                 saveHistoryPanelHeight: function(h) { window.__testApi.messages.push({ type: 'notesSaveHistoryPanelHeight', height: h }); },
             },

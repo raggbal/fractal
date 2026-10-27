@@ -206,6 +206,8 @@ export const webviewMessages = {
   saveDirReset: '기본값으로 초기화（images/ · files/）',
   recentFilesLabel: '최근 파일',
   toggleRecent: '최근 파일 패널 토글',
+  notesHistoryBack: '뒤로 (최근 파일)',
+  notesHistoryForward: '앞으로 (최근 파일)',
   imageDirSourceFile: '파일별 설정',
   imageDirSourceSettings: '설정에 의해',
   imageDirSourceDefault: '기본값',

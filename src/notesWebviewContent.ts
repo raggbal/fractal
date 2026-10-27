@@ -21,6 +21,8 @@ interface NotesInitData {
     fileList: Array<{ filePath: string; title: string; id: string }>;
     currentFilePath: string | null;
     panelCollapsed: boolean;
+    /** spec 20261027-1142 D6: main md の outline を開いているか（note ごと。既定は閉） */
+    mdOutlineOpen?: boolean;
     structure?: any;
     panelWidth?: number;
     noteSidePanelWidth?: number;
@@ -340,6 +342,7 @@ export function getNotesWebviewContent(
         window.__outlinerMessages = ${JSON.stringify(config.webviewMessages || {})};
         window.__outlinerImageBaseUri = "${config.documentBaseUri || ''}";
         window.__initialFileChangeId = ${initData.fileChangeId || 0};
+        window.__notesMdOutlineOpen = ${initData.mdOutlineOpen ? 'true' : 'false'};
         window.__noteSidePanelWidth = ${JSON.stringify(initData.noteSidePanelWidth ?? null)};
         window.__noteSidePanelOutlineWidth = ${JSON.stringify(initData.noteSidePanelOutlineWidth ?? null)};
     </script>
@@ -453,7 +456,8 @@ export function getNotesWebviewContent(
                         : document.querySelector('.markdown-container .editor-wrapper');
                 },
                 bridge: {
-                    openFile: function(fp) { window.notesHostBridge.openFile(fp); },
+                    // opts.noHistory = Recent の Back / Forward（spec 20261027-1142 D3）
+                    openFile: function(fp, opts) { window.notesHostBridge.openFile(fp, null, null, opts); },
                     flushActive: function() { if (window.notesHostBridge.flushActive) window.notesHostBridge.flushActive(); },
                     restoreSidePanel: function(fp) { window.notesHostBridge.restoreSidePanel(fp); },
                     closeSidePanel: function() { if (window.notesHostBridge.closeSidePanelForTab) window.notesHostBridge.closeSidePanelForTab(); },
@@ -514,21 +518,27 @@ export function getNotesWebviewContent(
             listEl: document.getElementById('sidePanelHistoryList'),
             toggleEl: document.getElementById('sidePanelHistoryToggle'),
             resizeHandleEl: document.getElementById('sidePanelHistoryResizeHandle'),
+            // spec 20261027-1142-recent-history-nav D3: Notes パネル最上段の右端の Back / Forward
+            backEl: document.getElementById('notesHistoryBack'),
+            forwardEl: document.getElementById('notesHistoryForward'),
             bridge: {
                 // FR-TAB-07: Recent クリックは新タブを増やさず現アクティブタブで開く（openInActiveTab 経由）。
-                openFile: function(id) {
+                // opts.noHistory = Back / Forward（host は記録しない — D3）
+                openFile: function(id, opts) {
                     if (window.__notesTabManager && typeof window.__notesTabManager.openInActiveTab === 'function') {
                         var kind = /\\.out$/i.test(id) ? 'out' : 'md';
-                        window.__notesTabManager.openInActiveTab(id, kind);
+                        window.__notesTabManager.openInActiveTab(id, kind, opts);
                     } else {
-                        window.notesHostBridge.openFile(id);
+                        window.notesHostBridge.openFile(id, null, null, opts);
                     }
                 },
                 saveHistoryPanelCollapsed: function(c) { window.notesHostBridge.saveHistoryPanelCollapsed(c); },
                 saveHistoryPanelHeight: function(h) { window.notesHostBridge.saveHistoryPanelHeight(h); },
                 // FR-RCT-02/03（TASK-13）: kind='file' entry の click（手書き subset のため個別追加が必要 —
                 // generator_failures 2026-08-09 の SidePanelHostBridge クラスと同じ追加漏れが起きていた）
-                historyOpenFile: function(absPath) { window.notesHostBridge.historyOpenFile(absPath); },
+                historyOpenFile: function(absPath, opts) { window.notesHostBridge.historyOpenFile(absPath, opts); },
+                // D4: Back / Forward で pane='side' の entry を sidepanel に開き直す（記録しない）
+                historyOpenInSidePanel: function(absPath) { window.notesHostBridge.historyOpenInSidePanel(absPath); },
             },
             initialHistory: ${JSON.stringify(initData.history || [])},
             initialHeight: ${JSON.stringify(initData.historyPanelHeight ?? null)},

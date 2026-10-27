@@ -206,6 +206,8 @@ export const webviewMessages = {
   saveDirReset: 'Restablecer (images/ · files/)',
   recentFilesLabel: 'Recientes',
   toggleRecent: 'Alternar archivos recientes',
+  notesHistoryBack: 'Atrás (Recientes)',
+  notesHistoryForward: 'Adelante (Recientes)',
   imageDirSourceFile: 'por archivo',
   imageDirSourceSettings: 'por config.',
   imageDirSourceDefault: 'por defecto',

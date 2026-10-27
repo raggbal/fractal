@@ -130,6 +130,26 @@ function generateNotesFilePanelHtml(options) {
             box-shadow: none;
             border-color: transparent;
         }
+        /* spec 20261027-1142-recent-history-nav D3: 最上段の右端の Recent Back / Forward（☰ と同じ枠線なしの小ボタン） */
+        .notes-history-nav-btn.file-panel-btn {
+            border: none;
+            border-radius: 4px;
+            background: transparent;
+            padding: 4px 4px;
+            flex-shrink: 0;
+        }
+        .notes-history-nav-btn.file-panel-btn:hover:not(:disabled) {
+            background: var(--selection-bg);
+            border-color: transparent;
+        }
+        .notes-history-nav-btn.file-panel-btn:disabled { opacity: 0.25; cursor: default; }
+        .notes-history-nav-btn.file-panel-btn:focus-visible { box-shadow: none; border-color: transparent; }
+        /* D5: Recent の現在位置 */
+        .side-panel-history-item.is-current {
+            background: var(--fr-color-selection-bg, var(--selection-bg, rgba(128, 128, 128, 0.18)));
+            font-weight: 600;
+        }
+        .side-panel-history-item.is-missing { opacity: 0.5; }
         .file-panel-list { flex: 1; overflow-y: auto; padding: 4px 0; }
         /* FR-TKN-01 rev（ユーザー裁定 2026-09-06・手動検収）: キーボードナビのために tabindex="0" を持たせた
          * 結果、フォーカス時にブラウザ既定の focus ring（青枠）がパネル全体に出るのを止める。
@@ -715,6 +735,9 @@ function generateNotesFilePanelHtml(options) {
             <div class="file-panel-header">
                 <button class="file-panel-btn" id="filePanelCollapse" title="${m('notesCollapsePanel', 'Collapse panel')} (Cmd+\\)">&#9776;</button>
                 <span class="file-panel-title" id="notesTitleLabel" title="${m('notesRenameNoteTitle', 'Click to rename this note')}"></span>
+                <!-- spec 20261027-1142-recent-history-nav D3: Recent の Back / Forward（最上段の右端。端では disabled） -->
+                <button class="file-panel-btn notes-history-nav-btn" id="notesHistoryBack" type="button" disabled title="${m('notesHistoryBack', 'Back')}" aria-label="${m('notesHistoryBack', 'Back')}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+                <button class="file-panel-btn notes-history-nav-btn" id="notesHistoryForward" type="button" disabled title="${m('notesHistoryForward', 'Forward')}" aria-label="${m('notesHistoryForward', 'Forward')}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
             </div>
             <!-- 20261016 (D1/D2): 常設の検索行（ショートカット表記は出さない — D10）。Search タブは廃止し、検索すると Results タブが現れる -->
             <div class="file-panel-search-bar" id="notesSearchBar">

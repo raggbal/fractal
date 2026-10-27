@@ -94,11 +94,11 @@ test('TC-RCT-02 viewer file: fv open / historyOpenFile の記録 + clamp + viewe
     await mod.handleNotesMessage(
         { type: 'historyOpenFile', filePath: '/etc/hosts' }, m as any, sender as any, platform as any);
     expect(opened.length).toBe(1);
-    // (c) MAX 20 共有: 25 件 push で 20 に切られ最古が落ちる
-    for (let i = 0; i < 25; i++) {
+    // (c) MAX 共有（spec 20261027-1142-recent-history-nav D1 で 20 → 50）: 55 件 push で 50 に切られ最古が落ちる
+    for (let i = 0; i < 55; i++) {
         m.pushHistory({ kind: 'file', id: `/x/f${i}.pdf`, title: `f${i}`, ts: i });
     }
-    expect(hist(m).length).toBe(20);
+    expect(hist(m).length).toBe(50);
     expect(hist(m).some((e) => e.id === '/x/f0.pdf')).toBe(false);
 });
 

@@ -29,6 +29,19 @@
         } catch (e) { /* bridge 不在（standalone 等）は正常 */ }
     }
 
+    function ensureToggleStyle() {
+        if (document.getElementById('folder-view-panel-toggle-style')) { return; }
+        const style = document.createElement('style');
+        style.id = 'folder-view-panel-toggle-style';
+        style.textContent = [
+            '.fv-header .notes-panel-toggle-btn { display: none; background: transparent; border: none;',
+            '  cursor: pointer; padding: 4px 5px; font-size: 15px; opacity: 0.7; color: inherit; }',
+            '.fv-header .notes-panel-toggle-btn:hover { opacity: 1; }',
+            '.notes-file-panel.collapsed ~ .notes-main-wrapper .fv-header .notes-panel-toggle-btn { display: flex; }',
+        ].join('\n');
+        document.head.appendChild(style);
+    }
+
     function ensureContainer() {
         if (folderViewContainer && document.body.contains(folderViewContainer)) { return folderViewContainer; }
         folderViewContainer = document.createElement('div');
@@ -80,9 +93,10 @@
         if (shownLinkId && shownLinkId !== folderLinkId) { notifyClosed(shownLinkId); }
         shownLinkId = folderLinkId;
         // FR-RCT-01: fv 表示を Recent に記録（host が folderLinkId で保存 — 絶対パス不含）
+        // spec 20261027-1142-recent-history-nav D3: Recent の Back / Forward からの表示（opts.noHistory）は記録しない
         try {
             if (window.notesHostBridge && typeof window.notesHostBridge.folderViewOpened === 'function') {
-                window.notesHostBridge.folderViewOpened(folderLinkId);
+                window.notesHostBridge.folderViewOpened(folderLinkId, (opts && opts.noHistory) ? { noHistory: true } : undefined);
             }
         } catch (e) { /* bridge 不在（standalone 等）は正常 */ }
         const container = ensureContainer();
@@ -102,6 +116,18 @@
         container.style.display = 'flex';
         if (window.__folderView) {
             window.__folderView.open(folderLinkId, title, container, { inTab: !!(opts && opts.inTab) });
+            // file panel 折り畳み時の再表示ボタン（≡）を folder view のヘッダにも置く（viewer-dispatcher.js の
+            // ensureToggleStyle と同型）。無いと panel を閉じたあと開き直せない（実機 2026-10-27）。
+            // クリックは notes-file-panel.js の document delegation（.notes-panel-toggle-btn）に相乗り
+            ensureToggleStyle();
+            const header = container.querySelector('.fv-header');
+            if (header && !header.querySelector('.notes-panel-toggle-btn')) {
+                const toggle = document.createElement('button');
+                toggle.className = 'notes-panel-toggle-btn';
+                toggle.title = 'Show file panel (Cmd+\\)';
+                toggle.innerHTML = '&#9776;';
+                header.insertBefore(toggle, header.firstChild);
+            }
         }
         // FR-FLV-25（folder-view.md §4 通常 click）: タブを増やさずアクティブタブを folder に差し替える
         //（kind='folder' 明示 = syncActiveFile の推定式に流さない）。loadTab 経由（opts.inTab）は
