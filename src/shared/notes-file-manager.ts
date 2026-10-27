@@ -9,6 +9,8 @@ import { extractFirstH1, parseAtxHeadingText, setFirstH1, writeFileIfChanged } f
 import { DocExtractCache } from './doc-extract-cache';
 import { DocBacklinksResolver, BacklinkRef } from './doc-backlinks';
 const mdLinkParser = require('./markdown-link-parser');
+// AC-6（spec 20261027-1700-mcp-full-ops D3）: 外部変更の 3-way マージの正典（webview と共有の UMD）
+const externalMerge = require('./external-merge');
 
 export interface NotesFileEntry {
     filePath: string;
@@ -16,6 +18,17 @@ export interface NotesFileEntry {
     id: string;
     kind?: 'out' | 'md' | 'file' | 'folder'; // FR-TF: 列挙元の種別（.out / .md / tree file）+ FR-FLV: folder link
     broken?: boolean; // FR-FLV-03: folder link のリンク切れ（実体不在/非フォルダ）。folder のみ
+}
+
+/**
+ * AC-6: .out の外部変更を webview に知らせる内容。
+ * base = data がどの内容に対する変更か（webview が画面の未送信の編集と 3-way で合成するための基準）。
+ */
+export interface ExternalOutChange {
+    data: Record<string, unknown>;
+    content: string;
+    base: string | null;
+    fileChangeId: number;
 }
 
 // ── .note 構造管理 ──
@@ -115,8 +128,38 @@ export class NotesFileManager {
     private isWritingTimer: ReturnType<typeof setTimeout> | null = null;
     private isWritingStructure = false;
     private isWritingStructureTimer: ReturnType<typeof setTimeout> | null = null;
+    /**
+     * AC-6: 今開いている .out の基準 = 自分が最後に disk から読んだ / disk に書いた中身。
+     * disk がこれと違えば自分以外（MCP・AI CLI 等）が書いた。書く直前と watcher の照合で使う
+     * （isWriting のような時間窓でイベントを捨てない — 内容で判定する）。
+     */
+    private outDiskBase: string | null = null;
+    /** AC-6: outline.note の基準（最後に読んだ / 書いた中身）。saveStructure の read-modify-write に使う */
+    private structureDiskBase: string | null = null;
+    /** AC-6: 外部変更を取り込んだ（または合成して書いた）ときに webview へ知らせる口（provider が登録） */
+    private externalOutListener: ((ev: ExternalOutChange) => void) | null = null;
+    /** AC-6: outline.note を外部の変更と合成して書いたときに tree を描き直させる口（provider が登録） */
+    private structureMergedListener: (() => void) | null = null;
 
     private static SAVE_DEBOUNCE_MS = 1000;
+
+    /**
+     * spec 20261027-1700-mcp-full-ops D1/D6: ゴミ箱へ移す実装の差し替え口。
+     * 既定（null）は従来どおり vscode.workspace.fs.delete({ useTrash: true }) を遅延 require して使う（拡張機能）。
+     * vscode の無いプロセス（MCP サーバー）は OS のゴミ箱実装をここに注入する。注入が無く vscode も
+     * 無いときは require が throw し、各 delete は従来どおり catch でログして何も消さない（完全削除はしない）。
+     */
+    static trashImpl: ((absPath: string, opts: { recursive: boolean }) => Promise<void>) | null = null;
+
+    /** ゴミ箱へ移す（trashImpl が無ければ vscode の useTrash 削除） */
+    static async moveToTrash(absPath: string, recursive: boolean): Promise<void> {
+        if (NotesFileManager.trashImpl) {
+            await NotesFileManager.trashImpl(absPath, { recursive });
+            return;
+        }
+        const vscode = require('vscode');
+        await vscode.workspace.fs.delete(vscode.Uri.file(absPath), { useTrash: true, recursive });
+    }
 
     // v0.207.76: Markdown ファイル用の仮想 outliner フォルダ
     // mainFolderPath/_notes_md/ 配下に <id>.md を直接配置し、
@@ -297,11 +340,7 @@ export class NotesFileManager {
             if (!item || item.type !== 'file' || item.ext !== 'file') { return; }
             const entityPath = this.getTreeFilePath(itemId);
             if (entityPath && fs.existsSync(entityPath)) {
-                const vscode = require('vscode');
-                await vscode.workspace.fs.delete(
-                    vscode.Uri.file(entityPath),
-                    { useTrash: true, recursive: false }
-                );
+                await NotesFileManager.moveToTrash(entityPath, false);
                 // SEC-3: 抽出テキストキャッシュも実体削除に連動して evict
                 //（削除済み添付の本文テキストを globalStorage に残さない）
                 this.docCache.evict(entityPath);
@@ -434,6 +473,7 @@ export class NotesFileManager {
      */
     updateLastKnownContent(jsonString: string): void {
         this.lastJsonString = jsonString;
+        this.outDiskBase = jsonString;
         this.isDirty = false;
         if (this.saveTimer) {
             clearTimeout(this.saveTimer);
@@ -452,6 +492,8 @@ export class NotesFileManager {
      * outline.note の最後の既知内容を取得する（内容比較用）。
      */
     getLastKnownStructureContent(): string | null {
+        // AC-6: 最後に読んだ / 書いた中身（基準）。無ければ従来どおりキャッシュの直列化
+        if (this.structureDiskBase !== null) return this.structureDiskBase;
         if (!this.structure) return null;
         return JSON.stringify(this.structure, null, 2);
     }
@@ -506,6 +548,8 @@ export class NotesFileManager {
             try {
                 const content = fs.readFileSync(noteFilePath, 'utf8');
                 structure = JSON.parse(content);
+                // AC-6: 読んだ中身を基準にする（このあとの saveStructure は disk がこれから変わっていれば合成する）
+                this.structureDiskBase = content;
             } catch {
                 structure = { version: 1, rootIds: [], items: {} };
             }
@@ -712,8 +756,26 @@ export class NotesFileManager {
     saveStructure(): void {
         if (!this.structure) return;
         try {
+            const noteFilePath = this.getNoteFilePath();
+            let out = JSON.stringify(this.structure, null, 2);
+            // AC-6: キャッシュを丸ごと書き戻す前に disk を確かめる（read-modify-write）。
+            // 最後に読んだ / 書いた中身（基準）から disk が変わっていれば自分以外（MCP 等）が書いた。
+            // そのときは disk の最新に「基準 → キャッシュ」の変更だけを重ね、UI が触っていない項目
+            // （MCP が足した md など。.out と違い syncStructureWithDisk では戻らない）を落とさない。
+            let disk: string | null = null;
+            try { disk = fs.readFileSync(noteFilePath, 'utf8'); } catch { /* 無い = 新規 */ }
+            if (disk !== null && this.structureDiskBase !== null && disk !== this.structureDiskBase && disk !== out) {
+                const merged = this.mergeStructureWithDisk(this.structureDiskBase, disk);
+                if (merged) { out = merged; }
+            }
+            if (disk === out) {
+                // 中身が同じなら書かない（mtime を動かさない）。基準だけ合わせる
+                this.structureDiskBase = out;
+                return;
+            }
             this.isWritingStructure = true;
-            fs.writeFileSync(this.getNoteFilePath(), JSON.stringify(this.structure, null, 2), 'utf8');
+            fs.writeFileSync(noteFilePath, out, 'utf8');
+            this.structureDiskBase = out;
             if (this.isWritingStructureTimer) clearTimeout(this.isWritingStructureTimer);
             this.isWritingStructureTimer = setTimeout(() => {
                 this.isWritingStructure = false;
@@ -723,6 +785,39 @@ export class NotesFileManager {
             this.isWritingStructure = false;
             console.error('[NotesFileManager] saveStructure error:', e);
         }
+    }
+
+    /**
+     * AC-6: outline.note の 3-way 合成（基準 = baseStr / UI = this.structure / 外部 = diskStr）。
+     * 合成結果を this.structure に**その場で**入れる（呼び出し側が持っている structure の参照も新しくなる）。
+     * disk が読めない JSON（書きかけ等）なら null（呼び出し側は従来どおり UI の内容を書く）。
+     */
+    private mergeStructureWithDisk(baseStr: string, diskStr: string): string | null {
+        if (!this.structure) return null;
+        let theirs: NoteStructure;
+        let base: NoteStructure;
+        try { theirs = JSON.parse(diskStr); } catch { return null; }
+        if (!theirs || typeof theirs !== 'object' || !theirs.items) return null;
+        try { base = JSON.parse(baseStr); } catch { base = { version: 1, rootIds: [], items: {} }; }
+        const merged = externalMerge.mergeNoteStructure(base, this.structure, theirs) as NoteStructure;
+        const target = this.structure as unknown as Record<string, unknown>;
+        for (const k of Object.keys(target)) { delete target[k]; }
+        Object.assign(target, merged);
+        console.log('[NotesFileManager] outline.note changed externally — merged UI change onto disk (AC-6)');
+        // 合成結果を書いたあとは disk = 基準になり、外部書き込みの watcher イベントは「自分の書き込み」と
+        // 区別できない。tree の描き直しはここから頼む（呼び出し中の操作が終わってから）
+        const listener = this.structureMergedListener;
+        if (listener) {
+            setTimeout(() => {
+                try { listener(); } catch (e) { console.error('[NotesFileManager] structureMergedListener error:', e); }
+            }, 0);
+        }
+        return JSON.stringify(this.structure, null, 2);
+    }
+
+    /** AC-6: outline.note を外部の変更と合成して書いたときの通知口を登録する */
+    setStructureMergedListener(listener: (() => void) | null): void {
+        this.structureMergedListener = listener;
     }
 
     /**
@@ -1315,6 +1410,7 @@ export class NotesFileManager {
             this.currentFilePath = filePath;
             this.isDirty = false;
             this.lastJsonString = content;
+            this.outDiskBase = content; // AC-6: 開いた中身が基準
             this.fileChangeId++;
             this.lastOpenError = null;
             return content;
@@ -1419,14 +1515,30 @@ export class NotesFileManager {
         // 注意: byte 比較のみ。semantic equal (parse + deep equal) は採用しない。
         // 「内容が違うのに skip して local の更新漏れが起きる」リスクを避けるため。
         // formatting 差で毎回 write する場合は、上位の sync 経路 (preFlushLocalInfo + 毎回確認 dialog) で safety net を取る。
+        let existing: string | null = null;
         try {
-            const existing = fs.readFileSync(this.currentFilePath, 'utf8');
+            existing = fs.readFileSync(this.currentFilePath, 'utf8');
             if (existing === jsonString) {
                 this.isDirty = false;
+                this.outDiskBase = existing;
                 return;
             }
         } catch {
             // disk に未存在 (新規ファイル等) → そのまま書く
+        }
+        // AC-6（D3 拡張機能側）: 書く直前の版の確認。disk が基準（最後に読んだ / 書いた中身）から
+        // 変わっていれば自分以外（MCP 等）が書いた = まだ取り込んでいない外部変更がある。
+        // 古いモデルで丸ごと上書きせず、disk の最新に UI の変更を重ねて書き、合成結果を webview に知らせる
+        // （watcher の取りこぼし・isWriting 窓に来た外部書き込みもここで拾える）。
+        let mergedEvent: ExternalOutChange | null = null;
+        if (existing !== null && this.outDiskBase !== null && existing !== this.outDiskBase
+            && this.currentFilePath.endsWith('.out')) {
+            const m = externalMerge.mergeOutJson(this.outDiskBase, jsonString, existing);
+            if (m) {
+                console.log('[NotesFileManager] .out changed externally before save — merged (AC-6) conflicts=', m.conflicts.length);
+                mergedEvent = { data: m.data, content: m.json, base: jsonString, fileChangeId: 0 };
+                jsonString = m.json;
+            }
         }
         try {
             this.isWriting = true;
@@ -1435,7 +1547,15 @@ export class NotesFileManager {
             console.log('[NotesFileManager] _writeFile to', this.currentFilePath, 'size=', jsonString.length, 'B at', new Date().toISOString());
             console.log('[NotesFileManager] _writeFile stack:', stack);
             fs.writeFileSync(this.currentFilePath, jsonString, 'utf8');
+            this.outDiskBase = jsonString;
             this.isDirty = false;
+            if (mergedEvent) {
+                this.lastJsonString = jsonString;
+                // stale な syncData（合成前の古いモデル）を handler で落とすため fileChangeId を進める
+                this.fileChangeId++;
+                mergedEvent.fileChangeId = this.fileChangeId;
+                this.emitExternalOutChange(mergedEvent);
+            }
             // FileSystemWatcherの発火タイミングを考慮し、遅延でフラグをリセット
             if (this.isWritingTimer) clearTimeout(this.isWritingTimer);
             this.isWritingTimer = setTimeout(() => {
@@ -1446,6 +1566,67 @@ export class NotesFileManager {
             this.isWriting = false;
             console.error('[NotesFileManager] write error:', e);
         }
+    }
+
+    /** AC-6: 外部変更を webview へ知らせる口を登録する（provider が panel ごとに 1 つ） */
+    setExternalOutChangeListener(listener: ((ev: ExternalOutChange) => void) | null): void {
+        this.externalOutListener = listener;
+    }
+
+    private emitExternalOutChange(ev: ExternalOutChange): void {
+        try {
+            this.externalOutListener?.(ev);
+        } catch (e) {
+            console.error('[NotesFileManager] externalOutListener error:', e);
+        }
+    }
+
+    /**
+     * AC-6: 今開いている .out の外部変更の照合（watcher から呼ぶ。ADRL-0045 の保留照合）。
+     * - isWriting の時間窓では判定しない。disk の中身を基準（自分が最後に読んだ / 書いた中身）と比べ、
+     *   同じなら自分の書き込みのはね返り（null）、違えば外部変更として取り込む。
+     * - まだ disk に書いていない UI の変更（debounce 中）があれば、disk の最新に重ねて書く（3-way）。
+     * - fileChangeId を進めて通知する（合成前の古い syncData は handler の stale 判定で落ちる）。
+     * webview は base（取り込む内容が何に対する変更か）を使い、画面の未送信の編集と 3-way で合成する。
+     */
+    reconcileExternalOutChange(): ExternalOutChange | null {
+        const cur = this.currentFilePath;
+        if (!cur || !cur.endsWith('.out')) return null;
+        let disk: string;
+        try { disk = fs.readFileSync(cur, 'utf8'); } catch { return null; }
+        if (disk === this.outDiskBase) return null;
+        try { JSON.parse(disk); } catch { return null; } // 書きかけ等は次のイベントを待つ
+        let content = disk;
+        let webviewBase: string | null = this.outDiskBase;
+        if (this.saveTimer && this.isDirty && this.lastJsonString !== null && this.outDiskBase !== null) {
+            // UI の変更が書き込み待ち: 捨てずに disk の最新へ重ねる
+            clearTimeout(this.saveTimer);
+            this.saveTimer = null;
+            const m = externalMerge.mergeOutJson(this.outDiskBase, this.lastJsonString, disk);
+            webviewBase = this.lastJsonString;
+            if (m && m.json !== disk) {
+                content = m.json;
+                try {
+                    this.isWriting = true;
+                    fs.writeFileSync(cur, content, 'utf8');
+                    if (this.isWritingTimer) clearTimeout(this.isWritingTimer);
+                    this.isWritingTimer = setTimeout(() => { this.isWriting = false; this.isWritingTimer = null; }, 300);
+                } catch (e) {
+                    this.isWriting = false;
+                    console.error('[NotesFileManager] reconcile write error:', e);
+                    content = disk;
+                }
+            }
+        }
+        this.outDiskBase = content;
+        this.lastJsonString = content;
+        this.isDirty = false;
+        this.fileChangeId++;
+        let data: Record<string, unknown>;
+        try { data = JSON.parse(content); } catch { return null; }
+        const ev: ExternalOutChange = { data, content, base: webviewBase, fileChangeId: this.fileChangeId };
+        this.emitExternalOutChange(ev);
+        return ev;
     }
 
     /**
@@ -2135,7 +2316,6 @@ export class NotesFileManager {
      */
     async deleteFile(filePath: string): Promise<void> {
         try {
-            const vscode = require('vscode');
             const isMd = filePath.endsWith('.md');
             const id = path.basename(filePath, isMd ? '.md' : '.out');
             // notes-flat-storage (2026-07-07): flat .out（pageDir=".")は per-<id>/ フォルダを持たない。
@@ -2164,22 +2344,16 @@ export class NotesFileManager {
             }
 
             if (fs.existsSync(filePath)) {
-                await vscode.workspace.fs.delete(
-                    vscode.Uri.file(filePath),
-                    { useTrash: true, recursive: false }
-                );
+                await NotesFileManager.moveToTrash(filePath, false);
             }
             // 旧 per-<id>/ レイアウトのみ pageDir フォルダごと削除（存在すれば）。
             // flat .out は mainFolder 共有なのでフォルダを消さず、page md を個別に削除する。
             if (!isMd && legacyPageDirAbs && fs.existsSync(legacyPageDirAbs)) {
-                await vscode.workspace.fs.delete(
-                    vscode.Uri.file(legacyPageDirAbs),
-                    { useTrash: true, recursive: true }
-                );
+                await NotesFileManager.moveToTrash(legacyPageDirAbs, true);
             }
             for (const mp of flatPageMdPaths) {
                 try {
-                    await vscode.workspace.fs.delete(vscode.Uri.file(mp), { useTrash: true, recursive: false });
+                    await NotesFileManager.moveToTrash(mp, false);
                 } catch { /* best-effort: cleanup が孤児として拾う */ }
             }
 

@@ -171,7 +171,10 @@ export function getNotesWebviewContent(
     // Load outliner scripts
     const outlinerCellScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'outliner-cell.js'), 'utf8');
+    // AC-6（spec 20261027-1700-mcp-full-ops D3）: 外部変更の 3-way マージ（window.ExternalMerge）。
+    // outliner.js / editor.js が使うので outliner-model.js と一緒に先に読む（ハーネス build-standalone-notes.js と対）
     const outlinerModelScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'external-merge.js'), 'utf8') + '\n' + fs.readFileSync(
         path.join(__dirname, 'webview', 'outliner-model.js'), 'utf8');
     const outlinerSearchScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'outliner-search.js'), 'utf8');

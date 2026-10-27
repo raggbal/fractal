@@ -43,6 +43,8 @@ test.describe('standalone 面の契約（FR-FV-02 / TASK-03）', () => {
                 file: (p: string) => ({ fsPath: p, path: p }),
                 joinPath: (base: any, ...parts: string[]) => ({ fsPath: path.join(base.fsPath || '', ...parts) }),
             },
+            // 2026-10-27: fileViewerContent が設定 fractal.viewerHtmlAllowScripts を読むようになった（ADR-0011）
+            workspace: { getConfiguration: () => ({ get: (_k: string, d: unknown) => d }) },
         };
         const origLoad = Module._load;
         Module._load = function (request: string, ...rest: unknown[]) {

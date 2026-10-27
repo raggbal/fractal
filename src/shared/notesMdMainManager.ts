@@ -14,6 +14,7 @@ import * as fs from 'fs';
 import { resolveResourceRoots, findOutOfRangeImages } from './resource-roots';
 import { createHybridFileWatcher, DrawioFileWatcher } from './drawioWatcher';
 import { recordSelfWrite, isRecentSelfWrite, clearSelfWrites } from './self-write-registry';
+import { resolveMdSaveAgainstDisk } from './md-save-guard';
 
 export interface NotesMdMainHost {
     postMessage(message: any): Thenable<boolean>;
@@ -41,6 +42,10 @@ export class NotesMdMainManager {
     // reconcile が既にスケジュール済みなら後続イベントを集約（drawioWatcher はポーリング発火を
     // onDidChange/onDidCreate 両 handler に配るため、1 イベントで onFsEvent が複数回呼ばれうる）
     private _reconcileScheduled = false;
+    // AC-6（spec 20261027-1700-mcp-full-ops D3）: 基準 = 最後に読んだ / 書いた / 取り込んだ中身。
+    // handleSave は書く直前に disk をこれと比べ、外部の変更があれば上書きせずに重ねる（md-save-guard）。
+    // webview への外部変更の通知にも externalBase として付け、画面が未送信の編集と 3-way で取り込めるようにする。
+    private _baseText: string | undefined;
 
     private readonly host: NotesMdMainHost;
     // FR-TH-02 (★MEDIUM-3): 外部編集で確定した content を上位（fileManager/webview 到達層）へ渡す。
@@ -73,6 +78,7 @@ export class NotesMdMainManager {
         const fileUri = vscode.Uri.file(filePath);
 
         this._document = await vscode.workspace.openTextDocument(fileUri);
+        this._baseText = this._document.getText(); // AC-6: 開いた中身が基準
 
         // FR-LR-02: FSW 単独から createHybridFileWatcher（FSW + fs.watchFile 1s polling）に変更。
         // workspace 外の note でも外部編集（AI CLI 等）を検知してライブ反映する。
@@ -106,6 +112,9 @@ export class NotesMdMainManager {
             if (e.contentChanges.length === 0) return;
             if (this._isApplyingEdit) return;
             const content = e.document.getText();
+            // AC-6: 何に対する変更か（直前の基準）を付けて送り、基準を進める
+            const prevBase = this._baseText;
+            this._baseText = content;
             this.host.postMessage({
                 type: 'updateData',
                 kind: 'md',
@@ -115,6 +124,7 @@ export class NotesMdMainManager {
                     vscode.Uri.file(path.dirname(filePath))
                 ).toString(),
                 externalUpdate: true,
+                ...(prevBase !== undefined ? { externalBase: prevBase } : {}),
             });
             // FR-RR-04: 外部再レンダーでも範囲外画像を検知してフッター案内を更新する
             this.sendResourceAccessStatus(content, filePath);
@@ -151,6 +161,8 @@ export class NotesMdMainManager {
             if (isRecentSelfWrite(filePath, newContent)) { return; }
             const currentContent = liveDoc.getText();
             if (newContent !== currentContent) {
+                // AC-6: 取り込む内容が何に対する変更か（画面が 3-way で取り込むための基準）
+                const baseForWebview = this._baseText ?? currentContent;
                 this._isApplyingEdit = true;
                 const fullRange = new vscode.Range(
                     liveDoc.positionAt(0),
@@ -163,6 +175,7 @@ export class NotesMdMainManager {
                 // applyEdit 成功「後」に記録する（throw 時に未適用内容が台帳に残ると、pending flush の
                 // 再照合まで no-op になり外部編集が反映されない — TC-LV-06 のエラー経路）。
                 recordSelfWrite(filePath, newContent);
+                this._baseText = newContent;
                 this._isApplyingEdit = false;
                 this._flushPendingExternalCheck(filePath, fileUri);
                 if (this._watchedPath !== filePath) return;
@@ -179,6 +192,7 @@ export class NotesMdMainManager {
                         vscode.Uri.file(path.dirname(filePath))
                     ).toString(),
                     externalUpdate: true,
+                    externalBase: baseForWebview,
                 });
                 // FR-RR-04: 外部再レンダーでも範囲外画像を検知してフッター案内を更新する
                 this.sendResourceAccessStatus(newContent, filePath);
@@ -190,6 +204,26 @@ export class NotesMdMainManager {
             this._flushPendingExternalCheck(filePath, fileUri);
             console.error('[NotesMd-FSW] Error:', error);
         }
+    }
+
+    /**
+     * AC-6: 保存の直前に外部の変更を重ねたとき、合成した内容を画面へ送る。
+     * 基準 = 画面が送ってきた内容（画面はそこからの残りの未送信の編集と 3-way で重ねる）。
+     */
+    private _postMergedToWebview(filePath: string, content: string, uiContent: string): void {
+        if (this._watchedPath !== filePath) return;
+        this.host.postMessage({
+            type: 'updateData',
+            kind: 'md',
+            markdown: content,
+            filePath,
+            documentBaseUri: this.host.asWebviewUri(
+                vscode.Uri.file(path.dirname(filePath))
+            ).toString(),
+            externalUpdate: true,
+            externalBase: uiContent,
+        });
+        this.onExternalContent?.(filePath, content);
     }
 
     /**
@@ -235,6 +269,7 @@ export class NotesMdMainManager {
         this._hybridWatcher = undefined;
         this._document = undefined;
         this._watchedPath = undefined;
+        this._baseText = undefined;
         // FR-LV-02: one-shot state の clear 契機（別ファイル open 後に stale 照合が走らない）
         this._pendingExternalCheck = false;
     }
@@ -244,7 +279,21 @@ export class NotesMdMainManager {
      * バッファ経由が使えない場合は fs.writeFile に fallback。
      */
     async handleSave(filePath: string, content: string): Promise<void> {
+        const uiContent = content;
+        let mergedExternal = false;
         try {
+            // AC-6: 書く直前の版の確認。watcher より先に保存が来ても、外部の編集を古い内容で上書きしない
+            const tracked = filePath === this._watchedPath;
+            if (tracked) {
+                let disk: string | null = null;
+                try {
+                    disk = new TextDecoder().decode(await vscode.workspace.fs.readFile(vscode.Uri.file(filePath)));
+                } catch { /* 無い・読めない = 確認しない */ }
+                const r = resolveMdSaveAgainstDisk(filePath, this._baseText, content, disk);
+                content = r.content;
+                mergedExternal = r.merged;
+                this._baseText = content;
+            }
             // FR-LV-06: 自分が書く内容を台帳に記録（buffer 経路 / fs.writeFile fallback の両方に効く位置）
             recordSelfWrite(filePath, content);
             const targetUri = vscode.Uri.file(filePath);
@@ -262,7 +311,14 @@ export class NotesMdMainManager {
                     return;
                 }
                 const normalize = (s: string) => s.replace(/\r\n/g, '\n');
-                if (normalize(content) === normalize(targetDoc.getText())) return;
+                if (normalize(content) === normalize(targetDoc.getText())) {
+                    // AC-6: 合成結果が doc と同じでも disk には無い → disk に書いて画面へ知らせる
+                    if (mergedExternal) {
+                        await vscode.workspace.fs.writeFile(targetUri, Buffer.from(content, 'utf8'));
+                        this._postMergedToWebview(filePath, content, uiContent);
+                    }
+                    return;
+                }
 
                 this._isApplyingEdit = true;
                 const edit = new vscode.WorkspaceEdit();
@@ -285,6 +341,9 @@ export class NotesMdMainManager {
                     targetUri,
                     Buffer.from(content, 'utf8')
                 );
+            }
+            if (mergedExternal) {
+                this._postMergedToWebview(filePath, content, uiContent);
             }
         } catch (e) {
             this._isApplyingEdit = false;

@@ -113,7 +113,10 @@
                         // window.postMessage で md pane EditorInstance の標準 update ハンドラに届く。
                         // outliner.js の top-level switch に case 'update' は無く、sidepanel の
                         // SidePanelHostBridge は _messageHandler 直結（window listener でない）ため誤配しない。
-                        deliverUpdate({ type: 'update', content: msg.markdown || '' });
+                        // AC-6: host の基準（externalBase）も渡す（editor.js が画面の未送信の編集と 3-way で取り込む）
+                        var upd = { type: 'update', content: msg.markdown || '' };
+                        if (typeof msg.externalBase === 'string') { upd.externalBase = msg.externalBase; }
+                        deliverUpdate(upd);
                     }
                     // mdInstance 無し / filePath 不一致（stale・outliner 表示中）→ drop
                     // （外部編集をトリガに md pane を勝手に開かない）

@@ -768,8 +768,9 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./ --noEmit && tsc -p tsconfig.shared-emit.json && node esbuild.js && node build-locales.js && node scripts/copy-webview.js && node scripts/copy-vendor.js && node scripts/build-pdfjs-viewer.js && node scripts/verify-drawio-vendor.js && node scripts/build-viewer-modules.js",
+    "compile": "tsc -p ./ --noEmit && tsc -p tsconfig.shared-emit.json && node mcp/build.mjs && node esbuild.js && node build-locales.js && node scripts/copy-webview.js && node scripts/copy-vendor.js && node scripts/build-pdfjs-viewer.js && node scripts/verify-drawio-vendor.js && node scripts/build-viewer-modules.js",
     "build:pdfjs-vendor": "node scripts/build-pdfjs-vendor.js",
+    "build:mcp": "node mcp/build.mjs",
     "watch": "node esbuild.js --watch",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",

@@ -19,6 +19,9 @@ import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem, droppedUriToFsPath, DroppedFolderPayload, materializeDroppedFolder, expandDroppedPathsToFiles } from './drop-import';
 import { setFirstH1, writeFileIfChanged, extractFirstH1 } from './md-h1-utils';
+import { buildFileLinkMarkdown, insertNodeAtDropPosition, createPageMdFile, syncPageH1FromNodeText, duplicateTreeItemEntity } from './notes-ops-core';
+// spec 20261027-1700-mcp-full-ops D1: 正典は notes-ops-core（MCP も同じ関数を呼ぶ）。既存の import 先を保つため re-export する
+export { buildFileLinkMarkdown, insertNodeAtDropPosition };
 import { removeMdAnchorAndEcho } from './md-anchor-remove';
 import { linkedfdRootsOf, crossesLinkedfdBoundary } from './linkedfd-boundary';
 import { ExportOptions } from './md-export-core';
@@ -854,11 +857,9 @@ export async function handleNotesMessage(
         }
 
         case 'makePage': {
-            const pagesDir = fileManager.getPagesDirPath();
-            if (!fs.existsSync(pagesDir)) fs.mkdirSync(pagesDir, { recursive: true });
-            const pagePath = path.join(pagesDir, `${message.pageId}.md`);
+            // page md の作成は正典 notes-ops-core.createPageMdFile（MCP の make-page と同じ関数）
             try {
-                fs.writeFileSync(pagePath, `# ${message.title}\n`, 'utf8');
+                createPageMdFile(fileManager.getPagesDirPath(), message.pageId, message.title);
                 sender.postMessage({ type: 'pageCreated', nodeId: message.nodeId, pageId: message.pageId });
             } catch (e) {
                 console.error('[Notes] makePage error:', e);
@@ -1141,11 +1142,8 @@ export async function handleNotesMessage(
         // notes モードは fileManager.getPageFilePath(pageId)（1引数）で解決。
         case 'syncNodeTextToPageH1': {
             if (!message.pageId || typeof message.text !== 'string') break;
-            const pagePath = fileManager.getPageFilePath(message.pageId);
-            if (pagePath && fs.existsSync(pagePath)) {
-                const body = fs.readFileSync(pagePath, 'utf8');
-                writeFileIfChanged(pagePath, setFirstH1(body, message.text)); // 冪等・byte skip
-            }
+            // 正典 notes-ops-core.syncPageH1FromNodeText（MCP の set-text も同じ関数で H1 を同期する）
+            syncPageH1FromNodeText(fileManager.getPageFilePath(message.pageId), message.text); // 冪等・byte skip
             break;
         }
 
@@ -2821,15 +2819,7 @@ export async function handleNotesMessage(
 //  - リンク生成時の title は `]`→`］`・改行→空白（§4y。filename 側は NotesFileManager.sanitizeTreeFileName）
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * §4y: files/ 添付を markdown リンクにする際の書式生成。
- * title（alt スロット）の label 終端衝突文字 `]`→`］` + 改行→空白。`[` は parser 上無害なので保持。
- * relPath（url スロット）は呼び出し側で sanitize 済み filename から組んだ相対パスを渡す。
- */
-export function buildFileLinkMarkdown(title: string, relPath: string): string {
-    const safeTitle = String(title || '').replace(/\]/g, '］').replace(/[\r\n]+/g, ' ');
-    return `[📎 ${safeTitle}](${relPath})`;
-}
+// §4y: files/ 添付の markdown リンク書式 buildFileLinkMarkdown は notes-ops-core へ移した（上で re-export）。
 
 /** file item id → .out の絶対パス解決（id / path のどちらで渡されても解決する） */
 function resolveOutPathRef(fileManager: NotesFileManager, ref: string): string | null {
@@ -3324,43 +3314,13 @@ export function treeFileAttachToMdEditor(
     }
 }
 
+// FR-TF-14: insertNodeAtDropPosition（.out へ drop 位置で node 挿入）は notes-ops-core へ移した（上で re-export）。
+
 /**
  * FR-TF-05a (§4d): tree file を outliner の node 位置に D&D。
  * getTreeFilePath → outDir 相対化 → dropFilesResult 互換 shape を単一 postback（既存 file kind 処理が node 化）。
  * 挿入位置は webview が解決した targetNodeId/position をそのまま返す。tree エントリ除去（実体不動）。
  */
-/**
- * FR-TF-14 (§4i(3) 2026-08-10): .out データへ新規 node を drop 位置（before/after/child）で挿入する
- * pure seam。targetNodeId が無い / position が不明なら従来どおり rootIds 先頭 unshift（後方互換）。
- * notesImportMdIntoOut（page node）が使用。node は呼び出し側が outData.nodes に登録済みであること。
- */
-export function insertNodeAtDropPosition(
-    outData: { nodes: Record<string, any>; rootIds: string[] },
-    newNodeId: string,
-    targetNodeId: string | null | undefined,
-    position: string | null | undefined
-): void {
-    const newNode = outData.nodes[newNodeId];
-    const target = targetNodeId ? outData.nodes[targetNodeId] : null;
-    if (target && position === 'child') {
-        newNode.parentId = target.id;
-        target.children = target.children || [];
-        target.children.unshift(newNodeId);
-        return;
-    }
-    if (target && (position === 'before' || position === 'after')) {
-        newNode.parentId = target.parentId || null;
-        const siblings: string[] = target.parentId && outData.nodes[target.parentId]
-            ? (outData.nodes[target.parentId].children = outData.nodes[target.parentId].children || [])
-            : outData.rootIds;
-        const ti = siblings.indexOf(targetNodeId as string);
-        const at = ti === -1 ? siblings.length : (position === 'before' ? ti : ti + 1);
-        siblings.splice(at, 0, newNodeId);
-        return;
-    }
-    outData.rootIds.unshift(newNodeId);
-}
-
 export function treeFileImportAtPosition(
     fileManager: NotesFileManager,
     sender: NotesSender,
@@ -6104,79 +6064,9 @@ export function duplicateTreeItemCore(
     itemId: string,
     sender: NotesSender
 ): boolean {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const dup = require('./paste-asset-handler');
-    const structure = fileManager.getStructure();
-    const item = structure.items[itemId];
-    if (!item || item.type !== 'file') { return false; }
-    const mainFolder = fileManager.getMainFolderPath();
-
-    /** siblings 配列（root or 親 folder の childIds）の元 item 直後に newId を挿入 */
-    const insertAfterOriginal = (newId: string): void => {
-        let siblings = structure.rootIds;
-        for (const id of Object.keys(structure.items)) {
-            const it = structure.items[id];
-            if (it?.type === 'folder' && (it as { childIds?: string[] }).childIds?.includes(itemId)) {
-                siblings = (it as { childIds: string[] }).childIds;
-                break;
-            }
-        }
-        const idx = siblings.indexOf(itemId);
-        siblings.splice(idx >= 0 ? idx + 1 : siblings.length, 0, newId);
-    };
-    /** uniquify で付いたサフィックス（'-1' 等）を title に追従させる */
-    const titleWithSuffix = (oldStem: string, newStem: string, title: string): string => {
-        if (newStem.startsWith(oldStem)) { return (title || newStem) + newStem.slice(oldStem.length); }
-        return title || newStem;
-    };
-
-    try {
-        const ext = (item as { ext?: string }).ext;
-        if (ext === 'file') {
-            const filename = (item as { filename?: string }).filename;
-            if (!filename) { return false; }
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const { resolveMdFilesDir } = require('./flat-layout');
-            const filesDir = resolveMdFilesDir(mainFolder);
-            const newName = dup.duplicateFileEntity(filesDir, filename);
-            const newId = NotesFileManager.generateOutlineId();
-            const oldStem = path.basename(filename, path.extname(filename));
-            const newStem = path.basename(newName, path.extname(newName));
-            structure.items[newId] = {
-                type: 'file', id: newId,
-                title: titleWithSuffix(oldStem, newStem, item.title),
-                ext: 'file', filename: newName,
-            } as typeof item;
-            insertAfterOriginal(newId);
-            fileManager.saveStructure();
-        } else if (ext === 'md') {
-            const mdPath = fileManager.getMdFilePath(itemId);
-            if (!fs.existsSync(mdPath)) { return false; }
-            const r = dup.duplicateMdEntity(mdPath, mainFolder);
-            // 新 item id = 新 stem（getMdFilePath(id) = <note>/<id>.md の対応を保つ）
-            structure.items[r.newStem] = {
-                type: 'file', id: r.newStem,
-                title: titleWithSuffix(itemId, r.newStem, item.title),
-                ext: 'md',
-            } as typeof item;
-            insertAfterOriginal(r.newStem);
-            fileManager.saveStructure();
-        } else {
-            // .out item（ext なし）
-            const outPath = path.join(mainFolder, `${itemId}.out`);
-            if (!fs.existsSync(outPath)) { return false; }
-            const r = dup.duplicateOutEntity(outPath, mainFolder);
-            structure.items[r.newOutId] = {
-                type: 'file', id: r.newOutId,
-                title: titleWithSuffix(itemId, r.newOutId, item.title),
-            } as typeof item;
-            insertAfterOriginal(r.newOutId);
-            fileManager.saveStructure();
-        }
-    } catch (e) {
-        console.error('[Notes] duplicateTreeItemCore failed:', itemId, e);
-        return false;
-    }
+    // 実体複製 + 台帳挿入は正典 notes-ops-core.duplicateTreeItemEntity（MCP の fractal_tree duplicate と同じ関数）
+    const newId = duplicateTreeItemEntity(fileManager, itemId);
+    if (!newId) { return false; }
     sendFileListWithStructure(fileManager, sender);
     return true;
 }

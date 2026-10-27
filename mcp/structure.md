@@ -2,11 +2,22 @@
 
 Fractal は VSCode 拡張 (`imaken.fractal`) と Electron 単体アプリ (`fractal-desktop`) の両方で動く。どちらも同じ **Notes フォルダ** を扱う。AI が Fractal のノートを追加編集／検索する際、これを読めば「どこに何があるか」が分かる。
 
-関連 tools（fractal MCP）:
-- `fractal_search` / `fractal_list_folders` / `fractal_list_notes` — 検索・一覧（全文 + tags / checked フィルタ）
-- `fractal_add` / `fractal_modify` / `fractal_attach` — 書き込み全般: ノード／md page／画像／ファイル追加、変更（本文書換・チェック・削除・移動）、新規 `.out` / 独立 md 作成
-- `fractal_doctor` — note 整合性チェック（read-only。未移行検出・参照切れ・孤児）
-- `fractal_summary` — Outliner・md の全内容を 1 本の md にまとめる（read-only。AI 入力・要約用）
+関連 tools（fractal MCP。返り値はどれも JSON。`fractal_structure` / `fractal_summary` だけ Markdown）:
+- 探す・読む: `fractal_list_folders`（Notes フォルダ）/ `fractal_list_notes`（note とツリーの項目）/ `fractal_resolve`（タイトル → 絶対パス・id・contentHash）/ `fractal_get`（.out のノード木・md の本文と H1・見出し・subpage・ツリー）/ `fractal_search`（全文 + tags / checked）/ `fractal_summary`（全内容を 1 本の md に）
+- 書く: `fractal_add`（ノード・page・新しい .out / md・subpage）/ `fractal_modify`（ノードの変更・ページ化 / 解除 / md との変換・別の .out / note への移動）/ `fractal_attach`（画像・添付）/ `fractal_tree`（ツリーの rename / delete / move / create-folder / duplicate / move-to-note）/ `fractal_md_edit`（md の replace / insert-at / set-h1）
+- 検査: `fractal_doctor`（読むだけ。参照切れ・孤児（UI の Cleanup と同じ判定）・ツリーの整合）
+
+### MCP で書くときの決まり（spec 20261027-1700-mcp-full-ops）
+
+1. **対象を特定してから書く**: `fractal_resolve` か `fractal_get` で絶対パス・id と `contentHash` を得る。ノード・項目・見出しは本文 / タイトルでも指定できるが、既定は**完全一致**（`match: "prefix" | "contains"` で緩める）。2 件以上に一致したら書かずに `AMBIGUOUS`（`candidates` に id・本文・パンくず）を返すので、id で指定し直すかユーザーに選んでもらう。0 件は `NOT_FOUND`（`suggestions` 付き）
+2. **楽観ロック**: 書き込み系に `expectedHash`（読んだときの contentHash）を付ける。今の内容と違えば何も書かずに `CONFLICT`（`currentHash` 付き）→ 読み直してやり直す。付けないと書けるが返り値に `lock: "none"` と出る
+3. **返り値で次へ**: `nodeId` / `pageId` / `itemId` / `absPath` と、変えたファイルの `changed: [{ absPath, contentHash }]`・作ったファイルの `created`・ゴミ箱へ移した `trashed` が返る。続けて書くときは `changed` の contentHash を次の expectedHash に使える
+4. **位置**: `position` は画面と同じ。`child`（既定）= 基準ノードの子の**末尾**（基準が無ければルートの末尾）/ `first` = 子の先頭 / `after` / `before` = 兄弟。md の中は `heading`（見出しのテキストか `親 > 子` のパス）と `mdPosition: end | start`
+5. **削除はゴミ箱へ**: `delete` / `unpage` / 別の note への移動は、その操作で**新たに**どこからも参照されなくなった page md・画像・添付・subpage を OS のゴミ箱へ移す（前からあった孤児には触らない。完全削除はしない。ゴミ箱が使えない環境では `TRASH_UNAVAILABLE` で拒否）。`dryRun: true` なら何も書かずに、Notes フォルダの写しで同じ処理をした結果（changed / created / trashed）だけを返す
+6. **書き込みは Notes フォルダ（outline.note のあるフォルダ）の中だけ**: 外を指すパス・`..`・`.out` の imageDir が外、などは `OUTSIDE_NOTES`。書き込みは tmp に書いてから rename（途中で落ちても元のファイルは壊れない）、途中で失敗したらその操作でコピーしたファイルを片付ける
+7. 中身の処理は拡張機能と同じ関数（src/shared の正典と webview の OutlinerModel）を通るので、tags（#tag）・taskMode の checkbox・page md の H1 同期・📎 添付リンクの書式・ファイル名の安全化は画面と同じになる
+
+エラーは `isError: true` + `{ ok: false, error: { code, message, ... } }`。code: `CONFLICT` / `AMBIGUOUS` / `NOT_FOUND` / `OUTSIDE_NOTES` / `INVALID` / `TRASH_UNAVAILABLE` / `FAILED`。
 
 ---
 
@@ -231,10 +242,12 @@ fractal 本体の読み取りは legacy fallback を持つが、**外部ツー�
 - ページノードが参照する本文 Markdown
 - **タイトル ↔ H1 は双方向同期**（v0.212 世代）: 先頭 H1 を書き換えるとツリー側の title に反映され、逆も同期される。H1 抽出は CommonMark 準拠（`# C#` の末尾 `#` はタイトルの一部・閉じ `#` は空白前置時のみ。正典 `src/shared/md-h1-utils.ts`）
 - 画像参照 `![alt](path)` のパスは **md ファイルの場所からの相対パス**（フラットでは `images/foo.png`）
-- **subpage リンク**: `[[label]](x.md)` 形式（通常リンクと区別される Fractal 独自記法）。相対 url は `dirname(現md)` 基準で解決。**label に `]` は使えない**（パーサが最初の `]` で label を切る）— 生成時は `]`/`[` を全角 `］`/`［` に置換する（clipper / fractal-md `--target-md` は自動でやる）
+- **subpage リンク**: `[[label]](x.md)` 形式（通常リンクと区別される Fractal 独自記法）。相対 url は `dirname(現md)` 基準で解決。**label に `]` は使えない**（パーサが最初の `]` で label を切る）— 生成時は `]`/`[` を全角 `］`/`［` に置換する（clipper / `fractal_add` の targetMd は自動でやる）
+- **添付リンク**: `[📎 名前](files/名前)`（📎 で始まるリンクだけを Fractal は添付として扱う。UI の Cleanup も 📎 リンクだけを添付の参照として数えるので、📎 の無い `[名前](files/..)` で書くと添付が孤児と判定されて消される）。画像は `![](images/..)`。`fractal_attach` の targetMd はこの書式で書く
+- md のファイル名・添付名に `[` `]` `?` `#` や対応の取れない括弧があるとリンクが壊れる（`fractal_attach` は `_` に置き換える）。subpage の md 名に空白があると UI の Cleanup が孤児と誤判定するので、空白の無い名前にする（`fractal_doctor` が WARN で知らせる）
 - subpage は独立 md からも page md からも張れる（`fractal_summary` の md はこれを再帰的に辿る）
 - テーブルはセル内改行を `<br>` で平坦化する独自正規化あり（`src/shared/markdown-import.ts` `normalizeMultiLineTableCells`）
-- `fractal-md` スクリプトの MD 取り込みも同等処理を行う
+- `fractal_add` の md 取り込みも同じ処理（正典 `importMdFilesCore`）を行う。md の画像・📎 添付・subpage と、ローカルファイルへのプレーンリンク（📎 にしてから）を Notes フォルダへ複製して書き換える（md と同じフォルダより外を指す参照は複製しない）
 
 ---
 
@@ -277,18 +290,18 @@ Electron 側は `~/Library/Application Support/fractal-desktop/config.json` の�
   - Page MD 内 `![]()` / `[]()` → md ファイルの場所基準 (フラットでは同じく `images/foo.png`)
   - 混同すると画像表示されない/リンク切れになる（legacy note では基準 dir が異なるので注意）
 - **ファイル名ユニーク化**: 画像は `image_<Date.now()>_<rand>.<ext>`、ファイル添付は元ファイル名 + 衝突時 `-1`/`-2` サフィックス
-- **`.out` を VSCode/Electron で開いた状態で外部から書き換えない**: 競合する（Claude Code が書く前に閉じてもらう）
+- **`.out` / md を VSCode/Electron で開いた状態で外部から書くとき**: MCP の書き込みは `expectedHash` で「読んでから変わっていないか」を確かめる（変わっていれば CONFLICT）。開いている画面は外部の変更を取り込むが、念のため大きな変更の前はユーザーに保存してもらう
 
 ---
 
 ## 10. Claude Code がファイル操作する時のチェックリスト
 
-1. 対象 Notes フォルダを確定（§1 の順で解決、曖昧ならユーザーに確認）
-2. **書き込みは JSON 手編集より fractal MCP の tool を優先**（`fractal_add` / `fractal_attach` / `fractal_modify` が相互排他・ID 採番・パス規約を守ってくれる）。手編集が必要なのはスクリプトが対応しない操作だけ
-3. 未移行の可能性がある note は先に `fractal_doctor` でプリフライト（layout WARN が出たら本体の移行ゲートでフラット化してもらう）
-4. 書き込む前に、そのファイルがエディタで開かれていないかユーザーに確認（推奨）
-5. 手編集する場合: ID は既存と衝突しないように（Node ID は `n` + 時刻 + ランダム、Page ID は `crypto.randomUUID()`）、optional フィールド（noteTitle / favorites / history 等）を消さない、書き込み後は JSON 再 parse で検証
-6. 親ノードを text 指定で探すときは完全一致 → 部分一致の順
+1. 対象 Notes フォルダを確定（§1 の順で解決、曖昧ならユーザーに確認）。`fractal_resolve` / `fractal_list_notes` で絶対パスを得る
+2. **書き込みは JSON 手編集より fractal MCP の tool を使う**（`fractal_add` / `fractal_attach` / `fractal_modify` / `fractal_tree` / `fractal_md_edit` が相互排他・ID 採番・パス規約・タイトル同期・ゴミ箱を守ってくれる）。手編集はしない
+3. 書く前に `fractal_get` で contentHash を取り、`expectedHash` に付ける（CONFLICT なら読み直す）
+4. 未移行の可能性がある note は先に `fractal_doctor` でプリフライト（layout WARN が出たら本体の移行ゲートでフラット化してもらう）
+5. 削除・移動・ページ解除は `dryRun: true` で何が変わるか（trashed）を確かめてから
+6. ノード・項目を本文 / タイトルで指定するときは完全一致が既定。AMBIGUOUS なら candidates の id を使うかユーザーに選んでもらう（推測で選ばない）
 
 ---
 
@@ -304,12 +317,14 @@ Electron 側は `~/Library/Application Support/fractal-desktop/config.json` の�
 
 ---
 
-## tools を使うときの注意（旧 fractal-edit / fractal-search / fractal-doctor の SKILL.md から）
+## tools を使うときの注意
 
-- 対象の `.out` を Fractal（VSCode / Electron）で**開いたまま外部から書き込まない**（競合して壊れる）。ノード ID・Page ID は tool が採番する（手書きしない）
-- `parent` / `target` は ID か本文で指定する。見つからなければエラーで止まり、勝手に root にフォールバックしない。曖昧ならノード ID を使うかユーザーに確認する
-- `fractal_modify` の delete は物理ファイル（page md / 画像 / 添付）を消さない。残骸は `fractal_doctor` の orphans で確認し、消すかはユーザーが決める。破壊的な操作の前は `dryRun: true` で確かめられる
-- md を page として取り込むと、md 内のローカルリンク（PDF / CSV / 他 md）は `<outDir>/files/` にコピーされ相対パスに書き換わる（URL・anchor・存在しないファイルはそのまま）
-- `fractal_doctor` は書き込まない。修復は結果をユーザーと相談してから
+- ノード ID・Page ID・item ID は tool が採番する（手書きしない）。返り値の id を次の操作に使う
+- `parent` / `target` / `item` / `heading` は ID か本文 / タイトルで指定する（既定は完全一致）。見つからなければ NOT_FOUND、複数なら AMBIGUOUS で止まり、勝手に root や先頭にフォールバックしない
+- `fractal_modify` の delete / unpage と `fractal_tree` の delete は、その操作で参照されなくなった page md・画像・添付を OS のゴミ箱へ移す（戻せる）。`dryRun: true` で先に確かめられる
+- `fractal_modify` の page-to-md は画面と同じく元のノードを空のノードとして残す（要らなければ delete）。md-to-page は md item をツリーから外して page にする
+- 別の note への移動（`fractal_modify` move + toOut / `fractal_tree` move-to-note）は page md・画像・添付・subpage を移動先へ複製してから、移動元で参照されなくなった実体を片付ける
+- md を page として取り込むと、md 内の画像・📎 添付・ローカルファイルへのリンク・subpage は Notes フォルダへコピーされ相対パスに書き換わる（URL・anchor・存在しないファイル・md のフォルダより外の参照はそのまま）
+- `fractal_doctor` は書き込まない。孤児の判定は UI の Cleanup（Clean Unused Files）と同じ。修復は結果をユーザーと相談してから
 - `fractal_search` はバイナリ添付の中身を検索しない（パスだけ。docx / pptx / xlsx / pdf は抽出して検索）。`outline.note` のフォルダ階層は結果に反映しない
-- 各 tool の実体は `mcp/scripts/*.mjs`（CLI として直接実行もできる。`node <script> --help`）
+- サーバーの実体は `mcp/dist/server.mjs`（`npm run compile` / `node mcp/build.mjs` で作る bundle。SDK・zod・src/shared の正典を含む）。`mcp/server.mjs` はソースの入口で、直接は起動できない

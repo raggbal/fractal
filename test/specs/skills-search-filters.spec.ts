@@ -2,7 +2,9 @@
  * ai_skills 検索強化 unit — sprint 20260727-065214-clipper-i18n-skills-search
  * TC-SS-01〜11 (testcases.md §B)
  *
- * - H1 ミラー 3 者一致（正典 out/shared/md-h1-utils.js vs search mjs vs md mjs）= ADRL-0002 の番人
+ * - H1: spec 20261027-1700-mcp-full-ops D9 で mjs の H1 ミラー（search / md）を廃止し、fractal-search.mjs は正典
+ *   out/shared/md-h1-utils.js をそのまま使う（ADRL-0020 のミラー部分を上書き）。旧「3 者一致」の番人は
+ *   「ミラーが無く正典を通っている」ことの番人に置き換えた
  * - --outline-name / --h1 / AND 合成（searchFolder を fixture で直接駆動）
  * - mjs は import guard 済み（import で main() が走らない）
  *
@@ -16,16 +18,14 @@ import * as path from 'path';
 
 const ROOT = path.resolve(__dirname, '../..');
 const SEARCH_MJS = path.join(ROOT, 'mcp/scripts/fractal-search.mjs');
-const MD_MJS = path.join(ROOT, 'mcp/scripts/fractal-md.mjs');
 const CANON = path.join(ROOT, 'out/shared/md-h1-utils.js');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let search: any, fmd: any, canon: any;
+let search: any, canon: any;
 
 test.beforeAll(async () => {
     expect(fs.existsSync(CANON), 'out/shared/md-h1-utils.js が必要（npm run compile）').toBe(true);
     search = await import(SEARCH_MJS);
-    fmd = await import(MD_MJS);
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     canon = require(CANON);
 });
@@ -81,54 +81,47 @@ function runCli(args: string[]): { code: number; stdout: string } {
     }
 }
 
-test.describe('H1 ミラー（ADRL-0002）', () => {
-    test('TC-SS-01 ★load-bearing: 3 者一致（正典 ts / search mjs / md mjs）', () => {
-        const inputs = [
-            '# C#', '# F# and C#', '# Title #', '# Title ###', '#NoSpace',
-            '# .gitignore #', '#  spaced  ', '## H2 not H1', 'plain line', '# CR line\r',
-        ];
-        for (const line of inputs) {
-            const a = canon.parseAtxH1Text(line);
-            const b = search.parseAtxH1TextMjs(line);
-            const c = fmd.parseAtxH1TextMjs(line);
-            expect(b, `search mjs mismatch for ${JSON.stringify(line)}`).toBe(a);
-            expect(c, `md mjs mismatch for ${JSON.stringify(line)}`).toBe(a);
-        }
-        // 本文レベル（フェンス skip + CRLF）も 3 者一致
+test.describe('H1 は正典（D9: mjs ミラー廃止）', () => {
+    test('TC-SS-01 ★load-bearing: fractal-search.mjs は H1 ミラーを持たず、正典 md-h1-utils と同じ結果', () => {
+        // ミラーの関数は無い（廃止）
+        expect(search.parseAtxH1TextMjs).toBeUndefined();
+        expect(search.extractFirstH1Mjs).toBeUndefined();
+        const src = fs.readFileSync(SEARCH_MJS, 'utf-8');
+        expect(src).toContain("from '../../out/shared/md-h1-utils.js'");
+        expect(src, 'ATX 見出しの独自 regex が残っている').not.toMatch(/#\[ \\t\]\+\(\.\*\)/);
+        // --h1 フィルタは正典 extractFirstH1 の結果に対する部分一致
         const bodies = [
-            '```\n# fake\n```\n\n# Real H1\n', 'no heading here\n',
-            '# First\n\n# Second\n', 'text\r\n# CRLF H1\r\nbody\r\n',
+            '```\n# fake\n```\n\n# Real H1\n', 'no heading here\n', '# First\n\n# Second\n',
+            'text\r\n# CRLF H1\r\nbody\r\n', '# C#\n', '# F# and C#\n', '# Title #\n', '# .gitignore #\n',
         ];
         for (const md of bodies) {
-            const a = canon.extractFirstH1(md);
-            const b = search.extractFirstH1Mjs(md);
-            const c = fmd.extractFirstH1Mjs(md);
-            expect(b, `search mjs body mismatch`).toBe(a);
-            expect(c, `md mjs body mismatch`).toBe(a);
+            const h1 = canon.extractFirstH1(md);
+            if (h1 === null) { expect(search.matchesH1Filter(md, 'x'), JSON.stringify(md)).toBe(false); continue; }
+            expect(search.matchesH1Filter(md, h1), JSON.stringify(md)).toBe(true);
+            expect(search.matchesH1Filter(md, h1 + '__never__'), JSON.stringify(md)).toBe(false);
         }
     });
 
-    test('TC-SS-02 extractFirstH1Mjs: フェンス skip・最初のみ・無ければ null', () => {
-        expect(search.extractFirstH1Mjs('```\n# in fence\n```\n# After\n')).toBe('After');
-        expect(search.extractFirstH1Mjs('# One\n# Two\n')).toBe('One');
-        expect(search.extractFirstH1Mjs('## only h2\nbody\n')).toBe(null);
+    test('TC-SS-02 --h1 フィルタ: フェンス skip・最初の H1 だけ・H1 が無ければ一致しない', () => {
+        expect(search.matchesH1Filter('```\n# in fence\n```\n# After\n', 'After')).toBe(true);
+        expect(search.matchesH1Filter('```\n# in fence\n```\n# After\n', 'in fence')).toBe(false);
+        expect(search.matchesH1Filter('# One\n# Two\n', 'Two')).toBe(false);
+        expect(search.matchesH1Filter('## only h2\nbody\n', 'only')).toBe(false);
     });
 
-    test('TC-SS-10 ★load-bearing counterfactual: 旧簡易 regex はフェンス内 H1 を誤検出（新実装は正しい）', () => {
+    test('TC-SS-10 ★load-bearing counterfactual: 旧簡易 regex はフェンス内 H1 を誤検出（正典は正しい）', () => {
         const md = '```\n# fake heading in fence\n```\n\n# C#\n\nbody\n';
-        // 旧実装（fractal-md の置換前ロジック）を再現 → 'fake heading in fence' を返す = バグ
         const legacyMatch = md.match(/^# (.+)$/m);
-        const legacy = legacyMatch ? legacyMatch[1].trim() : null;
-        expect(legacy).toBe('fake heading in fence'); // pre-fix はフェンス内を拾う（RED 相当の実証）
-        // 新実装（正典ミラー）は実 H1 を返し、末尾 # も保持
-        expect(fmd.extractFirstH1Mjs(md)).toBe('C#');
+        expect(legacyMatch ? legacyMatch[1].trim() : null).toBe('fake heading in fence');
+        expect(canon.extractFirstH1(md)).toBe('C#');
+        expect(search.matchesH1Filter(md, 'C#')).toBe(true);
+        expect(search.matchesH1Filter(md, 'fake')).toBe(false);
     });
 
     test('TC-SS-11 import 副作用なし（import guard 維持）: export が関数として取得でき main が走っていない', () => {
-        expect(typeof search.parseAtxH1TextMjs).toBe('function');
         expect(typeof search.matchesH1Filter).toBe('function');
         expect(typeof search.matchesOutlineName).toBe('function');
-        expect(typeof fmd.extractFirstH1Mjs).toBe('function');
+        expect(typeof search.main).toBe('function');
     });
 
     test('TC-SS-12 ★load-bearing: symlink 経由の CLI 実行で main が走る（TASK-B5 guard realpath 対応）', () => {
@@ -146,13 +139,10 @@ test.describe('H1 ミラー（ADRL-0002）', () => {
             const out = execFileSync('node', [link, '--list-folders'], { encoding: 'utf-8' });
             expect(out.length).toBeGreaterThan(0);                    // 旧 guard: '' = RED
             expect(out).toContain('Discovered Fractal notes folders'); // main が実際に走った
-            // 全 6 mjs の guard が realpath 対応版に統一されていることを静的確認
+            // 残っている CLI の mjs（search / summary）の guard が realpath 対応版であることを静的確認
+            //（書き込みと doctor の mjs は spec 20261027-1700 で mcp/src へ置き換えて廃止）
             const mjsFiles = [
                 'mcp/scripts/fractal-search.mjs',
-                'mcp/scripts/fractal-md.mjs',
-                'mcp/scripts/fractal-attach.mjs',
-                'mcp/scripts/fractal-modify.mjs',
-                'mcp/scripts/fractal-doctor.mjs',
                 'mcp/scripts/fractal-summary.mjs',
             ];
             for (const f of mjsFiles) {

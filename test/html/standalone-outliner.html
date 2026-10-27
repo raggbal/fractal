@@ -10012,6 +10012,13 @@ class EditorInstance {
 
     let editingIdleTimer = null;
     let queuedExternalContent = null; // Queued external change waiting for idle
+    // AC-6（spec 20261027-1700-mcp-full-ops D3）: 取り込み待ちの外部変更の基準（host が externalBase を
+    // 付けたときだけ。undefined = 基準なし = 従来どおり置き換え）。基準があると、取り込みは
+    // 「画面の未送信の編集」と 3-way で合成し（src/shared/external-merge.js）、入力中に送る内容にも重ねる。
+    let queuedExternalBase = undefined;
+    // AC-6: 最後に host へ送った内容（sent）と、そのときの画面の内容（ours）。入力中は sent に外部の変更が
+    // 重なっているので、host が sent を次の外部変更の基準として返したら画面の基準は ours に読み替える。
+    let lastSyncPair = null;
     const EDITING_IDLE_TIMEOUT = 1500; // 1.5 seconds of inactivity = idle
 
     // v0.195.720: standalone toolbar 翻訳ビュー (editor 自身を一時的に翻訳結果に置換)
@@ -26699,7 +26706,7 @@ class EditorInstance {
         // side-panel page can fire after navigation and write the current
         // (visible) markdown to the OLD bridge's filePath.
         if (self._destroyed) return;
-        host.syncContent(markdown);
+        _syncToHost(markdown);
         updateOutline();
         updateWordCount();
         updateStatus();
@@ -26713,7 +26720,7 @@ class EditorInstance {
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => {
             if (self._destroyed) return;
-            host.syncContent(markdown);
+            _syncToHost(markdown);
             updateOutline();
             updateWordCount();
             updateStatus();
@@ -26758,6 +26765,85 @@ class EditorInstance {
         }, EDITING_IDLE_TIMEOUT);
     }
 
+    // --- AC-6: 外部変更の 3-way 取り込み（src/shared/external-merge.js が正典） ---
+
+    function _getExternalMerge() {
+        return (typeof window !== 'undefined' && window.ExternalMerge) ? window.ExternalMerge : null;
+    }
+
+    function _normalizeIncomingMd(s) {
+        s = s || '';
+        if (s.charCodeAt(0) === 0xFEFF) { s = s.slice(1); }
+        return s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    }
+
+    function _sameMd(a, b) {
+        return String(a || '').replace(/\n+$/, '') === String(b || '').replace(/\n+$/, '');
+    }
+
+    function _currentMarkdown() {
+        return isSourceMode ? sourceEditor.value : htmlToMarkdown();
+    }
+
+    /** host の基準（externalBase）を画面にとっての基準に読み替える */
+    function _effectiveExternalBase(base) {
+        // 取り込み待ちの外部変更の上にさらに外部変更が来た → 画面の基準は最初のもののまま
+        if (queuedExternalContent !== null && queuedExternalBase !== undefined && base === queuedExternalContent) {
+            return queuedExternalBase;
+        }
+        // host の基準 = 入力中に送った「外部の変更を重ねた内容」→ 画面の基準はそのときの画面の内容
+        if (lastSyncPair && base === lastSyncPair.sent) {
+            return lastSyncPair.ours;
+        }
+        return base;
+    }
+
+    /**
+     * host への保存の唯一の口。取り込み待ちの外部変更（基準付き）があるときは、画面の内容に外部の変更を
+     * 重ねた内容を送る（入力中の古い内容で外部の変更を上書きしない）。画面は idle / blur で取り込む。
+     */
+    function _syncToHost(md) {
+        var toSend = md;
+        var em = _getExternalMerge();
+        if (em && queuedExternalContent !== null && queuedExternalBase !== undefined) {
+            toSend = em.mergeText(queuedExternalBase, md, queuedExternalContent).text;
+        }
+        lastSyncPair = { sent: toSend, ours: md };
+        host.syncContent(toSend);
+    }
+
+    function _applyMarkdownToView(content) {
+        markdown = content;
+        if (isSourceMode) {
+            sourceEditor.value = markdown;
+        } else {
+            updateFromMarkdown();
+        }
+        updateOutline();
+        updateWordCount();
+        updateStatus();
+    }
+
+    /**
+     * 基準付きの外部変更を画面に取り込む: 画面の内容と 3-way で合成して表示し、
+     * 画面の未送信の編集が入ったときは合成結果を保存する。画面と同じなら何もしない（undo を消さない）。
+     * @returns {boolean} 画面を書き換えたか
+     */
+    function _applyExternalWithBase(base, incoming) {
+        var em = _getExternalMerge();
+        var current = _currentMarkdown();
+        if (_sameMd(current, incoming)) { lastSyncPair = { sent: incoming, ours: current }; return false; }
+        var merged = (!em || _sameMd(current, base)) ? incoming : em.mergeText(base, current, incoming).text;
+        if (_sameMd(merged, current)) { return false; }
+        _applyMarkdownToView(merged);
+        if (!_sameMd(merged, incoming) && !self._destroyed) {
+            _syncToHost(merged);
+        } else {
+            lastSyncPair = { sent: incoming, ours: merged };
+        }
+        return true;
+    }
+
     /**
      * Apply queued external change with cursor preservation.
      */
@@ -26765,6 +26851,15 @@ class EditorInstance {
         if (queuedExternalContent === null) return;
         // v0.195.720: 翻訳ビュー中は DOM 反映を保留 (closeTranslationView で再適用される)
         if (translationViewActive) return;
+        if (queuedExternalBase !== undefined && _getExternalMerge()) {
+            var qBase = queuedExternalBase;
+            var qContent = queuedExternalContent;
+            queuedExternalContent = null;
+            queuedExternalBase = undefined;
+            logger.log('[Any MD] applying queued external change (3-way)');
+            _applyExternalWithBase(qBase, qContent);
+            return;
+        }
 
         logger.log('[Any MD] applying queued external change');
         markdown = queuedExternalContent;
@@ -26990,7 +27085,7 @@ class EditorInstance {
             clearTimeout(syncTimeout);
             if (hasUserEdited) {
                 markdown = htmlToMarkdown();
-                host.syncContent(markdown);
+                _syncToHost(markdown);
             }
             host.save();
             hasUserEdited = false;
@@ -28124,9 +28219,25 @@ class EditorInstance {
             }
             incomingContent = incomingContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
+            // AC-6: host が基準（externalBase）を付けた外部変更 → 画面の未送信の編集と 3-way で取り込む
+            if (typeof message.externalBase === 'string' && _getExternalMerge()) {
+                var effBase = _effectiveExternalBase(_normalizeIncomingMd(message.externalBase));
+                if (isActivelyEditing) {
+                    queuedExternalContent = incomingContent;
+                    queuedExternalBase = effBase;
+                    logger.log('[Any MD] update queued (3-way): user is actively editing');
+                    return;
+                }
+                if (_applyExternalWithBase(effBase, incomingContent)) {
+                    undoManager.clear();
+                }
+                return;
+            }
+
             // Active editing guard: queue external changes while user is typing
             if (isActivelyEditing) {
                 queuedExternalContent = incomingContent;
+                queuedExternalBase = undefined;
                 logger.log('[Any MD] update queued: user is actively editing');
                 return;
             }
@@ -29598,7 +29709,7 @@ class EditorInstance {
                 } else {
                     markdown = htmlToMarkdown();
                 }
-                host.syncContent(markdown);
+                _syncToHost(markdown);
             } catch (_e) { /* host 未接続時は無視 */ }
         }
 
@@ -32150,7 +32261,7 @@ class EditorInstance {
         if (!isSourceMode && hasUserEdited && (pendingSync || isActivelyEditing)) {
             clearTimeout(syncTimeout);
             markdown = htmlToMarkdown();
-            host.syncContent(markdown);
+            _syncToHost(markdown);
             didFlushUserEdit = true;
             // Fix A (sprint v14, hotfix): user の最新 typing が「真」。 cross-edit から
             // 来ていた古い queue を破棄して、後続の applyQueuedExternalChange による
@@ -32159,7 +32270,9 @@ class EditorInstance {
             //   の sidePanelManager listener / editorProvider listener は不変なので、
             //   別 editor への cross-edit forward は維持される。drop された queue 内容
             //   は cross-edit の round-trip で次の event 時に再到来する。
-            queuedExternalContent = null;
+            // AC-6: 基準付きの外部変更は捨てない（flush した内容に重ねて送り済み。下で画面にも合成して取り込む。
+            //   合成は画面の入力を残すので v14 の巻き戻りは起きない）。基準なし（従来の cross-edit）は Fix A のまま。
+            if (queuedExternalBase === undefined) { queuedExternalContent = null; }
         }
 
         // Force idle state on blur
@@ -32171,7 +32284,7 @@ class EditorInstance {
         // Apply queued external changes only if user did NOT just flush.
         // Flushing implies user typing is the truth; queue would be stale
         // cross-edit content, applying it would cause the rollback bug.
-        if (!didFlushUserEdit) {
+        if (!didFlushUserEdit || queuedExternalBase !== undefined) {
             applyQueuedExternalChange();
         }
     });
@@ -32199,10 +32312,11 @@ class EditorInstance {
         var didFlushUserEditSrc = false;
         if (isSourceMode && hasUserEdited && (sourceEditor.value !== markdown || isActivelyEditing)) {
             markdown = sourceEditor.value;
-            host.syncContent(markdown);
+            _syncToHost(markdown);
             didFlushUserEditSrc = true;
             // Fix A (sprint v14): editor.blur と同等の queue drop。詳細はそちらのコメント参照
-            queuedExternalContent = null;
+            // AC-6: 基準付きの外部変更は捨てずに下で合成して取り込む（editor.blur と同じ）
+            if (queuedExternalBase === undefined) { queuedExternalContent = null; }
         }
 
         clearTimeout(editingIdleTimer);
@@ -32210,7 +32324,7 @@ class EditorInstance {
         host.reportEditingState(false);
         host.reportBlur();
 
-        if (!didFlushUserEditSrc) {
+        if (!didFlushUserEditSrc || queuedExternalBase !== undefined) {
             applyQueuedExternalChange();
         }
     });
@@ -32241,11 +32355,16 @@ class EditorInstance {
                 clearTimeout(syncTimeout);
                 markdown = htmlToMarkdown();
             }
-            host.syncContent(markdown);
+            _syncToHost(markdown);
             // Fix A (sprint v14): visibility hidden での flush も blur と同様に
             // queue を drop。後続の applyQueuedExternalChange は元々呼んでいないので
             // queue だけ捨てて DOM 巻き戻しの原因経路を断つ。
-            queuedExternalContent = null;
+            // AC-6: 基準付きの外部変更は捨てずに合成して取り込む（flush した内容には重ねて送り済み）
+            if (queuedExternalBase === undefined) {
+                queuedExternalContent = null;
+            } else {
+                applyQueuedExternalChange();
+            }
         }
     };
 
@@ -40696,6 +40815,10 @@ var Outliner = (function() {
     var isActivelyEditing = false;
     var editingIdleTimer = null;
     var queuedExternalUpdate = null;
+    // AC-6（spec 20261027-1700-mcp-full-ops D3）: 最後に host へ送った内容と、そのときの画面のモデル。
+    // 入力中は「外部の変更を重ねた内容」を送るので sent と ours が違う。host が次の外部変更の基準として
+    // sent を返してきたら、画面にとっての基準は ours（画面はまだ外部の変更を取り込んでいない）。
+    var lastSyncPair = null;
     var EDITING_IDLE_TIMEOUT = 1500;
 
     // --- Navigation history (Back/Forward) ---
@@ -50284,9 +50407,74 @@ var Outliner = (function() {
 
     function applyQueuedExternalUpdate() {
         if (queuedExternalUpdate === null) return;
-        var data = queuedExternalUpdate.data;
+        var q = queuedExternalUpdate;
         queuedExternalUpdate = null;
-        applyExternalUpdate(data);
+        if (q.base === undefined || !getExternalMerge()) {
+            applyExternalUpdate(q.data);
+            return;
+        }
+        applyMergedExternalUpdate(q);
+    }
+
+    // --- AC-6: 外部変更の 3-way 取り込み（src/shared/external-merge.js が正典） ---
+
+    function getExternalMerge() {
+        return (typeof window !== 'undefined' && window.ExternalMerge) ? window.ExternalMerge : null;
+    }
+
+    function parseJsonOrNull(s) {
+        if (typeof s !== 'string') return null;
+        try { return JSON.parse(s); } catch (e) { return null; }
+    }
+
+    /** host の基準（externalBase）を、画面にとっての基準に読み替える */
+    function effectiveExternalBase(baseStr) {
+        // 取り込み待ちの外部変更の上にさらに外部変更が来た → 画面の基準は最初のもののまま
+        if (queuedExternalUpdate && queuedExternalUpdate.base !== undefined && baseStr === queuedExternalUpdate.content) {
+            return queuedExternalUpdate.base;
+        }
+        // host の基準 = 入力中に送った「外部の変更を重ねた内容」→ 画面の基準はそのときのモデル
+        if (lastSyncPair && baseStr === lastSyncPair.sent) {
+            return lastSyncPair.ours;
+        }
+        return baseStr;
+    }
+
+    /** 画面のモデル（ours）に外部変更（q.data・基準 q.base）を重ねた .out データ */
+    function mergeQueuedExternal(q, oursData) {
+        var em = getExternalMerge();
+        var baseData = parseJsonOrNull(q.base);
+        if (!em || !baseData) return q.data;
+        return em.mergeOutData(baseData, oursData, q.data).data;
+    }
+
+    function handleExternalOutUpdate(msg) {
+        var content = (typeof msg.externalContent === 'string') ? msg.externalContent : JSON.stringify(msg.data, null, 2);
+        var base = effectiveExternalBase(msg.externalBase);
+        queuedExternalUpdate = { data: msg.data, content: content, base: base };
+        // 入力中は画面を書き換えない（caret / IME を壊さない）。送る内容には syncToHostImmediate で重ねる
+        if (isActivelyEditing) return;
+        applyQueuedExternalUpdate();
+    }
+
+    function applyMergedExternalUpdate(q) {
+        var em = getExternalMerge();
+        var oursJson = serializeForSave();
+        var ours = parseJsonOrNull(oursJson) || {};
+        var merged = mergeQueuedExternal(q, ours);
+        // 画面が既に同じ（自分の書き込みのはね返り等）→ 何もしない（再描画も undo の消去もしない）
+        if (em.sameOutData(merged, ours)) {
+            lastSyncPair = { sent: q.content, ours: oursJson };
+            return;
+        }
+        applyExternalUpdate(merged);
+        var after = serializeForSave();
+        if (!em.sameOutData(merged, q.data)) {
+            // 画面の未送信の編集が入った → 合成した内容を disk へ
+            syncToHostImmediate();
+        } else {
+            lastSyncPair = { sent: q.content, ours: after };
+        }
     }
 
     // --- ホスト通信 ---
@@ -50475,7 +50663,18 @@ var Outliner = (function() {
         clearTimeout(syncDebounceTimer);
         syncDebounceTimer = null;
         var jsonString = serializeForSave();
-        host.syncData(jsonString);
+        // AC-6: 取り込み待ちの外部変更がある（入力中）→ 画面のモデルをそのまま送ると外部の変更を消す。
+        // 外部の変更を重ねた内容を送る（画面は idle / blur で取り込む）
+        var oursData = (queuedExternalUpdate && queuedExternalUpdate.base !== undefined && getExternalMerge())
+            ? parseJsonOrNull(jsonString) : null;
+        if (oursData) {
+            var mergedJson = JSON.stringify(mergeQueuedExternal(queuedExternalUpdate, oursData), null, 2);
+            host.syncData(mergedJson);
+            lastSyncPair = { sent: mergedJson, ours: jsonString };
+        } else {
+            host.syncData(jsonString);
+            lastSyncPair = { sent: jsonString, ours: jsonString };
+        }
         lastSentJson = jsonString;  // v0.207.40: 送った内容を記録 (= host が disk に書く予定の内容)
     }
 
@@ -50818,6 +51017,16 @@ var Outliner = (function() {
                     // ADR-008: kind === 'md' の updateData は notes webview の markdown
                     // dispatcher が処理する。outliner はノータッチ。
                     if (msg.kind === 'md') {
+                        break;
+                    }
+                    // --- AC-6: 同じファイルの外部変更（基準付き）→ 画面の未送信の編集と 3-way で取り込む ---
+                    // host（NotesFileManager.reconcileExternalOutChange / 保存直前の合成）が送る。fileChangeId は
+                    // 古い syncData を host で落とすためのもので、ファイル切替ではない（undo / 検索 / スコープを保つ）。
+                    if (typeof msg.externalBase === 'string' && model && getExternalMerge()
+                        && (msg.outFileKey === undefined || msg.outFileKey === null || !currentOutFileKey
+                            || msg.outFileKey === currentOutFileKey)) {
+                        if (msg.outFileKey) { currentOutFileKey = msg.outFileKey; }
+                        handleExternalOutUpdate(msg);
                         break;
                     }
                     // file identity を先に反映 (同一性判定の唯一の根拠)

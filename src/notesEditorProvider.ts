@@ -59,6 +59,7 @@ import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboar
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
 import { moveSubtreeToOtherOut, OutDoc } from './shared/out-node-move';
+import { importMdItemIntoOutCore, importOutPageNodeAsMdCore, moveOutNodesIntoOtherOutCore } from './shared/notes-ops-core';
 import { buildLlmsTxt, LlmsTxtTreeNode } from './shared/llms-txt-builder';
 import {
     toMarkdownPath,
@@ -2518,72 +2519,13 @@ export class NotesEditorProvider {
             },
             notesImportMdIntoOut: async (mdFileId: string, targetOutId: string, senderRef: NotesSender, targetNodeId?: string | null, position?: string | null, suppressToast?: boolean) => {
                 try {
-                    const mdSourcePath = fileManager.getFilePathById(mdFileId);
-                    const outFilePath = fileManager.getFilePathById(targetOutId);
-                    if (!mdSourcePath || !outFilePath) return false;
-                    if (!fs.existsSync(mdSourcePath) || !fs.existsSync(outFilePath)) return false;
-                    if (!outFilePath.endsWith('.out')) return false;
+                    // fs 部分（pageDir 解決 → md を page 化 → page node 挿入 → .out 保存 → md item をツリーから外す）は
+                    // 正典 notes-ops-core.importMdItemIntoOutCore（MCP の md-to-page と同じ関数。spec 20261027-1700 D1）
+                    const r = importMdItemIntoOutCore(fileManager, mdFileId, targetOutId, targetNodeId ?? null, position ?? null);
+                    if (!r) return false;
+                    const { outFilePath, outData } = r;
 
-                    // 1. 対象 .out の json 読込 + pageDir 解決 (target が currentFile でなくても解決できる)
-                    // US-08 (sprint 20260804-145603): 自前計算（legacy <outDir>/<stem>/ default）を
-                    // 正典 flat-layout.resolvePagesDir に置換（flat note では note 直下を返す =
-                    // 本体の page 読み取りと同じ解決。ミラー実装乖離の教訓 designer_failures 2026-07-26）。
-                    const outRaw = fs.readFileSync(outFilePath, 'utf8');
-                    const outData = JSON.parse(outRaw);
-                    const pagesDir = resolvePagesDir(outFilePath, fileManager.getMainFolderPath(), {
-                        pageDir: outData.pageDir,
-                        imageDir: outData.imageDir,
-                        fileDir: outData.fileDir,
-                    });
-                    const imagesDir = fileManager.getOutlinerImageDirPath();
-
-                    // 2. md を page 化する。
-                    // US-08 (sprint 20260804-145603): note 内 D&D で pagesDir が md の現在地と同じ
-                    //（flat 構成の通常ケース）なら、コピー・リネームせず**既存ファイルをそのまま**
-                    // page として参照する（pageId = 既存ファイル名 stem・ファイル名不変）。
-                    // pagesDir が別の場所（legacy pageDir 指定の .out）のときだけ従来どおり import コピー。
-                    let r: { title: string; pageId: string };
-                    if (path.resolve(path.dirname(mdSourcePath)) === path.resolve(pagesDir)) {
-                        const content = fs.readFileSync(mdSourcePath, 'utf8');
-                        r = {
-                            title: resolveSubpageTitle(content, path.basename(mdSourcePath)),
-                            pageId: path.basename(mdSourcePath, '.md'),
-                        };
-                    } else {
-                        const imported = importMdFiles([mdSourcePath], pagesDir, imagesDir);
-                        if (!imported || imported.length === 0) return false;
-                        r = imported[0];
-                    }
-
-                    // 3. page-node を追加。FR-TF-14 (2026-08-10): targetNodeId/position 指定時は
-                    // drop 位置（補助線の位置 = before/after/child）に挿入。省略時は従来の rootIds 先頭
-                    //（tree 内 md→out item の中央 50% 経路 = 後方互換）。
-                    // outliner-model.js と一致するノード構造 (children / parentId / isPage / pageId / 等)
-                    const newNodeId = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-                    outData.nodes = outData.nodes || {};
-                    outData.rootIds = outData.rootIds || [];
-                    const newNode: Record<string, unknown> = {
-                        id: newNodeId,
-                        parentId: null,
-                        children: [],
-                        text: r.title || '',
-                        tags: [],
-                        isPage: true,
-                        pageId: r.pageId,
-                        collapsed: false,
-                        checked: null,
-                        subtext: '',
-                        images: [],
-                        filePath: null,
-                    };
-                    outData.nodes[newNodeId] = newNode;
-                    insertNodeAtDropPosition(outData, newNodeId, targetNodeId, position);
-
-                    // 4. .out 保存
-                    const newJsonString = JSON.stringify(outData, null, 2);
-                    fs.writeFileSync(outFilePath, newJsonString, 'utf8');
-
-                    // 5. 対象 .out が current file なら updateData で UI 即時反映
+                    // 対象 .out が current file なら updateData で UI 即時反映
                     if (fileManager.getCurrentFilePath() === outFilePath) {
                         fileManager.openFile(outFilePath); // bump fileChangeId + sync lastJsonString
                         senderRef.postMessage({
@@ -2595,9 +2537,7 @@ export class NotesEditorProvider {
                         });
                     }
 
-                    // 6. v0.207.78: outliner cut/paste と同じく「画面上のデータは消す、
-                    // 物理ファイルは消さない」方針に合わせ、コピー元 Notes panel エントリを除去
-                    fileManager.unregisterMdFromStructureOnly(mdFileId);
+                    // v0.207.78: コピー元 Notes panel エントリは core で除去済み → 一覧を再送
                     senderRef.postMessage({
                         type: 'notesFileListChanged',
                         fileList: fileManager.listFiles(),
@@ -3210,72 +3150,23 @@ export class NotesEditorProvider {
                 try {
                     if (!payload || !payload.outFileKey || !payload.pageId) return;
                     const srcOutPath = payload.outFileKey;
-                    if (!srcOutPath.endsWith('.out')) return;
-                    if (!fs.existsSync(srcOutPath)) return;
-
-                    // 1. 元 .out の pageDir を解決。
-                    // (3) 2026-08-05: 自前計算（legacy <outDir>/<stem>/ default）を正典
-                    // flat-layout.resolvePagesDir に置換（flat note では note 直下を返す）。
-                    const outRaw = fs.readFileSync(srcOutPath, 'utf8');
-                    const outData = JSON.parse(outRaw);
-                    const srcPageDir = resolvePagesDir(srcOutPath, fileManager.getMainFolderPath(), {
-                        pageDir: outData.pageDir,
-                        imageDir: outData.imageDir,
-                        fileDir: outData.fileDir,
+                    // fs 部分（pageDir 解決 → H1 でタイトル → ツリー登録 → 元 node を空にする）は
+                    // 正典 notes-ops-core.importOutPageNodeAsMdCore（MCP の page-to-md と同じ関数。spec 20261027-1700 D1）。
+                    // 元 node を空にするのは開いている .out のときだけ（bridge.notesImportOutPageNodeAsMd 側で
+                    // flushOutlinerSync 済 → disk が最新）。従来と同じ条件。
+                    const r = importOutPageNodeAsMdCore(fileManager, payload, parentId, index, {
+                        clearSourceNode: srcOutPath === fileManager.getCurrentFilePath(),
                     });
-
-                    // 2. 安全に <pageDir>/<pageId>.md を解決
-                    const srcMdPath = safeResolveUnderDir(srcPageDir, `${payload.pageId}.md`);
-                    if (!srcMdPath || !fs.existsSync(srcMdPath)) return;
-
-                    // 3. 中身を読み、H1 を抽出 (空 → payload.title → 'Untitled')
-                    const mdContent = fs.readFileSync(srcMdPath, 'utf8');
-                    // H1 抽出は正典 md-h1-utils.extractFirstH1 に一本化する。
-                    // 独自実装は closing hash の**前置空白を要求しない**ため、`# C#` / `# F#` の
-                    // タイトルから末尾の `#` を削っていた（実測: C# → C）。
-                    // 併せて ``` フェンス内の見出しを誤検出する問題も正典側で解決される。
-                    const h1 = extractFirstH1(mdContent) || '';
-                    const fallback = (payload.title || '').trim();
-                    const title = h1 || fallback || 'Untitled';
-
-                    // 4. ツリーへ登録。
-                    // (3) 2026-08-05: 同一 note 内（page md が mainFolder 直下 = flat）なら
-                    // コピー・リネームせず既存ファイルをそのまま登録（id = pageId・ファイル名不変）。
-                    // legacy 配置（サブフォルダ pageDir）のみ従来どおり複製登録。
-                    const isFlatInNote = path.resolve(path.dirname(srcMdPath)) === path.resolve(fileManager.getMainFolderPath());
-                    if (isFlatInNote) {
-                        fileManager.registerExistingMdFile(payload.pageId, title, parentId, index);
-                    } else {
-                        fileManager.registerMarkdownFile(mdContent, title, parentId, index);
-                    }
-
-                    // 5. v0.207.78: outliner cmd+x 単一ノードと同じく「画面上のデータは消す、
-                    // 物理ファイルは消さない」方針。元の page-node の isPage/pageId/text/images
-                    // をクリア (ノード自体は残し、children も保つ)。物理 .md は元の pageDir に残存。
-                    // bridge.notesImportOutPageNodeAsMd 側で flushOutlinerSync 済 → disk が最新。
-                    if (srcOutPath === fileManager.getCurrentFilePath()) {
-                        try {
-                            const freshRaw = fs.readFileSync(srcOutPath, 'utf8');
-                            const freshData = JSON.parse(freshRaw);
-                            const target = freshData.nodes?.[payload.nodeId];
-                            if (target) {
-                                target.isPage = false;
-                                target.pageId = null;
-                                target.text = '';
-                                target.images = [];
-                                fs.writeFileSync(srcOutPath, JSON.stringify(freshData, null, 2), 'utf8');
-                                fileManager.openFile(srcOutPath); // bump fileChangeId + sync lastJsonString
-                                senderRef.postMessage({
-                                    type: 'updateData',
-                                    kind: 'out',
-                                    data: freshData,
-                                    fileChangeId: fileManager.getFileChangeId(),
-                                    outFileKey: srcOutPath,
-                                });
-                            }
-                        } catch (clearErr) {
-                            console.error('[Notes] clear source page-node error:', clearErr);
-                        }
+                    if (!r) return;
+                    if (r.clearedOutData) {
+                        fileManager.openFile(srcOutPath); // bump fileChangeId + sync lastJsonString
+                        senderRef.postMessage({
+                            type: 'updateData',
+                            kind: 'out',
+                            data: r.clearedOutData,
+                            fileChangeId: fileManager.getFileChangeId(),
+                            outFileKey: srcOutPath,
+                        });
                     }
 
                     // 6. webview に最新 fileList + structure を broadcast
@@ -3317,51 +3208,21 @@ export class NotesEditorProvider {
                 try {
                     if (!payload || !payload.outFileKey || !payload.nodeId || !targetOutFilePath) return;
                     const srcOutPath = payload.outFileKey;
-                    if (!srcOutPath.endsWith('.out') || !targetOutFilePath.endsWith('.out')) return;
-                    // 同一 .out への move は no-op（同一 outliner 内の並べ替えは webview 側の tree D&D が担う）
-                    if (srcOutPath === targetOutFilePath) return;
-                    if (!fs.existsSync(srcOutPath) || !fs.existsSync(targetOutFilePath)) return;
-
-                    // 1. src / target の .out json を読む（どちらも currentFile でなくても自前で読む）
-                    const srcData = JSON.parse(fs.readFileSync(srcOutPath, 'utf8')) as OutDoc;
-                    const targetData = JSON.parse(fs.readFileSync(targetOutFilePath, 'utf8')) as OutDoc;
                     // 2026-09-04: 複数選択（nodeIds = 選択集合の root・表示順）。無ければ従来の 1 node
-                    const moveIds = (Array.isArray(payload.nodeIds) && payload.nodeIds.length > 0 ? payload.nodeIds : [payload.nodeId])
-                        .filter((id) => !!(srcData.nodes && srcData.nodes[id]));
-                    if (moveIds.length === 0) return;
+                    const moveIds = Array.isArray(payload.nodeIds) && payload.nodeIds.length > 0 ? payload.nodeIds : [payload.nodeId];
 
-                    // 1.5 HIGH-2 安全ガード: 参照引き継ぎ（物理移動なし）は「src と target が同じ pages/images/files dir を
-                    //     共有する」flat レイアウト前提でのみ成立する。legacy per-id .out 混在等で dir が異なると、
-                    //     参照だけ引き継いでも移動先で解決できず（broken ref）、src 削除で cleanup が物理削除するとデータロス。
-                    //     dir が食い違う場合は abort して警告（物理移動の実装は将来スコープ・データロスを防ぐ安全側）。
-                    const srcHints = { pageDir: srcData.pageDir as string | undefined, imageDir: srcData.imageDir as string | undefined, fileDir: srcData.fileDir as string | undefined };
-                    const tgtHints = { pageDir: targetData.pageDir as string | undefined, imageDir: targetData.imageDir as string | undefined, fileDir: targetData.fileDir as string | undefined };
-                    const dirsShared =
-                        resolvePagesDir(srcOutPath, undefined, srcHints) === resolvePagesDir(targetOutFilePath, undefined, tgtHints) &&
-                        resolveImagesDir(srcOutPath, undefined, srcHints) === resolveImagesDir(targetOutFilePath, undefined, tgtHints) &&
-                        resolveFilesDir(srcOutPath, undefined, srcHints) === resolveFilesDir(targetOutFilePath, undefined, tgtHints);
-                    if (!dirsShared) {
+                    // fs 部分（両 .out 読込 → asset dir 共有の安全ガード → サブツリー転記 → 両 .out 保存）は
+                    // 正典 notes-ops-core.moveOutNodesIntoOtherOutCore（MCP の別 .out への move と同じ関数。spec 20261027-1700 D1）
+                    const r = moveOutNodesIntoOtherOutCore(srcOutPath, targetOutFilePath, moveIds);
+                    if (r.status === 'dirs-differ') {
+                        // HIGH-2 安全ガード: dir が食い違う（legacy per-id .out 混在等）と参照引き継ぎが成立しない
                         vscode.window.showWarningMessage(
                             'Cannot move node: the source and target outliners use different asset folders (legacy layout). This move is not supported yet.'
                         );
                         return;
                     }
-
-                    // 2. 純関数でサブツリー転記（target root 先頭挿入 + src 削除）。
-                    //    dirsShared=true を確認済みなので、pageId/images/filePath の参照文字列を
-                    //    そのまま引き継ぐ（物理移動不要・1:1 所有の付替え）。src 削除でアセット物理ファイルは消さない。
-                    const idSeed = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-                    // moveSubtreeToOtherOut は target root 先頭へ unshift する → 表示順を保つため**逆順**に回す
-                    let moved = 0;
-                    for (let mi = moveIds.length - 1; mi >= 0; mi--) {
-                        const res = moveSubtreeToOtherOut(srcData, targetData, moveIds[mi], idSeed + mi.toString(36));
-                        if (res) moved++;
-                    }
-                    if (moved === 0) return;
-
-                    // 3. 両 .out を保存
-                    fs.writeFileSync(targetOutFilePath, JSON.stringify(targetData, null, 2), 'utf8');
-                    fs.writeFileSync(srcOutPath, JSON.stringify(srcData, null, 2), 'utf8');
+                    if (r.status !== 'moved') return;
+                    const { srcData, targetData } = r;
 
                     // 4. currentFile 側は webview に即時反映（bump fileChangeId + updateData）
                     const currentPath = fileManager.getCurrentFilePath();
@@ -3475,6 +3336,28 @@ export class NotesEditorProvider {
         //   （rollback も壊れうる）。gate は静的画面で watcher は不要。移行成功後 disposeAndReopenNotePanel が
         //   新 panel を作り直し、そこで（flat になった状態で）watcher が張られる。
         if (!needsMigration) {
+        // AC-6（spec 20261027-1700-mcp-full-ops D3）: .out の外部変更（取り込み・保存直前の合成）を webview へ。
+        // externalBase = data が何に対する変更か。webview は画面の未送信の編集と 3-way で合成し、
+        // 入力中の古いモデルで外部の変更を上書きしない（fileChangeId を進めるので古い syncData は stale で落ちる）。
+        fileManager.setExternalOutChangeListener((ev) => {
+            panel.webview.postMessage({
+                type: 'updateData', kind: 'out', data: ev.data, fileChangeId: ev.fileChangeId,
+                outFileKey: fileManager.getCurrentFilePath(),
+                externalBase: ev.base, externalContent: ev.content,
+            });
+        });
+        // AC-6: outline.note を外部（MCP 等）の変更と合成して書いた → tree を描き直す（合成後の watcher イベントは
+        // 自分の書き込みと区別できないため、ここから送る）
+        fileManager.setStructureMergedListener(() => {
+            try {
+                panel.webview.postMessage({
+                    type: 'notesFileListChanged',
+                    fileList: fileManager.listFiles(),
+                    structure: fileManager.getStructureForWebview(),
+                    currentFile: fileManager.getCurrentFilePath(),
+                });
+            } catch { /* panel 破棄後等は無視 */ }
+        });
         const watcherPattern = new vscode.RelativePattern(vscode.Uri.file(folderPath), '*.out');
         const folderWatcher = vscode.workspace.createFileSystemWatcher(watcherPattern);
 
@@ -3495,29 +3378,26 @@ export class NotesEditorProvider {
             }
         };
 
-        disposables.push(folderWatcher.onDidCreate(refreshFileListFromWatcher));
-        disposables.push(folderWatcher.onDidDelete(refreshFileListFromWatcher));
-
         // 現在開いている.outファイルの外部変更検知
-        disposables.push(folderWatcher.onDidChange((uri) => {
+        // AC-6: 自分の書き込み直後（isWriting の 300ms 窓）でもイベントを捨てない（ADRL-0045 — 捨てると
+        // その外部変更は次のイベントまで拾われず、次の UI 保存が上書きする）。自分の書き込みのはね返りかは
+        // reconcileExternalOutChange が中身（最後に読んだ / 書いた内容）で判定し、同じなら何もしない。
+        const onCurrentOutChanged = (uri: vscode.Uri) => {
             const currentFile = fileManager.getCurrentFilePath();
             if (!currentFile) return;
             if (uri.fsPath !== currentFile) return;
-            if (fileManager.getIsWriting()) return;
-
             setTimeout(() => {
                 try {
-                    if (fileManager.getIsWriting()) return;
-                    const content = fs.readFileSync(currentFile, 'utf8');
-                    if (content === fileManager.getLastKnownContent()) return;
-                    const data = JSON.parse(content);
-                    panel.webview.postMessage({ type: 'updateData', data, outFileKey: fileManager.getCurrentFilePath() });
-                    fileManager.updateLastKnownContent(content);
+                    fileManager.reconcileExternalOutChange(); // 取り込んだら listener が webview へ送る
                 } catch {
                     // JSONパースエラー or ファイル読み込みエラーは無視
                 }
             }, 200);
-        }));
+        };
+        // FR-LV-03 と同じ: tmp + rename（MCP / Claude Code の書き方）は onDidCreate で上がる
+        disposables.push(folderWatcher.onDidCreate((uri) => { refreshFileListFromWatcher(); onCurrentOutChanged(uri); }));
+        disposables.push(folderWatcher.onDidDelete(refreshFileListFromWatcher));
+        disposables.push(folderWatcher.onDidChange(onCurrentOutChanged));
 
         disposables.push(folderWatcher);
 
@@ -3526,14 +3406,12 @@ export class NotesEditorProvider {
             new vscode.RelativePattern(vscode.Uri.file(folderPath), 'outline.note')
         );
 
-        disposables.push(noteFileWatcher.onDidChange(() => {
-            if (fileManager.getIsWritingStructure()) return;
-
+        // AC-6: isWritingStructure の窓でもイベントを捨てない。自分の書き込みのはね返りかは中身
+        // （最後に読んだ / 書いた内容 = getLastKnownStructureContent）で判定する。
+        const onNoteFileChanged = () => {
             setTimeout(() => {
                 try {
-                    if (fileManager.getIsWritingStructure()) return;
-
-                    // 内容比較: 同じなら何もしない（isWritingStructureタイミングずれの安全弁）
+                    // 内容比較: 同じなら何もしない（自分の書き込みのはね返り）
                     const noteFilePath = path.join(folderPath, 'outline.note');
                     const noteContent = fs.readFileSync(noteFilePath, 'utf8');
                     if (noteContent === fileManager.getLastKnownStructureContent()) return;
@@ -3549,12 +3427,13 @@ export class NotesEditorProvider {
                         structure,
                         currentFile,
                     });
-                    fileManager.updateLastKnownStructureContent(noteContent);
                 } catch {
                     // 読み込みエラーは無視
                 }
             }, 200);
-        }));
+        };
+        disposables.push(noteFileWatcher.onDidChange(onNoteFileChanged));
+        disposables.push(noteFileWatcher.onDidCreate(onNoteFileChanged)); // tmp + rename
 
         disposables.push(noteFileWatcher);
         } // end if (!needsMigration) — gate 経路では folderWatcher / noteFileWatcher を張らない

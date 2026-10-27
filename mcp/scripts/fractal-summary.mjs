@@ -36,17 +36,16 @@ export function absolutizeLocalPaths(md, baseDir) {
     });
 }
 
-/** target 解決: id → text 完全一致 → 部分一致（fractal-modify と同規約） */
+/**
+ * node 解決: id → 本文の完全一致（1 件だけ）。0 件 / 2 件以上はエラー（黙って先頭を選ばない — 監査 B-8）。
+ * MCP（fractal_summary）は server 側で正典の解決（曖昧なら候補を返す）をしてから id を渡す。
+ */
 export function resolveNodeId(data, arg) {
     if (data.nodes[arg]) return arg;
-    let exact = null, partial = null;
-    for (const node of Object.values(data.nodes)) {
-        if (node.text === arg) { exact = node.id; break; }
-        if (!partial && node.text && node.text.includes(arg)) partial = node.id;
-    }
-    const found = exact || partial;
-    if (!found) throw new Error(`node not found: "${arg}"`);
-    return found;
+    const hits = Object.values(data.nodes).filter((n) => n && String(n.text || '').trim() === String(arg).trim());
+    if (hits.length === 1) return hits[0].id;
+    if (hits.length === 0) throw new Error(`node not found (exact): "${arg}" — id か本文の完全一致で指定してください`);
+    throw new Error(`node is ambiguous: "${arg}" matches ${hits.length} nodes (${hits.slice(0, 10).map((n) => n.id).join(', ')}) — id で指定してください`);
 }
 
 /**
@@ -174,7 +173,7 @@ export function summarizeMd(rootMdPath) {
 
 // --- CLI ---
 
-function main() {
+export function main() {
     const argv = process.argv;
     let note = null, mdArg = null, outFile = null, nodeArg = null;
     for (let i = 2; i < argv.length; i++) {
@@ -236,6 +235,7 @@ function __isCliInvocation() {
     try { entry = fs.realpathSync(entry); } catch { /* 存在しない等 → 素の argv[1] で比較 */ }
     return import.meta.url === pathToFileURL(entry).href;
 }
-if (__isCliInvocation()) {
+// bundle（mcp/dist/server.mjs）の中では自動実行しない（--fractal-cli summary で main を呼ぶ）
+if (!globalThis.__FRACTAL_MCP_BUNDLE__ && __isCliInvocation()) {
     main();
 }

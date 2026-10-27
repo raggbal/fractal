@@ -536,6 +536,10 @@ var Outliner = (function() {
     var isActivelyEditing = false;
     var editingIdleTimer = null;
     var queuedExternalUpdate = null;
+    // AC-6（spec 20261027-1700-mcp-full-ops D3）: 最後に host へ送った内容と、そのときの画面のモデル。
+    // 入力中は「外部の変更を重ねた内容」を送るので sent と ours が違う。host が次の外部変更の基準として
+    // sent を返してきたら、画面にとっての基準は ours（画面はまだ外部の変更を取り込んでいない）。
+    var lastSyncPair = null;
     var EDITING_IDLE_TIMEOUT = 1500;
 
     // --- Navigation history (Back/Forward) ---
@@ -10124,9 +10128,74 @@ var Outliner = (function() {
 
     function applyQueuedExternalUpdate() {
         if (queuedExternalUpdate === null) return;
-        var data = queuedExternalUpdate.data;
+        var q = queuedExternalUpdate;
         queuedExternalUpdate = null;
-        applyExternalUpdate(data);
+        if (q.base === undefined || !getExternalMerge()) {
+            applyExternalUpdate(q.data);
+            return;
+        }
+        applyMergedExternalUpdate(q);
+    }
+
+    // --- AC-6: 外部変更の 3-way 取り込み（src/shared/external-merge.js が正典） ---
+
+    function getExternalMerge() {
+        return (typeof window !== 'undefined' && window.ExternalMerge) ? window.ExternalMerge : null;
+    }
+
+    function parseJsonOrNull(s) {
+        if (typeof s !== 'string') return null;
+        try { return JSON.parse(s); } catch (e) { return null; }
+    }
+
+    /** host の基準（externalBase）を、画面にとっての基準に読み替える */
+    function effectiveExternalBase(baseStr) {
+        // 取り込み待ちの外部変更の上にさらに外部変更が来た → 画面の基準は最初のもののまま
+        if (queuedExternalUpdate && queuedExternalUpdate.base !== undefined && baseStr === queuedExternalUpdate.content) {
+            return queuedExternalUpdate.base;
+        }
+        // host の基準 = 入力中に送った「外部の変更を重ねた内容」→ 画面の基準はそのときのモデル
+        if (lastSyncPair && baseStr === lastSyncPair.sent) {
+            return lastSyncPair.ours;
+        }
+        return baseStr;
+    }
+
+    /** 画面のモデル（ours）に外部変更（q.data・基準 q.base）を重ねた .out データ */
+    function mergeQueuedExternal(q, oursData) {
+        var em = getExternalMerge();
+        var baseData = parseJsonOrNull(q.base);
+        if (!em || !baseData) return q.data;
+        return em.mergeOutData(baseData, oursData, q.data).data;
+    }
+
+    function handleExternalOutUpdate(msg) {
+        var content = (typeof msg.externalContent === 'string') ? msg.externalContent : JSON.stringify(msg.data, null, 2);
+        var base = effectiveExternalBase(msg.externalBase);
+        queuedExternalUpdate = { data: msg.data, content: content, base: base };
+        // 入力中は画面を書き換えない（caret / IME を壊さない）。送る内容には syncToHostImmediate で重ねる
+        if (isActivelyEditing) return;
+        applyQueuedExternalUpdate();
+    }
+
+    function applyMergedExternalUpdate(q) {
+        var em = getExternalMerge();
+        var oursJson = serializeForSave();
+        var ours = parseJsonOrNull(oursJson) || {};
+        var merged = mergeQueuedExternal(q, ours);
+        // 画面が既に同じ（自分の書き込みのはね返り等）→ 何もしない（再描画も undo の消去もしない）
+        if (em.sameOutData(merged, ours)) {
+            lastSyncPair = { sent: q.content, ours: oursJson };
+            return;
+        }
+        applyExternalUpdate(merged);
+        var after = serializeForSave();
+        if (!em.sameOutData(merged, q.data)) {
+            // 画面の未送信の編集が入った → 合成した内容を disk へ
+            syncToHostImmediate();
+        } else {
+            lastSyncPair = { sent: q.content, ours: after };
+        }
     }
 
     // --- ホスト通信 ---
@@ -10315,7 +10384,18 @@ var Outliner = (function() {
         clearTimeout(syncDebounceTimer);
         syncDebounceTimer = null;
         var jsonString = serializeForSave();
-        host.syncData(jsonString);
+        // AC-6: 取り込み待ちの外部変更がある（入力中）→ 画面のモデルをそのまま送ると外部の変更を消す。
+        // 外部の変更を重ねた内容を送る（画面は idle / blur で取り込む）
+        var oursData = (queuedExternalUpdate && queuedExternalUpdate.base !== undefined && getExternalMerge())
+            ? parseJsonOrNull(jsonString) : null;
+        if (oursData) {
+            var mergedJson = JSON.stringify(mergeQueuedExternal(queuedExternalUpdate, oursData), null, 2);
+            host.syncData(mergedJson);
+            lastSyncPair = { sent: mergedJson, ours: jsonString };
+        } else {
+            host.syncData(jsonString);
+            lastSyncPair = { sent: jsonString, ours: jsonString };
+        }
         lastSentJson = jsonString;  // v0.207.40: 送った内容を記録 (= host が disk に書く予定の内容)
     }
 
@@ -10658,6 +10738,16 @@ var Outliner = (function() {
                     // ADR-008: kind === 'md' の updateData は notes webview の markdown
                     // dispatcher が処理する。outliner はノータッチ。
                     if (msg.kind === 'md') {
+                        break;
+                    }
+                    // --- AC-6: 同じファイルの外部変更（基準付き）→ 画面の未送信の編集と 3-way で取り込む ---
+                    // host（NotesFileManager.reconcileExternalOutChange / 保存直前の合成）が送る。fileChangeId は
+                    // 古い syncData を host で落とすためのもので、ファイル切替ではない（undo / 検索 / スコープを保つ）。
+                    if (typeof msg.externalBase === 'string' && model && getExternalMerge()
+                        && (msg.outFileKey === undefined || msg.outFileKey === null || !currentOutFileKey
+                            || msg.outFileKey === currentOutFileKey)) {
+                        if (msg.outFileKey) { currentOutFileKey = msg.outFileKey; }
+                        handleExternalOutUpdate(msg);
                         break;
                     }
                     // file identity を先に反映 (同一性判定の唯一の根拠)

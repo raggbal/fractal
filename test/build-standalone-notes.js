@@ -87,7 +87,9 @@ const sidePanelBridgeScript = fs.readFileSync(sidePanelBridgePath, 'utf-8');
 const linkParserScript = fs.readFileSync(linkParserPath, 'utf-8');
 const clipSelectScript = fs.readFileSync(clipSelectPath, 'utf-8');
 const outlinerCellScript = fs.readFileSync(outlinerCellJsPath, 'utf-8');
-const outlinerModelScript = fs.readFileSync(outlinerModelJsPath, 'utf-8');
+// AC-6: 外部変更の 3-way マージ（window.ExternalMerge）。本番 notesWebviewContent.ts と同じく outliner-model の前に注入
+const outlinerModelScript = fs.readFileSync(path.join(__dirname, '../src/shared/external-merge.js'), 'utf-8')
+    + '\n' + fs.readFileSync(outlinerModelJsPath, 'utf-8');
 const outlinerSearchScript = fs.readFileSync(outlinerSearchJsPath, 'utf-8');
 const outlinerScript = fs.readFileSync(outlinerJsPath, 'utf-8');
 const notesColorPaletteScript = fs.readFileSync(notesColorPaletteJsPath, 'utf-8');

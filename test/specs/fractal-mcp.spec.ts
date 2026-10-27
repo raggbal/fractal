@@ -1,7 +1,7 @@
 /**
  * fractal-mcp（spec 20261025-2350-fractal-mcp）: fractal skill 群を 1 つの MCP サーバー（stdio）にまとめたもの。
  *
- * server.mjs（公式 SDK の McpServer）を子プロセスで起動し、改行区切りの JSON-RPC で実際に話す（クライアントと同じ経路）。
+ * mcp/dist/server.mjs（公式 SDK の McpServer を含む bundle）を子プロセスで起動し、改行区切りの JSON-RPC で実際に話す（クライアントと同じ経路）。
  * tmp fixture note を都度生成。
  */
 import { test, expect } from '@playwright/test';
@@ -12,7 +12,8 @@ import * as path from 'path';
 
 const AI_SKILLS = path.resolve(__dirname, '../../ai_skills');
 const MCP_DIR = path.resolve(__dirname, '../../mcp');
-const serverMjs = path.join(MCP_DIR, 'server.mjs');
+// spec 20261027-1700-mcp-full-ops D1: 起動するのは esbuild の bundle（mcp/dist/server.mjs）。mcp/server.mjs はソースの入口
+const serverMjs = path.join(MCP_DIR, 'dist', 'server.mjs');
 
 let tmpRoot: string;
 test.beforeAll(() => {
@@ -94,7 +95,8 @@ test.describe('fractal-mcp', () => {
     test.beforeEach(async () => { c = new Client(); await c.init(); });
     test.afterEach(() => c.close());
 
-    test('AC-1 initialize → tools/list で 9 本の tool が inputSchema つきで返る', async () => {
+    // spec 20261027-1700-mcp-full-ops D5: 既存 9 本の名前はそのまま、resolve / get / tree / md_edit の 4 本を足して 13 本
+    test('AC-1 initialize → tools/list で 13 本の tool（既存 9 本 + resolve / get / tree / md_edit）が inputSchema つきで返る', async () => {
         const c2 = new Client();
         const init = await c2.init();
         expect(init.result.protocolVersion).toBe('2025-06-18');   // クライアントが求めた版で返す
@@ -103,8 +105,8 @@ test.describe('fractal-mcp', () => {
         const list = await c2.request('tools/list');
         const names = list.result.tools.map((t: any) => t.name).sort();
         expect(names).toEqual([
-            'fractal_add', 'fractal_attach', 'fractal_doctor', 'fractal_list_folders', 'fractal_list_notes',
-            'fractal_modify', 'fractal_search', 'fractal_structure', 'fractal_summary',
+            'fractal_add', 'fractal_attach', 'fractal_doctor', 'fractal_get', 'fractal_list_folders', 'fractal_list_notes',
+            'fractal_md_edit', 'fractal_modify', 'fractal_resolve', 'fractal_search', 'fractal_structure', 'fractal_summary', 'fractal_tree',
         ]);
         for (const t of list.result.tools) {
             expect(t.inputSchema.type).toBe('object');
@@ -127,6 +129,19 @@ test.describe('fractal-mcp', () => {
         const r2 = await c.call('fractal_search', { tags: ['work'], folders: [dir], noCache: true });
         expect(r2.isError).toBe(false);
         expect(JSON.parse(r2.content[0].text).results.filter((x: any) => x.kind === 'outline-node').length).toBe(1);
+    });
+
+    // spec 20261027-1700 D1: bundle（mcp/dist/server.mjs）でも PDF の中身検索が動く（pdfjs は dist/vendor に複製した vendor を読む）
+    test('AC-2 bundle の fractal_search が添付 PDF の中身（日本語）をヒットさせる', async () => {
+        expect(fs.existsSync(path.join(MCP_DIR, 'dist', 'vendor', 'pdfjs-bundle.cjs'))).toBe(true);
+        const { dir } = mkFixtureNote('pdf');
+        fs.mkdirSync(path.join(dir, 'files'));
+        fs.copyFileSync(path.resolve(__dirname, '../fixtures/doc-search/fixture-ja-en.pdf'), path.join(dir, 'files', 'report.pdf'));
+        const r = await c.call('fractal_search', { query: '富士山麓に鸚鵡鳴く', folders: [dir], scope: ['file'], noCache: true });
+        expect(r.isError, r.content[0].text).toBe(false);
+        const hits = JSON.parse(r.content[0].text).results.filter((x: any) => x.kind === 'file');
+        expect(hits.length).toBe(1);
+        expect(hits[0].fileId).toBe('files/report.pdf');
     });
 
     test('AC-3 fractal_add で足し fractal_modify で書き換えると .out に反映され fractal_summary に出る', async () => {
@@ -186,10 +201,10 @@ test.describe('fractal-mcp', () => {
         const noQuery = await c.call('fractal_search', { folders: [path.dirname(outPath)] });
         expect(noQuery.isError).toBe(true);
 
-        // 子プロセスの失敗（存在しないノード）は stderr つきの isError
+        // 存在しないノードは isError（spec 20261027-1700 D4: 返り値は JSON。code = NOT_FOUND。旧: 子プロセスの stderr）
         const fail = await c.call('fractal_modify', { note: outPath, target: 'ないノード', op: 'delete' });
         expect(fail.isError).toBe(true);
-        expect(fail.content[0].text).toContain('fractal-modify.mjs');
+        expect(JSON.parse(fail.content[0].text).error.code).toBe('NOT_FOUND');
         expect(JSON.parse(fs.readFileSync(outPath, 'utf-8')).rootIds).toEqual(['nA', 'nC']);
 
         const nomethod = await c.request('resources/nope');
@@ -219,7 +234,9 @@ test.describe('fractal-mcp', () => {
         expect(installSh).not.toMatch(/^SKILLS=/m);
         const legacy = installSh.match(/^LEGACY_SKILLS="([^"]+)"/m)![1].split(' ');
         for (const s of ['fractal-structure', 'fractal-search', 'fractal-edit', 'fractal-doctor', 'fractal-summary', 'fractal-mcp', 'collect', 'doc-md', 'pptx-pages-md', 'aws-doc-maker', 'arxiv-md', 'youtube-md', 'web-crawler-md']) expect(legacy).toContain(s);
-        expect(fs.existsSync(path.join(MCP_DIR, 'scripts', 'fractal-md.mjs'))).toBe(true);
+        // spec 20261027-1700 D1: 書き込み・doctor の mjs ミラーは廃止して bundle（src/shared の正典入り）にした
+        expect(fs.existsSync(path.join(MCP_DIR, 'scripts', 'fractal-md.mjs'))).toBe(false);
+        expect(fs.existsSync(serverMjs)).toBe(true);
     });
 });
 

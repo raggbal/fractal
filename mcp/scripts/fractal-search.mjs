@@ -14,6 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { extractDocTextMjs, pushNormalized } from './ooxml-extract.mjs';
+import h1Utils from '../../out/shared/md-h1-utils.js';
 
 // ── フラットレイアウトの pageDir 解決（新フラットレイアウト前提・legacy fallback なし = ユーザー決定 2026-07-26）──
 // フラット規約: page md = <folder>/<pageId>.md（直下）。hint（isFlatOut / 相対 / 絶対）尊重・無ければ直下。
@@ -89,40 +90,15 @@ export function filterFoldersByNoteName(entries, noteNames, excludeNotes, labelO
 }
 
 // ─────────────── md 先頭 H1（FR-SS-03） ───────────────
-// 正典: src/shared/md-h1-utils.ts の parseAtxH1Text / extractFirstH1 のミラー（ADRL-0002）。
-// CommonMark ATX 準拠: 閉じ `#` 列は「直前に空白がある時だけ」剥がす（`# C#` → `C#`）。
-// コードフェンス（```）内の `#` は見出しとみなさない。
-// 乖離は test/specs/skills-search-filters.spec.ts の 3 者一致 TC（正典 ts / search mjs / md mjs）が番人。
-
-export function parseAtxH1TextMjs(line) {
-    // 末尾 CR を落としてからマッチ（split('\n') 残留 \r 対策）
-    const bare = String(line).replace(/\r$/, '');
-    // 行頭 0-3 スペース + `#` 1 個 + 空白必須
-    const m = bare.match(/^ {0,3}#[ \t]+(.*)$/);
-    if (!m) return null;
-    let text = m[1].replace(/[ \t]+$/, '');
-    // 閉じ `#` 列は「1 個以上の空白の後」のみ剥がす（C#/F# はタイトルの一部）
-    const closing = text.match(/^(.*?)[ \t]+#+$/);
-    if (closing) text = closing[1];
-    return text.replace(/[ \t]+$/, '').replace(/^[ \t]+/, '');
-}
-
-export function extractFirstH1Mjs(md) {
-    const lines = String(md).split('\n');
-    let inCode = false;
-    for (const line of lines) {
-        if (line.startsWith('```')) { inCode = !inCode; continue; }
-        if (inCode) continue;
-        const text = parseAtxH1TextMjs(line);
-        if (text !== null) return text;
-    }
-    return null;
-}
+// spec 20261027-1700-mcp-full-ops D9（ADRL-0020 のミラー部分を上書き）: H1 の解釈は正典
+// src/shared/md-h1-utils.ts だけに置く。ここでは tsc が出した out/shared/md-h1-utils.js を読む
+// （bundle = mcp/dist/server.mjs には esbuild が同じものを畳み込む）。mjs の H1 ミラーは廃止した。
+const extractFirstH1Canon = h1Utils.extractFirstH1;
 
 /** --h1 フィルタ: md 本文の先頭 H1 への大小無視部分一致。h1Filter なしは常に true */
 export function matchesH1Filter(mdBody, h1Filter) {
     if (!h1Filter) return true;
-    const h1 = extractFirstH1Mjs(mdBody);
+    const h1 = extractFirstH1Canon(String(mdBody));
     if (h1 == null) return false;
     return h1.toLowerCase().includes(String(h1Filter).toLowerCase());
 }
@@ -580,7 +556,12 @@ function loadPdfjsVendor() {
     try {
         const require2 = createRequire(import.meta.url);
         // vendor/pdfjs-bundle.cjs は module.exports = { getDocument, ... }（scripts/build-pdfjs-vendor.js 生成）
-        pdfjsVendor = require2(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'vendor', 'pdfjs-bundle.cjs'));
+        // scripts/ から実行 = ../vendor、bundle（mcp/dist/server.mjs）から実行 = ./vendor（build が dist/vendor へ複製）→ ../vendor
+        const here = path.dirname(fileURLToPath(import.meta.url));
+        const candidates = [path.join(here, 'vendor', 'pdfjs-bundle.cjs'), path.join(here, '..', 'vendor', 'pdfjs-bundle.cjs')];
+        const found = candidates.find((c) => fs.existsSync(c));
+        if (!found) throw new Error('pdfjs vendor not found');
+        pdfjsVendor = require2(found);
     } catch {
         pdfjsVendor = null;
     } finally {
@@ -845,7 +826,7 @@ async function searchFolder(folder, regex, args, state, cache) {
                                 pagePath: mdAbs,
                                 parentNodeId: node.id,
                                 parentNodeText: node.text,
-                                h1: args.h1 ? extractFirstH1Mjs(body) : undefined,
+                                h1: args.h1 ? extractFirstH1Canon(body) : undefined,
                                 matches: pageMatches,
                             });
                             perFile++;
@@ -862,7 +843,7 @@ async function searchFolder(folder, regex, args, state, cache) {
                             pagePath: mdAbs,
                             parentNodeId: node.id,
                             parentNodeText: node.text,
-                            h1: extractFirstH1Mjs(body),
+                            h1: extractFirstH1Canon(body),
                         });
                         perFile++;
                         if (state.results.length >= args.maxResults) return;
@@ -894,7 +875,7 @@ async function searchFolder(folder, regex, args, state, cache) {
                         mdPath: path.join(folder, md),
                         mdName: md,
                         folderChain: [],
-                        h1: args.h1 ? extractFirstH1Mjs(body) : undefined,
+                        h1: args.h1 ? extractFirstH1Canon(body) : undefined,
                         matches: m,
                     });
                 }
@@ -906,7 +887,7 @@ async function searchFolder(folder, regex, args, state, cache) {
                     mdPath: path.join(folder, md),
                     mdName: md,
                     folderChain: [],
-                    h1: extractFirstH1Mjs(body),
+                    h1: extractFirstH1Canon(body),
                 });
             }
         }
@@ -1235,7 +1216,7 @@ function renderNotesList(notes) {
 
 // ─────────────── Main ───────────────
 
-async function main() {
+export async function main() {
     const args = parseArgs(process.argv);
     const cacheDir = args.cacheDir ? path.resolve(args.cacheDir) : defaultCacheDir();
 
@@ -1254,12 +1235,13 @@ async function main() {
     //   explicit --folder entries become {path, sources: []} for consistency
     const explicitEntries = args.folders.map(f => ({ path: path.resolve(f), sources: [] }));
 
-    // auto-discovery triggered by --auto / --list-folders / --list-notes / --find-outline
+    // auto-discovery triggered by --auto / --list-folders（--list-notes / --find-outline は --folder が無いときだけ）
     // （--note-name / --exclude-note も、--folder 明示が無ければ自動検出を起動）
     let discoveredEntries = [];
     const nameFilterActive = args.noteNames.length > 0 || args.excludeNotes.length > 0;
-    if (args.auto || args.listFolders || args.listNotes || args.findOutline
-        || (nameFilterActive && explicitEntries.length === 0)) {
+    // 監査 B-9: --folder を明示したら --list-notes / --find-outline でも自動検出しない（明示したフォルダだけを見る）
+    if (args.auto || args.listFolders
+        || ((args.listNotes || args.findOutline || nameFilterActive) && explicitEntries.length === 0)) {
         discoveredEntries = discoverFolders();
     }
 
@@ -1412,6 +1394,8 @@ function __isCliInvocation() {
     try { entry = fs.realpathSync(entry); } catch { /* 存在しない等 → 素の argv[1] で比較 */ }
     return import.meta.url === pathToFileURL(entry).href;
 }
-if (__isCliInvocation()) {
+// mcp/dist/server.mjs（bundle）の中では import.meta.url が全モジュールで bundle 自身になるため、
+// bundle の banner が立てる __FRACTAL_MCP_BUNDLE__ で自動実行を止める（bundle は --fractal-cli search で main を呼ぶ）
+if (!globalThis.__FRACTAL_MCP_BUNDLE__ && __isCliInvocation()) {
     main().catch((e) => { console.error(e); process.exit(1); });
 }

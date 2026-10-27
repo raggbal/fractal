@@ -14,6 +14,7 @@ import { extractToc, TocItem } from './toc-utils';
 import { resolveResourceRoots, findOutOfRangeImages } from './resource-roots';
 import { createHybridFileWatcher, DrawioFileWatcher } from './drawioWatcher';
 import { recordSelfWrite, isRecentSelfWrite, clearSelfWrites } from './self-write-registry';
+import { resolveMdSaveAgainstDisk } from './md-save-guard';
 import { isViewerTarget, VIEWER_SIZE_LIMIT } from './viewer-target';
 
 /** Webview への通信インターフェース */
@@ -71,6 +72,9 @@ export class SidePanelManager {
     // reconcile が既にスケジュール済みなら後続イベントを集約（drawioWatcher はポーリング発火を
     // onDidChange/onDidCreate 両 handler に配るため、1 イベントで onFsEvent が複数回呼ばれうる）
     private _reconcileScheduled = false;
+    // AC-6（spec 20261027-1700-mcp-full-ops D3）: 基準 = 最後に読んだ / 書いた / 取り込んだ中身。
+    // notesMdMainManager と同じ規則（handleSave は md-save-guard で書く直前に disk と比べる・通知に externalBase）
+    private _baseText: string | undefined;
 
     // v15+: side panel navigation history (back/forward stacks)
     // ユーザーが side panel 内で .md link click したときに pre-replace の filePath を push し
@@ -115,6 +119,7 @@ export class SidePanelManager {
 
         // Open as TextDocument — creates an in-memory buffer (does not open a visible tab)
         this._document = await vscode.workspace.openTextDocument(fileUri);
+        this._baseText = this._document.getText(); // AC-6: 開いた中身が基準
 
         // Watch for external file changes → sync TextDocument
         // FR-LR-01: FSW 単独から createHybridFileWatcher（FSW + fs.watchFile 1s polling）に変更。
@@ -146,9 +151,12 @@ export class SidePanelManager {
             if (e.contentChanges.length === 0) return;
             if (this._isApplyingEdit) return;
             const content = e.document.getText();
+            // AC-6: 何に対する変更か（直前の基準）を付けて送り、基準を進める
+            const prevBase = this._baseText;
+            this._baseText = content;
             this.host.postMessage({
                 type: 'sidePanelMessage',
-                data: { type: 'update', content, filePath }
+                data: { type: 'update', content, filePath, ...(prevBase !== undefined ? { externalBase: prevBase } : {}) }
             });
         });
     }
@@ -186,6 +194,8 @@ export class SidePanelManager {
             if (isRecentSelfWrite(filePath, newContent)) { return; }
             const currentContent = liveDoc.getText();
             if (newContent !== currentContent) {
+                // AC-6: 取り込む内容が何に対する変更か（画面が 3-way で取り込むための基準）
+                const baseForWebview = this._baseText ?? currentContent;
                 this._isApplyingEdit = true;
                 const fullRange = new vscode.Range(
                     liveDoc.positionAt(0),
@@ -198,6 +208,7 @@ export class SidePanelManager {
                 // applyEdit 成功「後」に記録する（throw 時に未適用内容が台帳に残ると、pending flush の
                 // 再照合まで no-op になり外部編集が反映されない — TC-LV-06 のエラー経路）。
                 recordSelfWrite(filePath, newContent);
+                this._baseText = newContent;
                 this._isApplyingEdit = false;
                 this._flushPendingExternalCheck(filePath, fileUri, prefix);
                 // Final guard before save: confirm no navigation happened
@@ -207,7 +218,7 @@ export class SidePanelManager {
                 if (this._watchedPath !== filePath) return;
                 this.host.postMessage({
                     type: 'sidePanelMessage',
-                    data: { type: 'update', content: newContent, filePath }
+                    data: { type: 'update', content: newContent, filePath, externalBase: baseForWebview }
                 });
             }
         } catch (error) {
@@ -244,6 +255,7 @@ export class SidePanelManager {
         this._hybridWatcher = undefined;
         this._document = undefined;
         this._watchedPath = undefined;
+        this._baseText = undefined;
         // FR-LV-02: one-shot state の clear 契機（別ファイル open 後に stale 照合が走らない）
         this._pendingExternalCheck = false;
     }
@@ -256,7 +268,20 @@ export class SidePanelManager {
      */
     async handleSave(filePath: string, content: string): Promise<void> {
         const prefix = this.config.logPrefix;
+        const uiContent = content;
+        let mergedExternal = false;
         try {
+            // AC-6: 書く直前の版の確認。watcher より先に保存が来ても、外部の編集を古い内容で上書きしない
+            if (filePath === this._watchedPath) {
+                let disk: string | null = null;
+                try {
+                    disk = new TextDecoder().decode(await vscode.workspace.fs.readFile(vscode.Uri.file(filePath)));
+                } catch { /* 無い・読めない = 確認しない */ }
+                const r = resolveMdSaveAgainstDisk(filePath, this._baseText, content, disk);
+                content = r.content;
+                mergedExternal = r.merged;
+                this._baseText = content;
+            }
             // FR-LV-06: 自分が書く内容を台帳に記録（buffer 経路 / fs.writeFile fallback の両方に効く位置）
             recordSelfWrite(filePath, content);
             // Pin the target by URI once. Never trust this._document mid-save —
@@ -279,7 +304,14 @@ export class SidePanelManager {
                     return;
                 }
                 const normalize = (s: string) => s.replace(/\r\n/g, '\n');
-                if (normalize(content) === normalize(targetDoc.getText())) return;
+                if (normalize(content) === normalize(targetDoc.getText())) {
+                    // AC-6: 合成結果が doc と同じでも disk には無い → disk に書いて画面へ知らせる
+                    if (mergedExternal) {
+                        await vscode.workspace.fs.writeFile(targetUri, Buffer.from(content, 'utf8'));
+                        this._postMergedToWebview(filePath, content, uiContent);
+                    }
+                    return;
+                }
 
                 this._isApplyingEdit = true;
                 const spEdit = new vscode.WorkspaceEdit();
@@ -303,6 +335,9 @@ export class SidePanelManager {
                     Buffer.from(content, 'utf8')
                 );
             }
+            if (mergedExternal) {
+                this._postMergedToWebview(filePath, content, uiContent);
+            }
         } catch (e) {
             this._isApplyingEdit = false;
             this._flushPendingExternalCheck(filePath, vscode.Uri.file(filePath), prefix);
@@ -311,6 +346,18 @@ export class SidePanelManager {
                 `Failed to save: ${filePath} — ${e instanceof Error ? e.message : String(e)}`
             );
         }
+    }
+
+    /**
+     * AC-6: 保存の直前に外部の変更を重ねたとき、合成した内容を sidepanel の画面へ送る。
+     * 基準 = 画面が送ってきた内容（画面はそこからの残りの未送信の編集と 3-way で重ねる）。
+     */
+    private _postMergedToWebview(filePath: string, content: string, uiContent: string): void {
+        if (this._watchedPath !== filePath) return;
+        this.host.postMessage({
+            type: 'sidePanelMessage',
+            data: { type: 'update', content, filePath, externalBase: uiContent }
+        });
     }
 
     /**

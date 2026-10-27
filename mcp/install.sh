@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# install.sh — fractal MCP サーバー（mcp/server.mjs）の依存を入れて各 AI IDE に登録する
+# install.sh — fractal MCP サーバー（mcp/server.mjs を bundle した mcp/dist/server.mjs）を作って各 AI IDE に登録する
 #
-# skill の dir には何も置かず、依存を入れて（npm ci）、各 IDE の MCP 設定に repo の server.mjs を登録する:
+# 依存を入れて（npm ci）bundle を作り（npm run build:mcp — ADR-0012）、各 IDE の MCP 設定に repo の mcp/dist/server.mjs を登録する:
 #   - Claude Code: claude mcp add -s user fractal（claude CLI があるとき）
 #   - Kiro:        ~/.kiro/settings/mcp.json
 #   - Cursor:      ~/.cursor/mcp.json
@@ -22,7 +22,7 @@ set -eu
 # ─── 設定 ─────────────────────────────────────────────
 MCP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$MCP_DIR/.." && pwd)"
-MCP_SERVER="$MCP_DIR/server.mjs"
+MCP_SERVER="$MCP_DIR/dist/server.mjs"
 # 以前は skill として配置していたもの（install / uninstall のたびに片付ける）
 LEGACY_SKILLS="fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary fractal-mcp collect doc-md pptx-pages-md aws-doc-maker arxiv-md youtube-md web-crawler-md"
 # 以前 register-fractal.mjs 用に張っていた symlink
@@ -119,18 +119,21 @@ prepare_mcp() {
     fi
     [ "$UNINSTALL" -eq 1 ] && return 0
     if [ "$DRY_RUN" -eq 1 ]; then
-        echo "  [dry-run] (cd $MCP_DIR && npm ci --omit=dev)"
+        echo "  [dry-run] (cd $MCP_DIR && npm ci) && (cd $REPO_DIR && npx tsc -p tsconfig.shared-emit.json && node mcp/build.mjs)"
         return 0
     fi
     if ! command -v npm >/dev/null 2>&1; then
         err "npm が無いので fractal-mcp の依存を入れられません"
         return 1
     fi
-    (cd "$MCP_DIR" && npm ci --omit=dev --no-fund --no-audit --loglevel=error) || { err "fractal-mcp: npm ci に失敗"; return 1; }
+    (cd "$MCP_DIR" && npm ci --no-fund --no-audit --loglevel=error) || { err "fractal-mcp: npm ci に失敗"; return 1; }
+    # bundle（mcp/dist/server.mjs）は生成物。build は out/shared（shared emit）と repo の esbuild を使う
+    (cd "$REPO_DIR" && npx tsc -p tsconfig.shared-emit.json && node mcp/build.mjs) || { err "fractal-mcp: bundle の build に失敗（repo で npm install 済みか確認）"; return 1; }
+    [ -f "$MCP_SERVER" ] || { err "fractal-mcp: $MCP_SERVER がありません"; return 1; }
     ok "fractal-mcp → 依存を導入 ($MCP_DIR)"
 }
 
-# fractal-mcp の登録 / 解除（server は repo の mcp/server.mjs を直接起動）
+# fractal-mcp の登録 / 解除（server は repo の mcp/dist/server.mjs を起動）
 do_mcp_one() {
     ide=$1
     server="$MCP_SERVER"

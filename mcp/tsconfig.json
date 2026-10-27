@@ -1,0 +1,20 @@
+{
+  // fractal MCP の TypeScript（mcp/src）の型チェック専用（emit しない。bundle は mcp/build.mjs の esbuild）。
+  // src/shared の正典を相対 import するので rootDir は repo ルート。
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "typeRoots": ["../node_modules/@types"],
+    "rootDir": "..",
+    "noEmit": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*.ts"]
+}
