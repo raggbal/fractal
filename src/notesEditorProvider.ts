@@ -527,17 +527,26 @@ export class NotesEditorProvider {
                     // spec 20261027-1142-recent-history-nav D2: sidepanel で開いた md = side。
                     //   D3 の Back / Forward で開き直したとき（noHistory）は sidePanel.openFile がここを呼ばない。
                     fileManager.recordFileHistory(fp, 'side');
-                    // 履歴パネル再描画（provider 既存の notesFileListChanged パターン）
-                    panel.webview.postMessage({
-                        type: 'notesFileListChanged',
-                        fileList: fileManager.listFiles(),
-                        structure: fileManager.getStructureForWebview(),
-                        currentFile: fileManager.getCurrentFilePath(),
-                        noteFolderName: path.basename(folderPath),
-                    });
+                    postHistoryRefresh();
+                },
+                // spec 20261027-1142 D2: sidepanel の viewer で開いたファイル（outliner の 📎 等）= side
+                onViewerOpened: (fp: string) => {
+                    if (!fp) return;
+                    fileManager.recordViewerFileHistory(fp, 'side');
+                    postHistoryRefresh();
                 },
             }
         );
+        // 履歴パネル再描画（provider 既存の notesFileListChanged パターン）
+        function postHistoryRefresh(): void {
+            panel.webview.postMessage({
+                type: 'notesFileListChanged',
+                fileList: fileManager.listFiles(),
+                structure: fileManager.getStructureForWebview(),
+                currentFile: fileManager.getCurrentFilePath(),
+                noteFolderName: path.basename(folderPath),
+            });
+        }
 
         // v0.207.82: Notes 内 .md メインペイン管理 (sidepanel と同じ
         // openTextDocument + FileSystemWatcher + WorkspaceEdit パターン)
@@ -2669,7 +2678,7 @@ export class NotesEditorProvider {
                     return;
                 }
                 try {
-                    if (await sidePanel.tryOpenViewerPanel(absPath)) { return; }
+                    if (await sidePanel.tryOpenViewerPanel(absPath, { noHistory: true })) { return; }
                 } catch { /* 縮退 */ }
                 await openLocalFileSmart(absPath);
             },

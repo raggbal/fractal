@@ -32,6 +32,11 @@ export interface SidePanelManagerConfig {
      */
     onFileOpened?: (filePath: string) => void;
     /**
+     * spec 20261027-1142 D2: sidepanel の viewer でファイルを開けた後に呼ばれる（任意）。
+     * notes provider が Recent に pane=side で記録する。tryOpenViewerPanel が viewer を出したときだけ 1 回発火。
+     */
+    onViewerOpened?: (filePath: string) => void;
+    /**
      * FR-FLV-29（再オープン① 2026-08-18）: 開いた md がフォルダリンク（folder link）配下なら
      * その folder link の title を返す（該当しなければ undefined）。notes provider が realpath 包含判定を注入。
      * webview へは表示用文字列のみ渡る（絶対パス不出 — INV-4）。未指定の provider（editor/outliner）には無影響。
@@ -435,7 +440,7 @@ export class SidePanelManager {
      *   省略時（outliner の file node・ノートツリー・フォルダビュー等）は従来どおり md を閉じて入れ替える
      * @returns true = viewer で開いた（openExternal 不要）/ false = 対象外 or フォールバック
      */
-    async tryOpenViewerPanel(filePath: string, opts?: { overlay?: boolean }): Promise<boolean> {
+    async tryOpenViewerPanel(filePath: string, opts?: { overlay?: boolean; noHistory?: boolean }): Promise<boolean> {
         const kind = isViewerTarget(path.basename(filePath));
         if (!kind) { return false; }
         try {
@@ -450,6 +455,9 @@ export class SidePanelManager {
             fileUri: fileWebviewUri,
             ...(opts && opts.overlay ? { overlay: true } : {}),
         });
+        // sidepanel viewer を出す全経路（outliner の 📎・md の 📎・sidepanel md 内リンク・folder view）が通る
+        // 単一の choke point なので、Recent の記録はここで行う（Back / Forward の開き直しは noHistory で止める）
+        if (!(opts && opts.noHistory)) { this.config.onViewerOpened?.(filePath); }
         return true;
     }
 

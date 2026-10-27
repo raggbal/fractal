@@ -302,6 +302,32 @@ test.describe('AC-3 移動は記録しない（host）', () => {
         await mgr.openFile(f, true);
         expect(recorded, '通常の open は記録する').toEqual([f]);
     });
+
+    test('AC-2 sidepanel の viewer で開いたファイル（outliner の 📎・sidepanel md 内リンク）は onViewerOpened で記録し、noHistory では記録しない', async () => {
+        const { SidePanelManager } = requireWithVscodeStub('../../src/shared/sidePanelManager');
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rhn-vw-'));
+        const pdf = path.join(dir, 'att.pdf');
+        fs.writeFileSync(pdf, '%PDF-1.4\n');
+        const recorded: string[] = [];
+        const posted: any[] = [];
+        const mgr = new SidePanelManager(
+            { postMessage: (x: any) => posted.push(x), asWebviewUri: () => ({ toString: () => 'vscode-webview://x/' }) },
+            { logPrefix: '[t]', onViewerOpened: (fp: string) => recorded.push(fp) },
+        );
+        expect(await mgr.tryOpenViewerPanel(pdf)).toBe(true);                       // outliner の 📎 / md の 📎
+        expect(await mgr.tryOpenViewerPanel(pdf, { overlay: true })).toBe(true);    // sidepanel md 内リンク
+        expect(recorded).toEqual([pdf, pdf]);
+        expect(await mgr.tryOpenViewerPanel(pdf, { noHistory: true })).toBe(true);  // Back / Forward の開き直し
+        expect(recorded, 'noHistory では記録しない').toEqual([pdf, pdf]);
+        expect(posted.filter((x) => x.type === 'openViewerPanel').length).toBe(3);
+        expect(await mgr.tryOpenViewerPanel(path.join(dir, 'missing.pdf')), '開けないものは記録しない').toBe(false);
+        expect(recorded.length).toBe(2);
+
+        // provider は onViewerOpened を pane=side で記録し、Back / Forward の開き直しは noHistory を渡す
+        const provider = fs.readFileSync(path.join(__dirname, '../../src/notesEditorProvider.ts'), 'utf8');
+        expect(provider).toMatch(/onViewerOpened: \(fp: string\) => \{[\s\S]{0,80}recordViewerFileHistory\(fp, 'side'\)/);
+        expect(provider).toMatch(/historyOpenInSidePanel:[\s\S]{0,500}tryOpenViewerPanel\(absPath, \{ noHistory: true \}\)/);
+    });
 });
 
 test.describe('AC-4 一覧から選ぶと常にメイン', () => {
