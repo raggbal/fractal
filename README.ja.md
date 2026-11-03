@@ -228,7 +228,7 @@ AI エージェント向けの一式は [`agent-capability/`](agent-capability/R
 - **Claude Code** は plugin で入れ、**Kiro** / **Cursor** は MCP を登録（Kiro は skill も）
 
 ```bash
-agent-capability/install.sh   # Claude Code: plugin / Kiro: MCP + skill / Cursor: MCP
+agent-capability/install.sh   # Claude Code・Codex: plugin / Kiro: MCP + skill / Cursor: MCP
 ```
 
 MCP を登録すれば、Claude Code などのエージェントがリサーチ結果の整理、クリップの要約、ナレッジベースの構築を Fractal Note に直接書き込めます — AI ネイティブなワークフローを備えた、実用的な **Obsidian 代替** として。

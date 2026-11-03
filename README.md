@@ -223,7 +223,7 @@ Fractal Note ships everything AI agents need in [`agent-capability/`](agent-capa
 - **Claude Code** installs it as a plugin; **Kiro** / **Cursor** get the MCP registered (Kiro also gets the skill)
 
 ```bash
-agent-capability/install.sh   # Claude Code: plugin / Kiro: MCP + skill / Cursor: MCP
+agent-capability/install.sh   # Claude Code / Codex: plugin / Kiro: MCP + skill / Cursor: MCP
 ```
 
 With the MCP registered, agents like Claude Code can organize research, summarize clips, and build knowledge bases by writing straight into Fractal Note — a practical **Obsidian alternative** with an AI-native workflow.

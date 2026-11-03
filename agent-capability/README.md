@@ -1,6 +1,6 @@
 # agent-capability — AI エージェントから Fractal を使うためのもの
 
-Claude Code / Kiro / Cursor などの AI エージェントが、Fractal の Notes（outline.note・Outliner の `.out`・page md・画像 / 添付）を探して、読んで、画面と同じ規則で書けるようにするための一式。
+Claude Code / Codex / Kiro / Cursor などの AI エージェントが、Fractal の Notes（outline.note・Outliner の `.out`・page md・画像 / 添付）を探して、読んで、画面と同じ規則で書けるようにするための一式。
 
 - **操作は MCP**: 構造を変える操作（ノード・ツリー・ページ化・添付・移動・改名と H1 の同期）は MCP の tool で行う。tool は VS Code 拡張機能と同じコード（`src/shared` の正典）を通るので、画面で操作したのと同じ結果になる（ADR-0012）
 - **知識は skill**: 使い方（手順・規約・してはいけないこと）は skill で教える。md の本文はエージェントが直接編集してよい（拡張機能が入力中の外部変更を合成する）
@@ -12,10 +12,12 @@ agent-capability/
 ├── README.md                     … このファイル
 ├── install.sh                    … 各 IDE に入れる / 外す（下の「入れ方」）
 ├── .claude-plugin/
-│   └── marketplace.json          … Claude Code の marketplace（名前: fractal-local）
-├── plugin/                       … Claude Code の plugin（名前: fractal）
-│   ├── .claude-plugin/plugin.json
-│   ├── .mcp.json                 … MCP サーバー（node ${CLAUDE_PLUGIN_ROOT}/server/server.mjs）
+│   └── marketplace.json          … marketplace（名前: fractal-local。Claude Code と Codex が読む）
+├── plugin/                       … plugin（名前: fractal。Claude Code と Codex）
+│   ├── .claude-plugin/plugin.json … Claude Code の manifest
+│   ├── .mcp.json                 … Claude Code の MCP（node ${CLAUDE_PLUGIN_ROOT}/server/server.mjs）
+│   ├── plugin.json               … Agent Plugins の manifest（Codex が読む）
+│   ├── mcp.json                  … Agent Plugins の MCP（node ${PLUGIN_ROOT}/server/server.mjs）
 │   ├── skills/fractal/           … 使い方の skill（SKILL.md + references/structure.md）
 │   └── server/                   … MCP の bundle の写し（生成物・git 管理外）
 └── mcp/                          … MCP サーバーのソース
@@ -25,7 +27,6 @@ agent-capability/
     ├── structure.md              … データモデルの原本（fractal_structure と skill の references はこの写し）
     ├── build.mjs                 … bundle を作る（dist/ と plugin/server/ と skill の references を更新）
     ├── register.mjs              … Kiro / Cursor の mcp.json に登録する
-    ├── register-kirocrew.mjs     … Kiro Crew の agent 定義に MCP と skill を入れる
     ├── vendor/pdfjs-bundle.cjs   … PDF の中身検索（commit する生成物）
     └── dist/                     … bundle（生成物・git 管理外）
 ```
@@ -53,7 +54,7 @@ agent-capability/
 agent-capability/install.sh              # 検出した IDE 全部に入れる
 agent-capability/install.sh --dry-run    # 何をするかだけ表示
 agent-capability/install.sh --uninstall  # 外す
-agent-capability/install.sh --only kiro  # IDE を絞る（claude,kiro,kirocrew,cursor,antigravity）
+agent-capability/install.sh --only kiro  # IDE を絞る（claude,codex,kiro,cursor,antigravity）
 ```
 
 IDE ごとの入り方:
@@ -61,12 +62,10 @@ IDE ごとの入り方:
 | IDE | MCP | skill |
 |---|---|---|
 | Claude Code | plugin `fractal@fractal-local`（`plugin/.mcp.json`） | plugin に同梱（`/fractal:fractal`、話題に応じて自動で読み込む） |
+| Codex | 同じ plugin `fractal@fractal-local`（`plugin/mcp.json`） | plugin に同梱 |
 | Kiro | `~/.kiro/settings/mcp.json` に登録 | `~/.kiro/skills/fractal` に copy |
-| Kiro Crew | main / worker の agent 定義（`~/.kiro/crew/mcp-gateway/agents/` と `~/.kiro/agents/` の `kirocrew.json`・`kirocrew-worker.json`）の `mcpServers` と `tools`（`@fractal`）。ほかの agent は既に fractal を持つときだけ path を直す | 同じ agent 定義の `resources` に `skill://~/.kiro/skills/fractal/SKILL.md`（custom agent は skill を自動で読まない）。実体は Kiro と共有 |
 | Cursor | `~/.cursor/mcp.json` に登録 | 置かない |
 | Antigravity | 自動登録しない（表示されるコマンドを手で設定） | 置かない |
-
-Kiro Crew は書き換えたあと `kirocrew restart` で反映する。
 
 Claude Code を手で入れるとき（install.sh を使わない場合）:
 
@@ -78,6 +77,16 @@ Claude Code を手で入れるとき（install.sh を使わない場合）:
 - 以前の `claude mcp add -s user fractal` の登録が残っていると plugin の server が隠れるので、install.sh は plugin を入れたあとに外す（`claude mcp remove -s user fractal`）
 - plugin の tool 名は `mcp__plugin_fractal_fractal__<tool>` になる（以前は `mcp__fractal__<tool>`）。permissions や hook で古い名前を使っていたら直す
 - marketplace は local path なので plugin はその場（repo）から読み込まれる。MCP のコードを直したら `npm run compile`（か `node agent-capability/mcp/build.mjs`）→ Claude Code で `/reload-plugins`
+
+Codex を手で入れるとき:
+
+```
+codex plugin marketplace add <repo>/agent-capability
+codex plugin add fractal@fractal-local
+```
+
+- Codex は plugin を `~/.codex/plugins/cache/` に写すので、MCP のコードを直したら build のあと `codex plugin add fractal@fractal-local` を流し直す（install.sh も同じ）。新しいセッションで有効
+- Codex は `.mcp.json` の `${CLAUDE_PLUGIN_ROOT}` を展開しない（0.166.0 で確認）ので、Agent Plugins の `plugin.json`・`mcp.json`（`${PLUGIN_ROOT}`）を読ませる。2 つの manifest の name・version・description は揃える（`fractal-skill.spec.ts` が検査）
 
 ## 開発
 

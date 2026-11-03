@@ -4,11 +4,9 @@
 # 依存を入れて（npm ci）bundle を作り（agent-capability/mcp/build.mjs — ADR-0012）、IDE ごとに:
 #   - Claude Code: plugin（agent-capability/plugin = MCP + skill）を marketplace（agent-capability）から入れる。
 #                  旧来の user scope の登録（claude mcp add fractal）は plugin を入れたあと外す（二重登録で plugin が隠れる）
+#   - Codex:       同じ plugin を同じ marketplace から入れる（plugin/plugin.json・mcp.json = Agent Plugins 形式。
+#                  Codex は .mcp.json の ${CLAUDE_PLUGIN_ROOT} を展開しないので、Agent Plugins の ${PLUGIN_ROOT} の方を読ませる）
 #   - Kiro:        ~/.kiro/settings/mcp.json に MCP を登録し、skill を ~/.kiro/skills/fractal に copy（Kiro は symlink の skill を認識しない）
-#   - Kiro Crew:   main と worker の agent 定義（~/.kiro/crew/mcp-gateway/agents/ と ~/.kiro/agents/ の kirocrew.json・kirocrew-worker.json。
-#                  ほかの agent は fractal を既に持つときだけ path を直す）に
-#                  MCP（mcpServers.fractal・tools の @fractal）と skill（resources の skill://~/.kiro/skills/fractal/SKILL.md）を入れる
-#                  （custom agent は skill を自動で読まない）。skill の実体は Kiro と同じ ~/.kiro/skills/fractal
 #   - Cursor:      ~/.cursor/mcp.json に MCP を登録（skill は置かない）
 #   - Antigravity: 自動登録しない（表示するコマンドを手で設定）
 #
@@ -35,14 +33,14 @@ PLUGIN_ID="fractal@fractal-local"
 LEGACY_SKILLS="fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary fractal-mcp collect doc-md pptx-pages-md aws-doc-maker arxiv-md youtube-md web-crawler-md"
 # 以前 register-fractal.mjs 用に張っていた symlink
 LEGACY_LINK="$HOME/.fractal/fractal-mcp"
-IDE_LIST="claude cursor kiro kirocrew antigravity"
+IDE_LIST="claude codex cursor kiro antigravity"
 
 ide_parent() {
     case "$1" in
         claude)      echo "$HOME/.claude" ;;
         cursor)      echo "$HOME/.cursor" ;;
         kiro)        echo "$HOME/.kiro" ;;
-        kirocrew)    echo "$HOME/.kiro/crew" ;;
+        codex)       echo "${CODEX_HOME:-$HOME/.codex}" ;;
         antigravity) echo "$HOME/.antigravity" ;;
         *) return 1 ;;
     esac
@@ -59,7 +57,7 @@ while [ $# -gt 0 ]; do
         --uninstall) UNINSTALL=1; shift ;;
         --only)      ONLY="$2"; shift 2 ;;
         -h|--help)
-            sed -n '2,16p' "$0"
+            sed -n '2,19p' "$0"
             exit 0
             ;;
         *)
@@ -183,24 +181,31 @@ do_mcp_one() {
                 err "  plugin のインストールに失敗。Claude Code の中で /plugin marketplace add $CAP_DIR → /plugin install $PLUGIN_ID"
             fi
             ;;
-        kirocrew)
-            # Kiro Crew の agent 定義（gateway の元と ~/.kiro/agents の写しの両方）。無ければ何もしない
-            set -- "$HOME"/.kiro/crew/mcp-gateway/agents/kirocrew*.json "$HOME"/.kiro/agents/kirocrew*.json
-            files=""
-            for f in "$@"; do [ -f "$f" ] && files="$files $f"; done
-            if [ -z "$files" ]; then
-                dim "  Kiro Crew の agent 定義が見つからないのでスキップ"
-                return 0
-            fi
+        codex)
+            # Codex は Claude Code と同じ plugin・marketplace（Codex は .claude-plugin/marketplace.json も読む）
             if [ "$DRY_RUN" -eq 1 ]; then
-                echo "  [dry-run] Kiro Crew の agent 定義に fractal を$([ "$UNINSTALL" -eq 1 ] && echo 削除 || echo "設定 (${server} / @fractal / skill://~/.kiro/skills/fractal/SKILL.md)"):$files"
+                if [ "$UNINSTALL" -eq 1 ]; then
+                    echo "  [dry-run] codex plugin remove $PLUGIN_ID; codex plugin marketplace remove fractal-local"
+                else
+                    echo "  [dry-run] codex plugin marketplace add $CAP_DIR; codex plugin add $PLUGIN_ID"
+                fi
                 return 0
             fi
-            # shellcheck disable=SC2086
+            if ! command -v codex >/dev/null 2>&1; then
+                [ "$UNINSTALL" -eq 1 ] || warn "  codex CLI が無いので: codex plugin marketplace add $CAP_DIR → codex plugin add $PLUGIN_ID"
+                return 0
+            fi
             if [ "$UNINSTALL" -eq 1 ]; then
-                "$node_bin" "$MCP_DIR/register-kirocrew.mjs" --remove $files >/dev/null && ok "  Kiro Crew: fractal ← 解除（kirocrew restart で反映）"
+                codex plugin remove "$PLUGIN_ID" >/dev/null 2>&1 && ok "  plugin: $PLUGIN_ID ← 解除 (Codex)" || true
+                codex plugin marketplace remove fractal-local >/dev/null 2>&1 || true
+                return 0
+            fi
+            codex plugin marketplace add "$CAP_DIR" >/dev/null 2>&1 || true
+            # local の marketplace は add を流し直すと中身（cache の写し）が新しくなる
+            if codex plugin add "$PLUGIN_ID" >/dev/null 2>&1; then
+                ok "  plugin: $PLUGIN_ID → Codex（新しいセッションで有効）"
             else
-                "$node_bin" "$MCP_DIR/register-kirocrew.mjs" "$server" --node "$node_bin" $files >/dev/null && ok "  Kiro Crew: MCP + skill → agent 定義（kirocrew restart で反映）"
+                err "  Codex への plugin のインストールに失敗。codex plugin marketplace add $CAP_DIR → codex plugin add $PLUGIN_ID"
             fi
             ;;
         kiro|cursor)
@@ -222,12 +227,11 @@ do_mcp_one() {
     esac
 }
 
-# 使い方の skill（agent-capability/plugin/skills/fractal）を Kiro に copy する。Claude Code は plugin に入っている。
+# 使い方の skill（agent-capability/plugin/skills/fractal）を Kiro に copy する。Claude Code と Codex は plugin に入っている。
 # 置いてあるものが自分の skill（frontmatter が name: fractal）のときだけ上書き・削除する
 do_skill_one() {
     ide=$1
-    # Kiro Crew も Kiro と同じ ~/.kiro/skills/fractal を読む（外すのは kiro のときだけ — Kiro と共有）
-    case "$ide" in kiro) ;; kirocrew) [ "$UNINSTALL" -eq 1 ] && return 0 ;; *) return 0 ;; esac
+    [ "$ide" = "kiro" ] || return 0
     dest="$HOME/.kiro/skills/fractal"
     if [ -e "$dest" ] && ! grep -q '^name: fractal$' "$dest/SKILL.md" 2>/dev/null; then
         warn "  skill: $dest は Fractal の skill ではないので触らない"
