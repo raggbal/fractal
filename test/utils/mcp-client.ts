@@ -1,11 +1,11 @@
 /**
- * fractal MCP（mcp/dist/server.mjs = bundle）と stdio の JSON-RPC で話す最小クライアント（テスト用）。
+ * fractal MCP（agent-capability/plugin/server/server.mjs = bundle）と stdio の JSON-RPC で話す最小クライアント（テスト用）。
  * 削除は FRACTAL_TRASH_DIR（env で渡す）へ退避させる。
  */
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as path from 'path';
 
-export const MCP_SERVER = path.resolve(__dirname, '../../agent-capability/mcp/dist/server.mjs');
+export const MCP_SERVER = path.resolve(__dirname, '../../agent-capability/plugin/server/server.mjs');
 
 export class McpTestClient {
     private proc: ChildProcessWithoutNullStreams;

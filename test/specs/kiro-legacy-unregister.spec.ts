@@ -8,7 +8,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-const SCRIPT = path.resolve(__dirname, '../../agent-capability/mcp/unregister-legacy.mjs');
+const SCRIPT = path.resolve(__dirname, '../../agent-capability/scripts/unregister-legacy.mjs');
 const run = (cfg: string) => execFileSync(process.execPath, [SCRIPT, cfg], { encoding: 'utf-8' }).trim();
 
 test('AC-6 以前の fractal の登録だけを外し、ほかは触らず、冪等で、読めない JSON は書き換えない', () => {

@@ -3,12 +3,12 @@
  * fractal-mcp — Fractal（Notes / Outliner .out / outline.note / page md）を読み書きする MCP サーバー（stdio）。
  *
  * spec 20261027-1700-mcp-full-ops / ADR-0012:
- * - このファイルは「ソースの入口」。実行するのは esbuild で 1 ファイルにした mcp/dist/server.mjs
- *   （`npm run compile` か `node agent-capability/mcp/build.mjs` で作る。SDK・zod・src/shared の正典を全部含む）。
- *   ここは TypeScript（mcp/src）を import するので、node で直接は起動できない。
- * - 中身の処理は src/shared の正典（拡張機能と同じ関数）と webview と同じ OutlinerModel を呼ぶ（mcp/src/*.ts）。
+ * - このファイルは「ソースの入口」。実行するのは esbuild で 1 ファイルにした agent-capability/plugin/server/server.mjs
+ *   （`npm run compile` か `node agent-capability/server-src/build.mjs` で作る。SDK・zod・src/shared の正典を全部含む）。
+ *   ここは TypeScript（server-src/src/*.ts）を import するので、node で直接は起動できない。
+ * - 中身の処理は src/shared の正典（拡張機能と同じ関数）と webview と同じ OutlinerModel を呼ぶ（server-src/src/*.ts）。
  *   書き込みは 1 本ずつ・tmp + rename・Notes フォルダの中だけ・expectedHash（contentHash）で楽観ロック。
- * - 検索（fractal_search / list_folders）と summary は従来の CLI（scripts/*.mjs）を同じ bundle の
+ * - 検索（fractal_search / list_folders）と summary は従来の CLI（server-src/cli/*.mjs）を同じ bundle の
  *   `--fractal-cli <name>` で子プロセスとして走らせる（timeout と出力上限を保つ）。
  * - 公式 SDK（@modelcontextprotocol/sdk）の McpServer + stdio transport。引数の型・必須・enum は zod で検査する
  * - stdout には JSON-RPC 以外を書かない（ログは stderr）
@@ -20,12 +20,13 @@ import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { main as searchMain } from './scripts/fractal-search.mjs';
-import { main as summaryMain } from './scripts/fractal-summary.mjs';
-import { ToolError } from './src/guard.ts';
-import { toolGet, toolResolve, toolListNotes, toolDoctor, resolveSummaryNode } from './src/tools-read.ts';
-import { toolAdd, toolModify, toolAttach, toolTree } from './src/tools-write.ts';
-import STRUCTURE_MD from './structure.md';
+import { main as searchMain } from '../cli/fractal-search.mjs';
+import { main as summaryMain } from '../cli/fractal-summary.mjs';
+import { ToolError } from './guard.ts';
+import { toolGet, toolResolve, toolListNotes, toolDoctor, resolveSummaryNode } from './tools-read.ts';
+import { toolAdd, toolModify, toolAttach, toolTree } from './tools-write.ts';
+// データモデルの説明の原本は skill の参照 md（1 か所）。fractal_structure はこれを bundle に埋め込んで返す
+import STRUCTURE_MD from '../../plugin/skills/fractal/references/structure.md';
 
 const SELF = fileURLToPath(import.meta.url);
 const TIMEOUT_MS = 120_000;

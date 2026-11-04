@@ -1,7 +1,7 @@
 /**
  * fractal-mcp（spec 20261025-2350-fractal-mcp）: fractal skill 群を 1 つの MCP サーバー（stdio）にまとめたもの。
  *
- * mcp/dist/server.mjs（公式 SDK の McpServer を含む bundle）を子プロセスで起動し、改行区切りの JSON-RPC で実際に話す（クライアントと同じ経路）。
+ * plugin/server/server.mjs（公式 SDK の McpServer を含む bundle）を子プロセスで起動し、改行区切りの JSON-RPC で実際に話す（クライアントと同じ経路）。
  * tmp fixture note を都度生成。
  */
 import { test, expect } from '@playwright/test';
@@ -11,9 +11,10 @@ import * as os from 'os';
 import * as path from 'path';
 
 const AI_SKILLS = path.resolve(__dirname, '../../ai_skills');
-const MCP_DIR = path.resolve(__dirname, '../../agent-capability/mcp');
-// spec 20261027-1700-mcp-full-ops D1: 起動するのは esbuild の bundle（mcp/dist/server.mjs）。mcp/server.mjs はソースの入口
-const serverMjs = path.join(MCP_DIR, 'dist', 'server.mjs');
+const MCP_DIR = path.resolve(__dirname, '../../agent-capability/server-src');
+const PLUGIN_SERVER = path.resolve(__dirname, '../../agent-capability/plugin/server');
+// spec 20261027-1700-mcp-full-ops D1: 起動するのは esbuild の bundle（plugin/server/server.mjs）。server-src/src/server.mjs はソースの入口
+const serverMjs = path.join(PLUGIN_SERVER, 'server.mjs');
 
 let tmpRoot: string;
 test.beforeAll(() => {
@@ -132,9 +133,9 @@ test.describe('fractal-mcp', () => {
         expect(JSON.parse(r2.content[0].text).results.filter((x: any) => x.kind === 'outline-node').length).toBe(1);
     });
 
-    // spec 20261027-1700 D1: bundle（mcp/dist/server.mjs）でも PDF の中身検索が動く（pdfjs は dist/vendor に複製した vendor を読む）
+    // spec 20261027-1700 D1: bundle（plugin/server/server.mjs）でも PDF の中身検索が動く（pdfjs は plugin/server/vendor に複製した vendor を読む）
     test('AC-2 bundle の fractal_search が添付 PDF の中身（日本語）をヒットさせる', async () => {
-        expect(fs.existsSync(path.join(MCP_DIR, 'dist', 'vendor', 'pdfjs-bundle.cjs'))).toBe(true);
+        expect(fs.existsSync(path.join(PLUGIN_SERVER, 'vendor', 'pdfjs-bundle.cjs'))).toBe(true);
         const { dir } = mkFixtureNote('pdf');
         fs.mkdirSync(path.join(dir, 'files'));
         fs.copyFileSync(path.resolve(__dirname, '../fixtures/doc-search/fixture-ja-en.pdf'), path.join(dir, 'files', 'report.pdf'));
@@ -222,7 +223,7 @@ test.describe('fractal-mcp', () => {
     test('AC-5 fractal_structure が文書を返し、旧 skill の dir（ai_skills/）は無く mcp/install.sh は skill を配置しない', async () => {
         const r = await c.call('fractal_structure');
         expect(r.isError).toBe(false);
-        expect(r.content[0].text).toBe(fs.readFileSync(path.join(MCP_DIR, 'structure.md'), 'utf-8'));
+        expect(r.content[0].text).toBe(fs.readFileSync(path.resolve(__dirname, '../../agent-capability/plugin/skills/fractal/references/structure.md'), 'utf-8'));
         expect(r.content[0].text).toContain('outline.note');
         expect(r.content[0].text).not.toMatch(/^name: /m); // SKILL.md の frontmatter を持ち込んでいない
 
@@ -236,31 +237,8 @@ test.describe('fractal-mcp', () => {
         const legacy = installSh.match(/^LEGACY_SKILLS="([^"]+)"/m)![1].split(' ');
         for (const s of ['fractal-structure', 'fractal-search', 'fractal-edit', 'fractal-doctor', 'fractal-summary', 'fractal-mcp', 'collect', 'doc-md', 'pptx-pages-md', 'aws-doc-maker', 'arxiv-md', 'youtube-md', 'web-crawler-md']) expect(legacy).toContain(s);
         // spec 20261027-1700 D1: 書き込み・doctor の mjs ミラーは廃止して bundle（src/shared の正典入り）にした
-        expect(fs.existsSync(path.join(MCP_DIR, 'scripts', 'fractal-md.mjs'))).toBe(false);
+        expect(fs.existsSync(path.join(MCP_DIR, 'cli', 'fractal-md.mjs'))).toBe(false);
         expect(fs.existsSync(serverMjs)).toBe(true);
-    });
-});
-
-test.describe('fractal-mcp register.mjs', () => {
-    test('AC-5 register.mjs は mcp.json の他のサーバーを残して fractal を足し / 外す', async () => {
-        const { execFileSync } = await import('child_process');
-        const dir = fs.mkdtempSync(path.join(tmpRoot, 'reg-'));
-        const cfg = path.join(dir, 'mcp.json');
-        fs.writeFileSync(cfg, JSON.stringify({ mcpServers: { other: { command: 'x', args: [] } } }));
-        const reg = path.join(MCP_DIR, 'register.mjs');
-        execFileSync(process.execPath, [reg, cfg, serverMjs, '--node', '/usr/bin/node']);
-        let data = JSON.parse(fs.readFileSync(cfg, 'utf-8'));
-        expect(data.mcpServers.other).toEqual({ command: 'x', args: [] });
-        expect(data.mcpServers.fractal).toEqual({ command: '/usr/bin/node', args: [serverMjs] });
-        expect(fs.existsSync(cfg + '.bak')).toBe(true);
-        execFileSync(process.execPath, [reg, cfg, '--remove']);
-        data = JSON.parse(fs.readFileSync(cfg, 'utf-8'));
-        expect(data.mcpServers.fractal).toBeUndefined();
-        expect(data.mcpServers.other).toBeDefined();
-        // 壊れた JSON は触らない
-        fs.writeFileSync(cfg, '{broken');
-        expect(() => execFileSync(process.execPath, [reg, cfg, serverMjs], { stdio: 'pipe' })).toThrow();
-        expect(fs.readFileSync(cfg, 'utf-8')).toBe('{broken');
     });
 });
 

@@ -56,12 +56,18 @@ test('TC-VEX-12: innerHTML 番人 — viewer-*/ に innerHTML / insertAdjacentHT
 test('TC-VEX-14: 正典不変更 — doc-text-extract.ts と ai_skills ミラーが main と一致（INV-1）', () => {
     // sprint ブランチ上で main の内容と一致 = 本 sprint が正典に diff を入れていない
     const { execSync } = require('child_process');
-    // ooxml-extract.mjs は mcp/scripts から agent-capability/mcp/scripts へ移動した（中身は同じ）。main が移動前なら旧パスと比べる
+    // ooxml-extract.mjs は mcp/scripts → agent-capability/mcp/scripts → agent-capability/server-src/cli へ移動した（中身は同じ）。main が移動前なら旧パスと比べる
     const show = (rel: string) => execSync(`git show main:${rel}`, { cwd: ROOT, maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }).toString('utf8');
-    for (const [rel, before] of [['src/shared/doc-text-extract.ts', null], ['agent-capability/mcp/scripts/ooxml-extract.mjs', 'mcp/scripts/ooxml-extract.mjs']]) {
+    for (const [rel, ...before] of [['src/shared/doc-text-extract.ts'], ['agent-capability/server-src/cli/ooxml-extract.mjs', 'agent-capability/mcp/scripts/ooxml-extract.mjs', 'mcp/scripts/ooxml-extract.mjs']]) {
         const now = fs.readFileSync(path.join(ROOT, rel!), 'utf8');
         let main: string;
-        try { main = show(rel!); } catch (e) { if (!before) throw e; main = show(before); }
+        const tryShow = (cands: string[]): string => {
+            for (const [i, c] of cands.entries()) {
+                try { return show(c); } catch (e) { if (i === cands.length - 1) throw e; }
+            }
+            return '';
+        };
+        main = tryShow([rel!, ...before]);
         expect(now === main, `${rel} が main から変更されている（正典は不可侵 — INV-1）`).toBe(true);
     }
 });

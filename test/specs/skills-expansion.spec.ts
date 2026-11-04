@@ -13,9 +13,9 @@ import * as path from 'path';
 
 import { McpTestClient } from '../utils/mcp-client';
 
-const doctorTs = path.resolve(__dirname, '../../agent-capability/mcp/src/doctor.ts');
-const summaryMjs = path.resolve(__dirname, '../../agent-capability/mcp/scripts/fractal-summary.mjs');
-const searchMjs = path.resolve(__dirname, '../../agent-capability/mcp/scripts/fractal-search.mjs');
+const doctorTs = path.resolve(__dirname, '../../agent-capability/server-src/src/doctor.ts');
+const summaryMjs = path.resolve(__dirname, '../../agent-capability/server-src/cli/fractal-summary.mjs');
+const searchMjs = path.resolve(__dirname, '../../agent-capability/server-src/cli/fractal-search.mjs');
 
 let tmpRoot: string;
 test.beforeAll(() => {
@@ -60,7 +60,7 @@ function mkFixtureNote(name: string): { dir: string; outPath: string } {
 
 // spec 20261027-1700-mcp-full-ops（D1 / ADR-0012）: 書き込み（旧 fractal-modify.mjs / fractal-md.mjs /
 // fractal-attach.mjs）と doctor（旧 fractal-doctor.mjs）の mjs は、src/shared の正典を呼ぶ MCP の TypeScript
-// （mcp/src）に置き換えた。A・B は bundle（mcp/dist/server.mjs）の tool で同じ観点を確かめる。
+// （server-src/src）に置き換えた。A・B は bundle（plugin/server/server.mjs）の tool で同じ観点を確かめる。
 // 挙動を意図して変えたもの（監査 B-1〜B-12 の修正）は各テストのコメントに書く。
 
 async function withClient<T>(fn: (c: McpTestClient) => Promise<T>): Promise<T> {
@@ -516,8 +516,8 @@ test.describe('F. 配線', () => {
         expect(fs.existsSync(summaryMjs)).toBe(true);
         // 書き込みと doctor の mjs ミラーは廃止（正典 src/shared を呼ぶ mcp/src に一本化。spec 20261027-1700 D1）
         for (const f of ['fractal-md.mjs', 'fractal-modify.mjs', 'fractal-attach.mjs', 'fractal-doctor.mjs']) {
-            expect(fs.existsSync(path.resolve(__dirname, '../../agent-capability/mcp/scripts', f)), f).toBe(false);
+            expect(fs.existsSync(path.resolve(__dirname, '../../agent-capability/server-src/cli', f)), f).toBe(false);
         }
-        expect(fs.existsSync(path.resolve(__dirname, '../../agent-capability/mcp/server.mjs'))).toBe(true);
+        expect(fs.existsSync(path.resolve(__dirname, '../../agent-capability/server-src/src/server.mjs'))).toBe(true);
     });
 });

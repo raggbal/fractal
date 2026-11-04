@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
 # install.sh — Fractal の AI 向け機能（MCP サーバー + 使い方の skill）を各 AI IDE に入れる
 #
-# 依存を入れて（npm ci）bundle を作り（agent-capability/mcp/build.mjs — ADR-0012）、IDE ごとに:
+# 配置は README.md の先頭の図。plugin/ が「入る物」（丸ごと写される）、server-src/ が「作る物」（写されない）。
+# 依存を入れて（server-src で npm ci）bundle を plugin/server/ に作り（server-src/build.mjs — ADR-0012）、IDE ごとに:
 #   - Claude Code: plugin（agent-capability/plugin = MCP + skill）を marketplace（agent-capability）から入れる。
 #                  旧来の user scope の登録（claude mcp add fractal）は plugin を入れたあと外す（二重登録で plugin が隠れる）
 #   - Codex:       同じ plugin を同じ marketplace から入れる（plugin/plugin.json・mcp.json = Agent Plugins 形式。
 #                  Codex は .mcp.json の ${CLAUDE_PLUGIN_ROOT} を展開しないので、Agent Plugins の ${PLUGIN_ROOT} の方を読ませる）
 #   - Kiro:        同じ plugin フォルダを Power として入れる（kiro-cli powers install。Kiro は Agent Plugins の plugin.json・mcp.json・skills/ を読む）。
-#                  Power は写しなので、MCP を直したら install.sh を流し直す。以前の登録（~/.kiro/settings/mcp.json の fractal と
+#                  Power は写しなので、MCP を直したら ./install.sh --update を流す。以前の登録（~/.kiro/settings/mcp.json の fractal と
 #                  ~/.kiro/skills/fractal の copy）は残ると tool と skill が二重になるので、毎回外す
-#   - Antigravity: 自動登録しない（表示するコマンドを手で設定）
+#   - Antigravity: 自動登録しない（表示するコマンドを手で設定。plugin の仕組みが無いので、node の絶対パスと bundle のパスを出す）
 #
 # 以前 ai_skills/install.sh が配置していた skill（今は無い）と ~/.fractal/fractal-mcp の symlink は毎回片付ける。
 #
 # 使い方:
 #   ./install.sh                  # 検出した全 IDE に登録
 #   ./install.sh --dry-run        # 何をするか表示するだけ
+#   ./install.sh --update         # MCP・skill を直した後: build → Claude の plugin 更新 → Codex の plugin・Kiro の Power を入れ直す
 #   ./install.sh --uninstall      # 登録を解除
 #   ./install.sh --only claude,kiro  # 対象 IDE を絞る (カンマ区切り)
 #
@@ -25,10 +27,10 @@ set -eu
 
 # ─── 設定 ─────────────────────────────────────────────
 CAP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MCP_DIR="$CAP_DIR/mcp"
+SERVER_SRC="$CAP_DIR/server-src"          # 作る物（写されない）: ソース・node_modules・build.mjs
 REPO_DIR="$(cd "$CAP_DIR/.." && pwd)"
-MCP_SERVER="$MCP_DIR/dist/server.mjs"
-PLUGIN_DIR="$CAP_DIR/plugin"
+PLUGIN_DIR="$CAP_DIR/plugin"              # 入る物（丸ごと写される）
+SERVER_BUNDLE="$PLUGIN_DIR/server/server.mjs"   # build の生成物（gitignore）
 PLUGIN_ID="fractal@fractal-local"
 # 以前は skill として配置していたもの（install / uninstall のたびに片付ける）
 LEGACY_SKILLS="fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary fractal-mcp collect doc-md pptx-pages-md aws-doc-maker arxiv-md youtube-md web-crawler-md"
@@ -49,15 +51,17 @@ ide_parent() {
 # ─── 引数 ─────────────────────────────────────────────
 DRY_RUN=0
 UNINSTALL=0
+UPDATE=0
 ONLY=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run)   DRY_RUN=1; shift ;;
         --uninstall) UNINSTALL=1; shift ;;
+        --update)    UPDATE=1; shift ;;
         --only)      ONLY="$2"; shift 2 ;;
         -h|--help)
-            sed -n '2,20p' "$0"
+            sed -n '2,24p' "$0"
             exit 0
             ;;
         *)
@@ -114,8 +118,8 @@ do_legacy_cleanup() {
     fi
 }
 
-# ─── 依存の導入 ─────────────────────────────────────
-prepare_mcp() {
+# ─── 依存の導入と build ─────────────────────────────
+build_server() {
     if [ -L "$LEGACY_LINK" ]; then
         if [ "$DRY_RUN" -eq 1 ]; then
             echo "  [dry-run] rm $LEGACY_LINK"
@@ -126,31 +130,23 @@ prepare_mcp() {
     fi
     [ "$UNINSTALL" -eq 1 ] && return 0
     if [ "$DRY_RUN" -eq 1 ]; then
-        echo "  [dry-run] (cd $MCP_DIR && npm ci) && (cd $REPO_DIR && npx tsc -p tsconfig.shared-emit.json && node agent-capability/mcp/build.mjs)"
+        echo "  [dry-run] (cd $SERVER_SRC && npm ci) && (cd $REPO_DIR && npx tsc -p tsconfig.shared-emit.json && node agent-capability/server-src/build.mjs)"
         return 0
     fi
     if ! command -v npm >/dev/null 2>&1; then
         err "npm が無いので fractal-mcp の依存を入れられません"
         return 1
     fi
-    (cd "$MCP_DIR" && npm ci --no-fund --no-audit --loglevel=error) || { err "fractal-mcp: npm ci に失敗"; return 1; }
-    # bundle（mcp/dist/server.mjs）は生成物。build は out/shared（shared emit）と repo の esbuild を使う
-    (cd "$REPO_DIR" && npx tsc -p tsconfig.shared-emit.json && node agent-capability/mcp/build.mjs) || { err "fractal-mcp: bundle の build に失敗（repo で npm install 済みか確認）"; return 1; }
-    [ -f "$MCP_SERVER" ] || { err "fractal-mcp: $MCP_SERVER がありません"; return 1; }
-    ok "fractal-mcp → 依存を導入 ($MCP_DIR)"
+    (cd "$SERVER_SRC" && npm ci --no-fund --no-audit --loglevel=error) || { err "fractal-mcp: npm ci に失敗"; return 1; }
+    # bundle（plugin/server/server.mjs）は生成物。build は out/shared（shared emit）と repo の esbuild・tsc を使う
+    (cd "$REPO_DIR" && npx tsc -p tsconfig.shared-emit.json && node agent-capability/server-src/build.mjs) || { err "fractal-mcp: bundle の build に失敗（repo で npm install 済みか確認）"; return 1; }
+    [ -f "$SERVER_BUNDLE" ] || { err "fractal-mcp: $SERVER_BUNDLE がありません"; return 1; }
+    ok "fractal-mcp → build ($SERVER_BUNDLE)"
 }
 
-# fractal-mcp の登録 / 解除（server は repo の mcp/dist/server.mjs を起動）
-do_mcp_one() {
+# plugin（Kiro は Power）の登録 / 更新 / 解除。どの IDE も plugin/ を入れ、中の MCP は IDE が plugin の設定から起動する
+do_plugin_one() {
     ide=$1
-    server="$MCP_SERVER"
-    # mise 等の版つきパスは node の更新で消えるので、shim があればそちらを登録する
-    node_bin=$(command -v node || true)
-    case "$node_bin" in */mise/installs/*) [ -x "$HOME/.local/share/mise/shims/node" ] && node_bin="$HOME/.local/share/mise/shims/node" ;; esac
-    if [ -z "$node_bin" ]; then
-        warn "  MCP: node が見つからないので登録をスキップ"
-        return 0
-    fi
     case "$ide" in
         claude)
             # Claude Code は plugin（MCP + skill）で入れる。marketplace は agent-capability（.claude-plugin/marketplace.json）
@@ -161,9 +157,18 @@ do_mcp_one() {
             if [ "$DRY_RUN" -eq 1 ]; then
                 if [ "$UNINSTALL" -eq 1 ]; then
                     echo "  [dry-run] claude plugin uninstall $PLUGIN_ID; claude plugin marketplace remove fractal-local; claude mcp remove -s user fractal"
+                elif [ "$UPDATE" -eq 1 ]; then
+                    echo "  [dry-run] claude plugin marketplace update fractal-local; claude plugin update $PLUGIN_ID"
                 else
                     echo "  [dry-run] claude plugin marketplace add $CAP_DIR; claude plugin install $PLUGIN_ID; claude mcp remove -s user fractal"
                 fi
+                return 0
+            fi
+            if [ "$UPDATE" -eq 1 ] && claude plugin list 2>/dev/null | grep -q "$PLUGIN_ID"; then
+                # ローカルのフォルダの marketplace の plugin はその場で読むので build で中身は替わっているが、念のため update も流す
+                claude plugin marketplace update fractal-local >/dev/null 2>&1 || true
+                claude plugin update "$PLUGIN_ID" >/dev/null 2>&1 || true
+                ok "  plugin: $PLUGIN_ID → 更新（新しいセッションか /reload-plugins で有効）"
                 return 0
             fi
             if [ "$UNINSTALL" -eq 1 ]; then
@@ -229,8 +234,13 @@ do_mcp_one() {
                 err "  Kiro への Power のインストールに失敗。Kiro の Powers パネルで Add Custom Power → Import power from a folder → $PLUGIN_DIR"
             fi
             ;;
-        *)
-            [ "$UNINSTALL" -eq 1 ] || dim "  MCP: $ide は自動登録しない。設定するなら command=$node_bin args=[$server]"
+        antigravity)
+            # Antigravity には plugin の仕組みが無いので、手で設定する command を出すだけ。GUI は shell の PATH を持たないので
+            # node は絶対パスで出し、mise 等の版つきパスは node の更新で消えるので shim があればそちらを出す
+            [ "$UNINSTALL" -eq 1 ] && return 0
+            node_bin=$(command -v node || true)
+            case "$node_bin" in */mise/installs/*) [ -x "$HOME/.local/share/mise/shims/node" ] && node_bin="$HOME/.local/share/mise/shims/node" ;; esac
+            dim "  MCP: Antigravity は自動登録しない。設定するなら command=${node_bin:-node} args=[$SERVER_BUNDLE]"
             ;;
     esac
 }
@@ -246,7 +256,7 @@ do_kiro_legacy() {
         return 0
     fi
     if [ -f "$cfg" ] && command -v node >/dev/null 2>&1; then
-        [ "$(node "$MCP_DIR/unregister-legacy.mjs" "$cfg")" = "removed" ] && ok "  以前の MCP 登録を外した ($cfg)"
+        [ "$(node "$CAP_DIR/scripts/unregister-legacy.mjs" "$cfg")" = "removed" ] && ok "  以前の MCP 登録を外した ($cfg)"
     fi
     if [ -e "$dest" ]; then
         if grep -q '^name: fractal$' "$dest/SKILL.md" 2>/dev/null; then
@@ -260,13 +270,13 @@ do_kiro_legacy() {
 # ─── メイン ────────────────────────────────────────
 echo ""
 echo "Fractal agent-capability installer (MCP + skill)"
-echo "  server: $MCP_SERVER"
-_mode=$([ "$UNINSTALL" -eq 1 ] && echo uninstall || echo install)
+echo "  plugin: $PLUGIN_DIR"
+_mode=$([ "$UNINSTALL" -eq 1 ] && echo uninstall || { [ "$UPDATE" -eq 1 ] && echo update || echo install; })
 _suffix=$([ "$DRY_RUN" -eq 1 ] && echo ' (dry-run)' || true)
 echo "  mode:   ${_mode}${_suffix}"
 echo ""
 
-prepare_mcp || exit 1
+build_server || exit 1
 echo ""
 
 did_any=0
@@ -280,7 +290,7 @@ for ide in $TARGETS; do
     for legacy in $LEGACY_SKILLS; do
         do_legacy_cleanup "$ide" "$legacy" || true
     done
-    do_mcp_one "$ide" || true
+    do_plugin_one "$ide" || true
     do_kiro_legacy "$ide" || true
     did_any=1
 done

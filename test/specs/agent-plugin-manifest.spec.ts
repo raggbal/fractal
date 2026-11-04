@@ -1,7 +1,7 @@
 /**
  * spec 20261104-0524-codex-plugin-drop-kirocrew D1 / D5 — plugin（agent-capability/plugin）は Claude Code と Codex で共有する。
- * - Claude Code は .claude-plugin/plugin.json と .mcp.json（${CLAUDE_PLUGIN_ROOT}）を読む
- * - Codex と Kiro（Power）は Agent Plugins の plugin.json と mcp.json（${PLUGIN_ROOT}）を読む（Codex は .mcp.json の ${CLAUDE_PLUGIN_ROOT} を展開しない）
+ * - Claude Code は .claude-plugin/plugin.json（MCP は manifest の mcpServers に直接書く。${CLAUDE_PLUGIN_ROOT}）を読む。.mcp.json は置かない
+ * - Codex と Kiro（Power）は Agent Plugins の plugin.json と mcp.json（${PLUGIN_ROOT}）を読む（Codex は ${CLAUDE_PLUGIN_ROOT} を展開しない）
  * 2 つの manifest の name・version・description と、2 つの MCP 設定が起動する server がずれないこと。
  */
 import { test, expect } from '@playwright/test';
@@ -23,7 +23,9 @@ test('AC-1 Agent Plugins の manifest・MCP 設定が Claude Code のものと�
     expect(fs.existsSync(path.join(PLUGIN, 'skills', 'fractal', 'SKILL.md'))).toBe(true);
 
     const agentMcp = read('mcp.json');
-    const claudeMcp = read('.mcp.json');
+    const claudeMcp = { mcpServers: claude.mcpServers };
+    expect(claude.mcpServers, '.claude-plugin/plugin.json に mcpServers が無い').toBeTruthy();
+    expect(fs.existsSync(path.join(PLUGIN, '.mcp.json')), '.mcp.json は置かない（Claude Code は manifest の mcpServers を読む）').toBe(false);
     expect(agentMcp.$schema).toMatch(/^https:\/\/agent-plugins\.org\/schemas\/1\.\d+\.\d+\/mcp\.schema\.json$/);
     // Agent Plugins の MCP 設定は $schema と mcpServers 以外を持てない（Kiro / Codex は MCP を丸ごと無効にする）
     expect(Object.keys(agentMcp).sort()).toEqual(['$schema', 'mcpServers']);

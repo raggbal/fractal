@@ -3,7 +3,7 @@
  * - SKILL.md の frontmatter（name / description）
  * - SKILL.md に出てくる fractal_* がすべて tools/list にあり、tools/list の tool はすべて SKILL.md に出てくる
  * - 廃止した fractal_md_edit を案内していない
- * - references/structure.md は mcp/structure.md の写し（mcp/build.mjs がコピー）
+ * - references/structure.md がデータモデルの説明の原本（1 か所）。server は build でこれを埋め込む（写しは作らない）
  */
 import { test, expect } from '@playwright/test';
 import { spawn } from 'child_process';
@@ -14,7 +14,7 @@ const ROOT = path.resolve(__dirname, '../..');
 const SKILL = path.join(ROOT, 'agent-capability', 'plugin', 'skills', 'fractal', 'SKILL.md');
 
 async function listTools(): Promise<string[]> {
-    const proc = spawn(process.execPath, [path.join(ROOT, 'agent-capability', 'mcp', 'dist', 'server.mjs')], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawn(process.execPath, [path.join(ROOT, 'agent-capability', 'plugin', 'server', 'server.mjs')], { stdio: ['pipe', 'pipe', 'pipe'] });
     let buf = '';
     const tools = await new Promise<string[]>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('tools/list timeout')), 15000);
@@ -38,7 +38,7 @@ async function listTools(): Promise<string[]> {
     return tools;
 }
 
-test('AC-1 skill の tool 名が MCP の tools/list と一致し、references は structure.md の写し', async () => {
+test('AC-1 skill の tool 名が MCP の tools/list と一致し、references の structure.md が原本', async () => {
     const body = fs.readFileSync(SKILL, 'utf8');
     const fm = body.match(/^---\n([\s\S]*?)\n---/);
     expect(fm, 'frontmatter が無い').toBeTruthy();
@@ -52,5 +52,8 @@ test('AC-1 skill の tool 名が MCP の tools/list と一致し、references �
     expect(body).not.toContain('fractal_md_edit');
 
     const ref = fs.readFileSync(path.join(ROOT, 'agent-capability', 'plugin', 'skills', 'fractal', 'references', 'structure.md'), 'utf8');
-    expect(ref, 'references/structure.md が mcp/structure.md と違う（node mcp/build.mjs で更新）').toBe(fs.readFileSync(path.join(ROOT, 'agent-capability', 'mcp', 'structure.md'), 'utf8'));
+    expect(ref).toContain('outline.note');
+    // 原本は 1 か所: server-src に写しを置かず、server の入口が skill の参照 md を直接 import する
+    expect(fs.existsSync(path.join(ROOT, 'agent-capability', 'server-src', 'structure.md'))).toBe(false);
+    expect(fs.readFileSync(path.join(ROOT, 'agent-capability', 'server-src', 'src', 'server.mjs'), 'utf8')).toContain("from '../../plugin/skills/fractal/references/structure.md'");
 });

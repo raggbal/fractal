@@ -1,7 +1,7 @@
 /**
  * mcp-full-ops（spec 20261027-1700-mcp-full-ops）: MCP で Fractal を安全に操作できる（AC-1〜AC-5）。
  *
- * bundle（mcp/dist/server.mjs = npm run compile / node mcp/build.mjs）を子プロセスで起動し、
+ * bundle（plugin/server/server.mjs = npm run compile / node agent-capability/server-src/build.mjs）を子プロセスで起動し、
  * 改行区切りの JSON-RPC で実際に話す（クライアントと同じ経路）。fixture の note は tmp に都度作る。
  * 削除は FRACTAL_TRASH_DIR（tmp）へ退避させ、ユーザーのゴミ箱を汚さない。
  *
@@ -28,7 +28,7 @@ const OutlinerModel = require('../../src/webview/outliner-model.js');
 const linkParser = require('../../src/shared/markdown-link-parser.js');
 
 const ROOT = path.resolve(__dirname, '../..');
-const SERVER = path.join(ROOT, 'agent-capability', 'mcp', 'dist', 'server.mjs');
+const SERVER = path.join(ROOT, 'agent-capability', 'plugin', 'server', 'server.mjs');
 
 let tmpRoot: string;
 let trashDir: string;
@@ -158,7 +158,7 @@ async function expectClean(c: Client, dir: string, label: string) {
 
 let c: Client;
 test.beforeEach(async () => {
-    expect(fs.existsSync(SERVER), 'mcp/dist/server.mjs が無い（npm run compile か node mcp/build.mjs）').toBe(true);
+    expect(fs.existsSync(SERVER), 'plugin/server/server.mjs が無い（npm run compile か node agent-capability/server-src/build.mjs）').toBe(true);
     c = new Client();
     await c.init();
 });

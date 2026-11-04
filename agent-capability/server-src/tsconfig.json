@@ -1,5 +1,5 @@
 {
-  // fractal MCP の TypeScript（mcp/src）の型チェック専用（emit しない。bundle は mcp/build.mjs の esbuild）。
+  // fractal MCP の TypeScript（server-src/src）の型チェック専用（emit しない。bundle は server-src/build.mjs の esbuild）。
   // src/shared の正典を相対 import するので rootDir は repo ルート。
   "compilerOptions": {
     "module": "ESNext",

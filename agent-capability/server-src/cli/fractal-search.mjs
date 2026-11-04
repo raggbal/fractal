@@ -92,7 +92,7 @@ export function filterFoldersByNoteName(entries, noteNames, excludeNotes, labelO
 // ─────────────── md 先頭 H1（FR-SS-03） ───────────────
 // spec 20261027-1700-mcp-full-ops D9（ADRL-0020 のミラー部分を上書き）: H1 の解釈は正典
 // src/shared/md-h1-utils.ts だけに置く。ここでは tsc が出した out/shared/md-h1-utils.js を読む
-// （bundle = mcp/dist/server.mjs には esbuild が同じものを畳み込む）。mjs の H1 ミラーは廃止した。
+// （bundle = plugin/server/server.mjs には esbuild が同じものを畳み込む）。mjs の H1 ミラーは廃止した。
 const extractFirstH1Canon = h1Utils.extractFirstH1;
 
 /** --h1 フィルタ: md 本文の先頭 H1 への大小無視部分一致。h1Filter なしは常に true */
@@ -556,7 +556,7 @@ function loadPdfjsVendor() {
     try {
         const require2 = createRequire(import.meta.url);
         // vendor/pdfjs-bundle.cjs は module.exports = { getDocument, ... }（scripts/build-pdfjs-vendor.js 生成）
-        // scripts/ から実行 = ../vendor、bundle（agent-capability/mcp/dist/server.mjs）から実行 = ./vendor（build が dist/vendor へ複製）→ ../vendor
+        // cli/ から実行 = ../vendor、bundle（agent-capability/plugin/server/server.mjs）から実行 = ./vendor（build が plugin/server/vendor へ複製）
         const here = path.dirname(fileURLToPath(import.meta.url));
         const candidates = [path.join(here, 'vendor', 'pdfjs-bundle.cjs'), path.join(here, '..', 'vendor', 'pdfjs-bundle.cjs')];
         const found = candidates.find((c) => fs.existsSync(c));
@@ -1394,7 +1394,7 @@ function __isCliInvocation() {
     try { entry = fs.realpathSync(entry); } catch { /* 存在しない等 → 素の argv[1] で比較 */ }
     return import.meta.url === pathToFileURL(entry).href;
 }
-// mcp/dist/server.mjs（bundle）の中では import.meta.url が全モジュールで bundle 自身になるため、
+// plugin/server/server.mjs（bundle）の中では import.meta.url が全モジュールで bundle 自身になるため、
 // bundle の banner が立てる __FRACTAL_MCP_BUNDLE__ で自動実行を止める（bundle は --fractal-cli search で main を呼ぶ）
 if (!globalThis.__FRACTAL_MCP_BUNDLE__ && __isCliInvocation()) {
     main().catch((e) => { console.error(e); process.exit(1); });
