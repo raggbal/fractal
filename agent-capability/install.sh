@@ -6,7 +6,7 @@
 #   - Claude Code: plugin（agent-capability/plugin = MCP + skill）を marketplace（agent-capability）から入れる。
 #                  旧来の user scope の登録（claude mcp add fractal）は plugin を入れたあと外す（二重登録で plugin が隠れる）
 #   - Codex:       同じ plugin を同じ marketplace から入れる（plugin/plugin.json・mcp.json = Agent Plugins 形式。
-#                  Codex は .mcp.json の ${CLAUDE_PLUGIN_ROOT} を展開しないので、Agent Plugins の ${PLUGIN_ROOT} の方を読ませる）
+#                  Codex は Claude 用の ${CLAUDE_PLUGIN_ROOT} を展開しないので、Agent Plugins の ${PLUGIN_ROOT} の方を読ませる）
 #   - Kiro:        同じ plugin フォルダを Power として入れる（kiro-cli powers install。Kiro は Agent Plugins の plugin.json・mcp.json・skills/ を読む）。
 #                  Power は写しなので、MCP を直したら ./install.sh --update を流す。以前の登録（~/.kiro/settings/mcp.json の fractal と
 #                  ~/.kiro/skills/fractal の copy）は残ると tool と skill が二重になるので、毎回外す

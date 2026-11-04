@@ -473,7 +473,7 @@ export function extractOoxmlText(filePath) {
 
 // --- CLI (import 時は実行しない — import.meta.url ガード必須) -------------------
 
-// bundle（mcp/dist/server.mjs）の中では import.meta.url が bundle 自身になるので __FRACTAL_MCP_BUNDLE__ で止める
+// bundle（plugin/server/server.mjs）の中では import.meta.url が bundle 自身になるので __FRACTAL_MCP_BUNDLE__ で止める
 if (!globalThis.__FRACTAL_MCP_BUNDLE__ && process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const file = process.argv[2];
   if (!file) {
