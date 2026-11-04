@@ -467,6 +467,10 @@ var MindmapRender = (function() {
                                 title: dragNode.text || '',
                             }));
                         } catch (err) { /* ignore */ }
+                        // W8: 複数選択中は outliner の icon drag と同じく選択集合の添付 + 選択の根を併載（同じ関数）
+                        if (typeof window.__outlinerSetMultiSelectAssetsPayload === 'function') {
+                            window.__outlinerSetMultiSelectAssetsPayload(ev, dragNode);
+                        }
                     });
                 })(pi, node);
             }
@@ -500,6 +504,10 @@ var MindmapRender = (function() {
                                 nodeId: dragNode.id,
                             }));
                         } catch (err) { /* ignore */ }
+                        // W8: 複数選択中は outliner の icon drag と同じく選択集合の添付 + 選択の根を併載（同じ関数）
+                        if (typeof window.__outlinerSetMultiSelectAssetsPayload === 'function') {
+                            window.__outlinerSetMultiSelectAssetsPayload(ev, dragNode);
+                        }
                     });
                 })(fi, node);
             }

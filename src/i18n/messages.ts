@@ -196,6 +196,8 @@ export interface WebviewMessages {
   batchDndFoldersSkipped: string;
   // FR-MSEL-04 R3（TASK-45）: 複数選択から除外した .out の件数通知（note ツリー = webview が dragend で出す）
   batchDndOutSkipped: string;
+  // W13: ツリーの複数選択 drag から外したフォルダ（folder link・仮想フォルダ）の件数通知（webview が dragend で出す）
+  batchDndTreeFoldersSkipped: string;
   closeOutline: string;
   openOutline: string;
   openInTextEditor: string;

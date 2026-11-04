@@ -275,6 +275,10 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
 
         // --- メッセージハンドラ ---
         const disposables: vscode.Disposable[] = [];
+        // W9 / W11: Store の cut が md・ツリーへの移動で消費されたら、この outliner の cut も解く（notesEditorProvider と同じ）
+        disposables.push(OutlinerClipboardStore.onCutConsumed((plainText: string) => {
+            webviewPanel.webview.postMessage({ type: 'outlinerCutConsumed', plainText });
+        }));
 
         // Shared factory setup for Finder + Explorer drop import (DRY: removes 4 duplicated case bodies)
         const dropHandlerDeps = {
@@ -1208,6 +1212,11 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 getClipboard: (pt: string) => OutlinerClipboardStore.get(pt),
                                 destFilesDir: flatLayout.resolveFilesDirForMd(message.sidePanelFilePath),
                                 destImagesDir: flatLayout.resolveImagesDirForMd(message.sidePanelFilePath),
+                                // W9: standalone では「.out と貼り付け先 md が同じフォルダ」を同じ note とみなして移動、それ以外は複製
+                                isCut: !!message.isCut,
+                                canMove: (store: { sourceOutDir: string }) =>
+                                    path.resolve(store.sourceOutDir) === path.resolve(path.dirname(message.sidePanelFilePath)),
+                                onCutConsumed: () => OutlinerClipboardStore.markCutConsumed(),
                             });
                             webviewPanel.webview.postMessage({
                                 type: 'pasteWithAssetCopyResult',

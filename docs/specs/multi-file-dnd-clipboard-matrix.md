@@ -30,17 +30,17 @@ HEAD `bf96db4` 時点のコードを読んで作った表。動かしての確�
 
 | 行き先 | D&D | cmd+c → v | cmd+x → v |
 |---|---|---|---|
-| 同じ md | 単○ 複△ — DOM 上でアンカーを動かす（移動）。複は掴んだ 1 件だけ動く。選択範囲のドラッグは Fractal の MIME が無く、drop 側が `preventDefault` するので何も起きない | 単○ 複○ — 範囲中の 📎・subpage・画像を全部複製（`pasteWithAssetCopy`） | 単○ 複○ — 同じ note なので md 文字列のまま差し込む（移動） |
-| sidepanel md | 単○ 複△ — 同じ note = リンク移動、他 note = 実体を複製して元リンク除去、linkedfd 境界 = 複製（元を残す）。複は掴んだ 1 件 | 単○ 複○ — 複製 | 単○ 複○ — 同じ note = 移動、他 note / linkedfd = 複製（元実体は orphan） |
+| 同じ md | 単○ 複○ — DOM 上でアンカーを動かす（移動）。複は 対応 (W1, W2)：範囲選択の中のリンクを掴むと選択中のリンクを全部、drop 位置へ 1 行 1 リンク・選択順に動かす（間の文字は残る）。掴んだリンクが選択の外なら従来どおり 1 件 | 単○ 複○ — 範囲中の 📎・subpage・画像を全部複製（`pasteWithAssetCopy`） | 単○ 複○ — 同じ note なので md 文字列のまま差し込む（移動） |
+| sidepanel md | 単○ 複○ — 同じ note = リンク移動、他 note = 実体を複製して元リンク除去、linkedfd 境界 = 複製（元を残す）。複は 対応 (W1, W3, W4)：`attachMdLinksToMdBatch` を 1 回（選択順に 1 行 1 リンク、移動 / 複製は 1 件ずつ host） | 単○ 複○ — 複製 | 単○ 複○ — 同じ note = 移動、他 note / linkedfd = 複製（元実体は orphan） |
 | note outliner | 単－ 複－（P1） | 単○ 複○ — 行ごとに node 化。1 行が 1 リンクだけなら添付 / page node、文と混ざった行は text node | 単○ 複○ — 同じ note = 参照のまま（移動）、他 note = 複製 |
 | sidepanel outliner | －（P2） | －（P2） | －（P2） |
-| linkedfd view | 単－ 複－（P1） | 単× 複× — `onDocumentPaste` は md の clipboard を見ない | 単× 複× — 同上。cut でリンクだけ消える |
-| ツリー: root / 余白 | 単○ 複△ — subpage = ツリーに登録してリンク除去、📎 = files/ の実体を登録してリンク除去 | 単× 複× — ツリーに paste の処理が無い | 単× 複× — 同上（cut でリンクだけ消える） |
-| ツリー: folder 行 | 単△ 複△ — フォルダの中ではなく**兄弟**に入る（中央帯の分岐が無い） | 単× 複× | 単× 複× |
-| ツリー: md 行（中央帯） | 単○ 複△ — 対象 md の末尾にリンク行を追記して元リンク除去 | 単× 複× | 単× 複× |
-| ツリー: .out 行（中央帯） | 単○ 複△ — root 先頭に page / file node、元リンク除去 | 単× 複× | 単× 複× |
-| ツリー: linkedfd 行 | 単○ 複△ — 常に複製（元リンク・実体を残す） | 単× 複× | 単× 複× |
-| ツリー: 普通の file 行 | 単○ 複△ — その前後に兄弟として登録 | 単× 複× | 単× 複× |
+| linkedfd view | 単－ 複－（P1） | 単○ 複○ — 対応 (W11)。linkedfd view の cmd+v で選択の中の 📎 / subpage を全部 `pasteMdClip` 1 回（フォーカス行 = その dir）。境界をまたぐので常に複製（同じ linkedfd の md からは fv の中で複製） | 単○ 複○ — 対応 (W11)。複製（元の実体は残る。リンクは cut で md から消える）。同じ linkedfd の md からの cut だけ fv の中で移動 |
+| ツリー: root / 余白 | 単○ 複○ — subpage = ツリーに登録してリンク除去、📎 = files/ の実体を登録してリンク除去。複は 対応 (W3, W4)：`notesRegisterFromMdLinksBatch` を 1 回（選択順） | 単○ 複○ — 対応 (W11)。ツリーの cmd+v（`pasteMdClip`）で選択の中の 📎 / subpage を選択順に複製して登録（元 md・実体は不変、間の文字・画像は運ばない） | 単○ 複○ — 対応 (W11)。同じ note の md = 実体をそのまま登録（移動）、別 note・linkedfd の md = 複製 |
+| ツリー: folder 行 | 単○ 複△ — 対応 (W5)。中央帯（0.25-0.60）= フォルダ内の末尾、上下 = 兄弟。開いたフォルダの子の隙間にも落とせる。複は 対応 (W3, W4)（`notesRegisterFromMdLinksBatch`） | 単○ 複○ — 対応 (W11)。フォルダの見出しにフォーカス = その中の末尾（root と同じ処理） | 単○ 複○ — 対応 (W11)。フォルダの見出しにフォーカス = その中の末尾（root と同じ処理） |
+| ツリー: md 行（中央帯） | 単○ 複○ — 対象 md の末尾にリンク行を追記して元リンク除去。複は 対応 (W3, W4)（`linkMdLinksIntoMdItemBatch`、1 行ずつ選択順） | 単△ 複△ — 対応 (W11)。cmd+v はフォーカス行の後ろに兄弟として登録する（行の中へは入れない = D&D の中央帯と違う） | 単△ 複△ — 対応 (W11)。cmd+v はフォーカス行の後ろに兄弟として登録する（行の中へは入れない = D&D の中央帯と違う） |
+| ツリー: .out 行（中央帯） | 単○ 複○ — root 先頭に page / file node、元リンク除去。複は 対応 (W3, W4)（`importMdLinksIntoOutItemBatch`、選択順） | 単△ 複△ — 対応 (W11)。cmd+v はフォーカス行の後ろに兄弟として登録する（行の中へは入れない = D&D の中央帯と違う） | 単△ 複△ — 対応 (W11)。cmd+v はフォーカス行の後ろに兄弟として登録する（行の中へは入れない = D&D の中央帯と違う） |
+| ツリー: linkedfd 行 | 単○ 複○ — 常に複製（元リンク・実体を残す）。複は 対応 (W3, W4)（`folderViewMoveFromMdBatch`） | 単○ 複○ — 対応 (W11)。その linkedfd の root へ複製（元は残る） | 単○ 複○ — 対応 (W11)。その linkedfd の root へ複製（元は残る） |
+| ツリー: 普通の file 行 | 単○ 複○ — その前後に兄弟として登録。複は 対応 (W3, W4)（`notesRegisterFromMdLinksBatch`） | 単○ 複○ — 対応 (W11)。行の後ろに兄弟として登録（移動 / 複製の決め方は root と同じ） | 単○ 複○ — 対応 (W11)。行の後ろに兄弟として登録（移動 / 複製の決め方は root と同じ） |
 | OS の Finder / デスクトップ | 単× 複× — DownloadURL・uri-list を積まない。代わりは右クリックの「Export folder」 | 単× 複× — clipboard は文字だけ | 単× 複× |
 | 他の VS Code エディタ | 単× 複× — 標準のアンカー文字だけ（未実測）。standalone の Fractal md の host には `attachMdFileLinkToMd` が無い | 単△ 複△ — テキストエディタには相対リンクの md 文字列。standalone の Fractal md / outliner は複製する | 単△ 複△ — 同上（standalone で同じ dir なら移動） |
 
@@ -50,14 +50,14 @@ HEAD `bf96db4` 時点のコードを読んで作った表。動かしての確�
 
 | 行き先 | D&D | cmd+c → v | cmd+x → v |
 |---|---|---|---|
-| 同じ md | 単○ 複△（表 1 と同じ） | 単○ 複○ | 単○ 複○ |
-| note md | 単○ 複△ — 同じ note = 移動、他 note = 実体複製 + 元リンク除去、linkedfd の md = 複製 | 単○ 複○ | 単○ 複○（他 note は orphan が残る） |
-| note outliner | 単○ 複△ — drop 位置に page / file node。同じ note = 移動、linkedfd = 複製。複は掴んだ 1 件 | 単○ 複○ | 単○ 複○ |
+| 同じ md | 単○ 複○（表 1 と同じ。対応 (W1, W2)） | 単○ 複○ | 単○ 複○ |
+| note md | 単○ 複○ — 同じ note = 移動、他 note = 実体複製 + 元リンク除去、linkedfd の md = 複製。複は 対応 (W1, W3, W4)（`attachMdLinksToMdBatch`） | 単○ 複○ | 単○ 複○（他 note は orphan が残る） |
+| note outliner | 単○ 複○ — drop 位置に page / file node。同じ note = 移動、linkedfd = 複製。複は 対応 (W3, W4)：`importMdLinksIntoOutBatch` を 1 回、host が 1 本の `dropFilesResult` にまとめて選択順に並べる | 単○ 複○ | 単○ 複○ |
 | sidepanel outliner | －（P2） | －（P2） | －（P2） |
-| linkedfd view | 単○ 複△ — 同じ linkedfd の md = 移動（リンク除去 + 元はゴミ箱）、それ以外 = 複製 | 単× 複× | 単× 複× |
-| ツリー: root / 余白 | 単△ 複△ — **他 note の md の 📎 は実体を複製せず、名前だけ登録して元リンクを消す（バグ。`treeFileRegisterFromMdLink` に別 note の分岐が無い）**。subpage は正しく複製 | 単× 複× | 単× 複× |
-| ツリー: folder 行 | 単△ 複△（兄弟に入る。他 note の 📎 は上と同じバグ） | 単× 複× | 単× 複× |
-| ツリー: md / .out / linkedfd / file 行 | 単○ 複△（表 1 と同じ。md / .out 行は `resolveMdFileLinkEntityForNote` が他 note を複製する） | 単× 複× | 単× 複× |
+| linkedfd view | 単○ 複○ — 同じ linkedfd の md = 移動（リンク除去 + 元はゴミ箱）、それ以外 = 複製。複は 対応 (W3, W4)（`folderViewMoveFromMdBatch`） | 単○ 複○ — 対応 (W11)。linkedfd view の cmd+v で選択の中の 📎 / subpage を全部 `pasteMdClip` 1 回（フォーカス行 = その dir）。境界をまたぐので常に複製（同じ linkedfd の md からは fv の中で複製） | 単○ 複○ — 対応 (W11)。複製（元の実体は残る。リンクは cut で md から消える）。同じ linkedfd の md からの cut だけ fv の中で移動 |
+| ツリー: root / 余白 | 単○ 複△ — 対応 (W6)。他 note の md の 📎 は `resolveMdFileLinkEntityForNote` でこの note の files/ へ複製して登録し、複製できてから元リンクを外す。subpage は正しく複製。複は 対応 (W3, W4)（`notesRegisterFromMdLinksBatch`） | 単○ 複○ — 対応 (W11)。ツリーの cmd+v（`pasteMdClip`）で選択の中の 📎 / subpage を選択順に複製して登録（元 md・実体は不変、間の文字・画像は運ばない） | 単○ 複○ — 対応 (W11)。同じ note の md = 実体をそのまま登録（移動）、別 note・linkedfd の md = 複製 |
+| ツリー: folder 行 | 単○ 複○ — 対応 (W5, W6)。中央帯 = フォルダの中、他 note の 📎 は複製して登録。複は 対応 (W3, W4) | 単○ 複○ — 対応 (W11)。フォルダの見出しにフォーカス = その中の末尾（root と同じ処理） | 単○ 複○ — 対応 (W11)。フォルダの見出しにフォーカス = その中の末尾（root と同じ処理） |
+| ツリー: md / .out / linkedfd / file 行 | 単○ 複○（表 1 と同じ。対応 (W3, W4)。md / .out 行は `resolveMdFileLinkEntityForNote` が他 note を複製する） | 表 1 と同じ（対応 (W11)。md / .out 行は後ろに兄弟 = 単△ 複△） | 表 1 と同じ（対応 (W11)） |
 | OS / 他の VS Code エディタ | 表 1 と同じ | 表 1 と同じ | 表 1 と同じ |
 
 ## 3. 出所 = note outliner
@@ -66,18 +66,18 @@ HEAD `bf96db4` 時点のコードを読んで作った表。動かしての確�
 
 | 行き先 | D&D | cmd+c → v | cmd+x → v |
 |---|---|---|---|
-| 同じ .out（並べ替え） | 単○ 複○ — bullet だけ。node ごと移動。アイコンを掴むと何も起きない | 単○ 複○ — 構造ごと貼る。page / file / 画像は複製 | 単△ 複○ — 複は移動。**単は `filePath` を消さないので file node は元に 📎 が残る（実質複製）** |
-| 他の .out（別タブ） | 単－ 複－（P1。ツリーの .out 行経由なら可） | 単○ 複○ — 複製 | 単△ 複○ — 実体を物理的に移動。単は同上 |
-| note md | 単－ 複－（P1） | 単○ 複○ — md のリストにし、page md・file・画像を複製 | 単△ 複△ — 貼る側が cut を見ず**複製する**。cut で元 node は消えているので、元の page md / file が orphan になる |
-| sidepanel md | 単○ 複△ — page アイコン = subpage リンク（移動、node は残して page を外す）、file アイコン = 📎（移動、葉 node は消える）、linkedfd の md = 複製。**複は掴んだ 1 件だけ**（md 側が `out-node-assets` を読まない）。bullet を落とすと何も起きない | 単○ 複○ — 複製 | 単△ 複△ — note md と同じ（複製 + orphan） |
+| 同じ .out（並べ替え） | 単○ 複○ — bullet だけ。node ごと移動。アイコンを掴むと何も起きない | 単○ 複○ — 構造ごと貼る。page / file / 画像は複製 | 単○ 複○ — 複は移動。単も 対応 (W9)：単一 cut も添付ファイルを外す（元に 📎 が残らない） |
+| 他の .out（別タブ） | 単－ 複－（P1。ツリーの .out 行経由なら可） | 単○ 複○ — 複製 | 単○ 複○ — 実体を物理的に移動。単も 対応 (W9) |
+| note md | 単－ 複－（P1） | 単○ 複○ — md のリストにし、page md・file・画像を複製 | 単○ 複○ — 対応 (W9)。貼る側が cut を host へ伝え、同じ note = 複製せず実体をそのまま指す（移動。Store の cut は 1 回で消費）、別 note・linkedfd の md = 複製 |
+| sidepanel md | 単○ 複○ — page アイコン = subpage リンク（移動、node は残して page を外す）、file アイコン = 📎（移動、葉 node は消える）、linkedfd の md = 複製。複は 対応 (W8)：bullet / page / file アイコンのどこを掴んでも `out-node-assets` を読み `attachOutNodeAssetsToMd` を 1 回（選択順に 1 行 1 リンク、件数ゲート + 集計通知 1 回、添付ごとに host が linkedfd 境界で移動 / 複製を決める）。bullet 単体も同じ経路で添付を運ぶ | 単○ 複○ — 複製 | 単○ 複○ — 対応 (W9)。貼る側が cut を host へ伝え、同じ note = 複製せず実体をそのまま指す（移動。Store の cut は 1 回で消費）、別 note・linkedfd の md = 複製 |
 | sidepanel outliner | －（P2） | －（P2） | －（P2） |
-| linkedfd view | 単－ 複－（P1。受け口のコードはある） | 単△ 複○ — 選択モードのときだけ `nodeIds` が載り書き出される（複製）。カーソルを置いただけの単一 copy は `nodeIds` が無く何も起きない | 単× 複× — cut は `nodeIds` を載せない。元は cut で消えている |
-| ツリー: root / 余白 | 単○ 複○ — 移動。添付のある node を表示順に登録、文字だけの node は残る | 単× 複× | 単× 複× |
-| ツリー: folder 行 | 単△ 複△ — page アイコンだけ中央帯でフォルダの中、file アイコンと bullet は**兄弟**。子の隙間には file アイコンを落とせない | 単× 複× | 単× 複× |
-| ツリー: md 行（中央帯） | 単○ 複○ — md の末尾に 1 行ずつリンクを追記（移動） | 単× 複× | 単× 複× |
-| ツリー: .out 行（中央帯） | 単○ 複○ — node の部分木を相手の root 先頭へ移動。アイコンを掴んだときは添付のある node だけ動く（bullet と動く集合が違う） | 単× 複× | 単× 複× |
-| ツリー: linkedfd 行 | 単○ 複○ — 書き出し（複製）。元の .out は変えない | 単× 複× | 単× 複× |
-| ツリー: 普通の file 行 | 単○ 複○ — 前後に兄弟として登録（移動） | 単× 複× | 単× 複× |
+| linkedfd view | 単－ 複－（P1。受け口のコードはある） | 単○ 複○ — 対応 (W9)：カーソルを置いただけの単一 copy にも `nodeIds` を載せる（複製） | 単○ 複○ — 対応 (W9)：cut にも `nodeIds` と cut の印を載せ、host は Store の nodes から書き出す（境界をまたぐので複製） |
+| ツリー: root / 余白 | 単○ 複○ — 移動。添付のある node を表示順に登録、文字だけの node は残る | 単○ 複○ — 対応 (W11)。`pasteOutlinerClipToTree`：Store の nodes の page / 添付を表示順に複製して登録 | 単○ 複○ — 対応 (W11)。同じ note = 実体をそのまま登録（移動。Store の cut を消費）、別 note・linkedfd = 複製 |
+| ツリー: folder 行 | 単○ 複○ — 対応 (W5)。page / file アイコン・bullet とも中央帯 = フォルダの中、上下 = 兄弟。子の隙間にも file アイコンを落とせる | 単○ 複○ — 対応 (W11)。`pasteOutlinerClipToTree`：Store の nodes の page / 添付を表示順に複製して登録 | 単○ 複○ — 対応 (W11)。同じ note = 実体をそのまま登録（移動。Store の cut を消費）、別 note・linkedfd = 複製 |
+| ツリー: md 行（中央帯） | 単○ 複○ — md の末尾に 1 行ずつリンクを追記（移動） | 単△ 複△ — 対応 (W11)。行の後ろに兄弟として登録（行の中へは入れない） | 単△ 複△ — 対応 (W11)。同上 |
+| ツリー: .out 行（中央帯） | 単○ 複○ — node の部分木を相手の root 先頭へ移動。対応 (W8)：複数選択中のアイコン drag も subtree に選択の根（`nodeIds`）を載せ、bullet と同じ集合が動く（linkedfd 行 / linkedfd view も同じ） | 単△ 複△ — 対応 (W11)。行の後ろに兄弟として登録（行の中へは入れない） | 単△ 複△ — 対応 (W11)。同上 |
+| ツリー: linkedfd 行 | 単○ 複○ — 書き出し（複製）。元の .out は変えない | 単○ 複○ — 対応 (W9, W11)。その linkedfd の root へ書き出し（複製） | 単○ 複○ — 対応 (W9, W11)。Store の nodes から書き出し（複製） |
+| ツリー: 普通の file 行 | 単○ 複○ — 前後に兄弟として登録（移動） | 単○ 複○ — 対応 (W11)。`pasteOutlinerClipToTree`：Store の nodes の page / 添付を表示順に複製して登録 | 単○ 複○ — 対応 (W11)。同じ note = 実体をそのまま登録（移動。Store の cut を消費）、別 note・linkedfd = 複製 |
 | OS の Finder | 単× 複× | 単× 複× | 単× 複× |
 | 他の VS Code エディタ | 単× 複× | 単△ 複△ — node の文字だけ（タブ字下げ） | 単△ 複△ — 同上 |
 
@@ -92,35 +92,35 @@ HEAD `bf96db4` 時点のコードを読んで作った表。動かしての確�
 | 行き先 | D&D | cmd+c → v | cmd+x → v |
 |---|---|---|---|
 | 同じ linkedfd view | 単○ 複○ — 移動（同じ linkedfd の中なので境界をまたがない） | 単○ 複○ — 複製（フォルダも） | 単× 複×（仕様: cut 無し） |
-| 別の linkedfd | 単× 複×（P3。ツリーの linkedfd 行は下の行） | 単× 複× — 別の folderLinkId は無音で無視 | 単× 複×（仕様） |
-| note md | 単－ 複－（P1） | 単× 複× — 相対パスの文字が入るだけ | 単× 複×（仕様） |
-| sidepanel md | 単○ 複× — 単は複製（同じ linkedfd の md なら移動）。**複は無音で何もしない**: payload に最上位の `relPath` が無く、`editor.js:20958` の条件を通らずに `return` する。掴んだ 1 件も行かない | 単× 複× — 相対パスの文字だけ | 単× 複×（仕様） |
+| 別の linkedfd | 単○ 複○ — 対応 (W12)。ツリーの別の linkedfd 行の中央帯へ落とす = `folderViewCopyAcrossLinks`（常に複製、フォルダも再帰） | 単○ 複○ — 対応 (W12)。別の linkedfd の view で cmd+v = 複製（件数ゲート + 集計通知 1 回） | 単× 複×（仕様） |
+| note md | 単－ 複－（P1） | 単○ 複○ — 対応 (W11)。`folderViewMoveIntoMdBatch`（mode copy）を 1 回。フォルダは置けないので集計通知に数える | 単× 複×（仕様） |
+| sidepanel md | 単○ 複○ — 対応 (W7)。単は複製（同じ linkedfd の md なら移動）。複は `folderViewMoveIntoMdBatch` を 1 回（件数ゲート + 集計通知 1 回、1 件ずつ host が移動 / 複製を決める）。フォルダは外して 1 回通知 | 単○ 複○ — 対応 (W11)。note md と同じ（mode copy = 同じ linkedfd の md へ貼っても元を消さない） | 単× 複×（仕様） |
 | note outliner | 単－ 複－（P1。受け口のコードは複に対応） | 単○ 複○ — 選択モード外の node 編集中なら、node の直後に兄弟として複製（フォルダは node の木） | 単× 複×（仕様） |
 | sidepanel outliner | －（P2） | －（P2） | －（P2） |
-| ツリー: root / 余白 | 単○ 複○ — note へ複製して登録（フォルダも再帰で） | 単× 複× — ツリーに paste が無い。**ツリーにフォーカスがあっても linkedfd view が出ていれば、その paste を linkedfd 側が拾う（誤配送）** | 単× 複×（仕様） |
-| ツリー: folder 行 | 単○ 複○ — 中央帯 = フォルダ内の末尾、上下 = 兄弟（複製） | 単× 複× | 単× 複× |
-| ツリー: md 行（中央帯） | 単○ 複○ — 対象 md に追記（複製）。フォルダは除外して 1 回通知。**host の件数ゲートが無い** | 単× 複× | 単× 複× |
-| ツリー: .out 行 | 単○ 複○ — root 先頭へ取り込む（複製、フォルダは node の木） | 単× 複× | 単× 複× |
-| ツリー: linkedfd 行 | 単△ 複△ — その linkedfd には入らず、**note ツリーの兄弟として複製される** | 単× 複× | 単× 複× |
-| ツリー: 普通の file 行 | 単○ 複○ — 前後に兄弟として複製 | 単× 複× | 単× 複× |
+| ツリー: root / 余白 | 単○ 複○ — note へ複製して登録（フォルダも再帰で） | 単○ 複○ — 対応 (W11)。ツリーの cmd+v = note へ複製して登録（D&D と同じ入口）。ツリーにフォーカスがある paste は linkedfd view が受けない（誤配送を直した） | 単× 複×（仕様） |
+| ツリー: folder 行 | 単○ 複○ — 中央帯 = フォルダ内の末尾、上下 = 兄弟（複製） | 単○ 複○ — 対応 (W11)。見出しにフォーカス = その中 | 単× 複× |
+| ツリー: md 行（中央帯） | 単○ 複○ — 対象 md に追記（複製）。フォルダは除外して 1 回通知。件数ゲートは 対応 (W7)（md 本文と同じ `folderViewMoveIntoMdBatch` を通す） | 単△ 複△ — 対応 (W11)。行の後ろに兄弟として複製（行の中へは入れない） | 単× 複× |
+| ツリー: .out 行 | 単○ 複○ — root 先頭へ取り込む（複製、フォルダは node の木） | 単△ 複△ — 対応 (W11)。行の後ろに兄弟として複製（行の中へは入れない） | 単× 複× |
+| ツリー: linkedfd 行 | 単○ 複○ — 対応 (W12)。中央帯 = その linkedfd の root（別の linkedfd = 複製、同じ linkedfd = 移動）。上下帯は従来どおり note ツリーの兄弟として複製 | 単○ 複○ — 対応 (W11, W12)。別の linkedfd = 複製、同じ linkedfd = その中で複製 | 単× 複× |
+| ツリー: 普通の file 行 | 単○ 複○ — 前後に兄弟として複製 | 単○ 複○ — 対応 (W11)。行の後ろに兄弟として複製 | 単× 複× |
 | OS の Finder | 単× 複× | 単× 複× — 文字だけ | 単× 複× |
 | 他の VS Code エディタ | 単× 複× — 相対パスの文字だけ | 単△ 複△ — 相対パスの文字だけ | 単× 複× |
 
 ## 6. 出所 = note のファイルツリー
 
-複数選択の payload は種類ごとに `x-fractal-tree-md` / `x-fractal-tree-file` = `{v:1, items:[{id,filePath?,seq}]}`、受け手は `mergeTreeItemsBySeq` で選択順に戻す。.out 行は D&D の payload から外され drop 後に 1 回通知、folder link・仮想フォルダは**通知なしで外れる**（`batch-payload.js` に folderItems の引数はあるが、`tree-folder` の MIME を出す所は無い）。単一の .out / folder 行は text/plain しか載らない（ツリー内の並べ替えと linkedfd view の不受理通知だけ）。ツリーには copy / cut / paste の処理が一切無い（右クリックの Copy Path・Copy In-App Link・Duplicate だけ、どれも 1 件）。
+複数選択の payload は種類ごとに `x-fractal-tree-md` / `x-fractal-tree-file` = `{v:1, items:[{id,filePath?,seq}]}`、受け手は `mergeTreeItemsBySeq` で選択順に戻す。.out 行は D&D の payload から外され drop 後に 1 回通知、folder link・仮想フォルダも payload から外れ、drop が成立したら .out と合わせて 1 回通知する — 対応 (W13)（ツリーの中の受け手はフォルダも受け取り host が集計するので、そこでは通知しない）。単一の .out / folder 行は text/plain しか載らない（ツリー内の並べ替えと linkedfd view の不受理通知だけ）。ツリーには copy / cut / paste の処理が一切無い（右クリックの Copy Path・Copy In-App Link・Duplicate だけ、どれも 1 件）。
 
 | 行き先 | D&D | cmd+c → v | cmd+x → v |
 |---|---|---|---|
-| ツリーの中（並べ替え・フォルダへ） | 単○ 複○ — 移動。全種類 | 単× 複× | 単× 複× |
-| note md | 単○ 複○ — md = subpage リンク、file = 📎、ツリーから外す（移動）。linkedfd の md = 複製 | 単× 複× | 単× 複× |
-| sidepanel md | 単○ 複○ — 同じ note = 移動、他 note = 実体複製、linkedfd = ツリー項目を残す | 単× 複× | 単× 複× |
-| note outliner | 単○ 複○ — drop 位置に page / file node（移動） | 単× 複× | 単× 複× |
+| ツリーの中（並べ替え・フォルダへ） | 単○ 複○ — 移動。全種類 | 単○ 複○ — 対応 (W10, W11)。Duplicate してフォーカス行の後ろ（フォルダの見出し = その中）へ。folder link は飛ばして通知 1 回 | 単○ 複○ — 対応 (W10, W11)。`moveItems`（D&D と同じ）で移動 |
+| note md | 単○ 複○ — md = subpage リンク、file = 📎、ツリーから外す（移動）。linkedfd の md = 複製 | 単○ 複○ — 対応 (W10, W11)。先に Duplicate した複製を D&D と同じ正典に通す（元の項目・実体は残る） | 単○ 複○ — 対応 (W10, W11)。D&D と同じ（移動）。linkedfd の md = 複製 |
+| sidepanel md | 単○ 複○ — 同じ note = 移動、他 note = 実体複製、linkedfd = ツリー項目を残す | 単○ 複○ — 対応 (W10, W11)。同じ note = Duplicate してから、別 note・linkedfd = 正典が複製して元の項目を残す | 単○ 複○ — 対応 (W10, W11)。D&D と同じ |
+| note outliner | 単○ 複○ — drop 位置に page / file node（移動） | 単○ 複○ — 対応 (W10, W11)。対象 node の直後に選択順（Duplicate してから） | 単○ 複○ — 対応 (W10, W11)。対象 node の直後に選択順（移動） |
 | sidepanel outliner | －（P2） | －（P2） | －（P2） |
-| linkedfd view | 単○ 複○ — 常に複製 | 単× 複× | 単× 複× |
-| ツリー: md 行（中央帯） | 単○ 複○ — 追記（移動）。フォルダは kind_unsupported | 単× 複× | 単× 複× |
-| ツリー: .out 行（中央帯） | 単○ 複○ — root 先頭へ（移動） | 単× 複× | 単× 複× |
-| ツリー: linkedfd 行（中央帯） | 単○ 複○ — 複製。ツリーのフォルダは複製できず失敗に数える | 単× 複× | 単× 複× |
+| linkedfd view | 単○ 複○ — 常に複製 | 単○ 複○ — 対応 (W10, W11)。常に複製。`.out` は理由付きで飛ばす（集計通知 1 回） | 単○ 複○ — 対応 (W10, W11)。境界をまたぐので cmd+x も複製（元は残る） |
+| ツリー: md 行（中央帯） | 単○ 複○ — 追記（移動）。フォルダは kind_unsupported | 単△ 複△ — 対応 (W10, W11)。行の後ろに兄弟として貼る（行の中へは入れない） | 単△ 複△ — 対応 (W10, W11)。同上 |
+| ツリー: .out 行（中央帯） | 単○ 複○ — root 先頭へ（移動） | 単△ 複△ — 対応 (W10, W11)。行の後ろに兄弟として貼る（行の中へは入れない） | 単△ 複△ — 対応 (W10, W11)。同上 |
+| ツリー: linkedfd 行（中央帯） | 単○ 複○ — 複製。ツリーのフォルダは複製できず失敗に数える | 単○ 複○ — 対応 (W10, W11)。その linkedfd の root へ複製 | 単○ 複○ — 対応 (W10, W11)。複製（cmd+x でも元は残る） |
 | OS の Finder | 単× 複× | 単× 複×（Copy Path は 1 件の文字だけ） | 単× 複× |
 | 他の VS Code エディタ | 単× 複× — 項目 id の文字だけ | 単× 複× | 単× 複× |
 
@@ -149,10 +149,10 @@ HEAD `bf96db4` 時点のコードを読んで作った表。動かしての確�
 |---|---|---|
 | outliner → sidepanel md の複（調査 2 は「未対応」） | 掴んだ 1 件は行くので、md 出所と揃えて `△` にした | `editor.js` に `out-node-assets` を読む所が無い（grep） |
 | ツリーのフォルダの扱い（`folderItems`） | `batch-payload.js:62` に引数はあるが、`tree-folder` の MIME を setData する所は無い。複数ドラッグでフォルダは無音で外れる | grep `tree-folder` |
-| md の 📎 → ツリー（他 note） | 確定。`crossesLinkedfd` の分岐はあるが `isCrossNoteDrop` が無い。他 note の md から来ると名前だけ登録し、元リンクも消す | `src/shared/notes-message-handler.ts:3876-3910` |
-| linkedfd の複 → md | 確定（行番号は 20951-20970 に変わっている） | `src/webview/editor.js:20958`、`return` は `:20969` |
-| md → ツリーの folder 行 | 確定。subpage は `targetSp.dataset.parentId`、📎 は `computeSiblingInsert`。linkedfd の payload だけ 0.25-0.60 の中央帯がある | `src/shared/notes-file-panel.js:2165-2206` |
-| ツリー → main md の単一 md | 確定。`linkMdAsSubpageForNotesMdCore` に `crossesLinkedfd` が無い（batch の方にはある） | `src/notesEditorProvider.ts:3808-3856` |
+| md の 📎 → ツリー（他 note） | 確定 → 対応 (W6)。`resolveMdFileLinkEntityForNote`（他 note なら複製）を使う | `src/shared/notes-message-handler.ts` `treeFileRegisterFromMdLink` |
+| linkedfd の複 → md | 確定 → 対応 (W7)。`extractBatchItems` で読み、ファイルは `folderViewMoveIntoMdBatch` 1 回 | `src/webview/editor.js` fv-entry drop |
+| md → ツリーの folder 行 | 確定 → 対応 (W5)。外部 payload は全部 `computeExternalDropInsert`（0.25-0.60 = フォルダの中）を通る | `src/shared/notes-file-panel.js` |
+| ツリー → main md の単一 md | 確定 → 対応 (W13)。`linkMdAsSubpageForNotesMdCore` も sidepanel 宛てと同じく `crossesLinkedfdBoundary` で境界をまたぐならツリー項目を残す | `src/notesEditorProvider.ts` `linkMdAsSubpageForNotesMdCore` |
 | outliner の単一 cut | 確定。`isPage`・`images`・本文は消すが `filePath` は残す | `src/webview/outliner.js:6377-6412` |
 | outliner の cut の `nodeIds` | 確定。`nodeIds` を渡すのは複数選択の copy（`:6320`）だけ | `outliner.js:6320/6347/6366/6392` |
 | outliner → md の paste | 確定。`runOutlinerNodesPaste` に `isCut` が無い | `src/shared/paste-asset-handler.ts:1438-` |

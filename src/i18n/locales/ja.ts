@@ -152,6 +152,7 @@ export const webviewMessages = {
   sendToOutlinerNoOutlines: 'このノートにアウトライン（.out）がありません。先に作成してください。',
   batchDndFoldersSkipped: '{count} 件のフォルダをスキップしました — フォルダは「Outliner に送る」を使ってください。',
   batchDndOutSkipped: '{count} 件のアウトライン（.out）をスキップしました — .out はここへドロップできません。',
+  batchDndTreeFoldersSkipped: '{count} 件のフォルダをスキップしました — フォルダとフォルダリンクはここへドロップできません。',
   closeOutline: 'アウトラインを閉じる',
   openOutline: 'アウトラインを開く',
   openInTextEditor: 'テキストエディタで開く',

@@ -135,6 +135,7 @@ export const webviewMessages = {
   sendToOutlinerNoOutlines: '此筆記中沒有大綱（.out）。請先建立一個。',
   batchDndFoldersSkipped: '已略過 {count} 個資料夾 — 資料夾請使用「傳送到 Outliner」。',
   batchDndOutSkipped: '已略過 {count} 個大綱檔（.out）— .out 無法拖放到這裡。',
+  batchDndTreeFoldersSkipped: '已略過 {count} 個資料夾 — 資料夾和資料夾連結無法拖放到這裡。',
   closeOutline: '關閉大綱',
   openOutline: '開啟大綱',
   openInTextEditor: '在文字編輯器中開啟',

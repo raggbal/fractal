@@ -72,6 +72,9 @@ var notesFilePanel = (function() {
     var dragSourceFileExt = null; // 'md' | 'out' | null  (file の場合のみ)
     // FR-MSEL-04 R3（TASK-45）: 複数選択 drag から除外した .out の件数。dragstart で set / dragend で通知して clear（one-shot 対配線）
     var dragExcludedOut = 0;
+    // W13: 複数選択 drag から外れるフォルダ（folder link・仮想フォルダ）の件数。.out と同じ対配線
+    //（dragstart で set / dragend で通知して clear）。ツリー内の受け手は自分でフォルダを扱うのでそこで clear する
+    var dragExcludedFolder = 0;
     var dropIndicator = null;
     // bug-fix 2026-08-05: renderTree の全再構築が click 合成を殺すのを補う pointerup 保険の状態
     var _pointerDownItemId = null;
@@ -584,6 +587,177 @@ var notesFilePanel = (function() {
         if (e.key === 'ArrowDown') { e.preventDefault(); moveNavFocus(1); return; }
         if (e.key === 'ArrowUp') { e.preventDefault(); moveNavFocus(-1); return; }
         if (e.key === 'Enter') { e.preventDefault(); activateNavFocus(); return; }
+        // W10: cmd+c（複製）/ cmd+x（移動）。ツリーはテキスト選択を毎回捨てる（dropTextSelection）ので
+        // ブラウザの copy / cut イベントは来ない → keydown で OS clipboard に書く（linkedfd の writeFvClipboard と同じ理由）。
+        // `metaKey || ctrlKey` の両受け（Linux / CI の Chromium は Control に束ねる）。選択 0 件なら何もしない（clipboard を上書きしない）
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'x')) {
+            if (treeSelection.length === 0) { return; }
+            e.preventDefault();
+            writeTreeClipboard(e.key === 'x');
+            return;
+        }
+    }
+
+    /**
+     * W10: ツリーの選択を clipboard に書く（cmd+c / cmd+x）。
+     * - text/plain = 選択した項目のパス（外部アプリへの degrade）
+     * - text/html  = `<div data-fractal-tree-clip="…">` に `{ v:1, items:[{kind,id,filePath?,seq}], isCut, copyId }`
+     *   （kind = 'md' | 'file' | 'out' | 'folder'(folder link)。並びは選択順 = 描画順。実体は載せず id だけ = host が台帳から解決）
+     * 🔴 cut はここでは何も消さない（Finder と同じく、貼った先で host が移動する）。移動か複製かの最終判定は host
+     *    （linkedfd へ貼るものは常に複製）。
+     */
+    function writeTreeClipboard(isCut) {
+        var byExt = treeSelectionByExt();
+        var items = window.__batchPayload.mergeTreeItemsBySeq(byExt.md, byExt.file, byExt.folder, byExt.out)
+            .map(function (it, i) { return { kind: it.kind, id: it.id, filePath: it.filePath || null, seq: i }; });
+        if (items.length === 0) { return false; }
+        var copyId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        var meta = { v: 1, items: items, isCut: !!isCut, copyId: copyId };
+        var lines = [];
+        for (var i = 0; i < items.length; i++) {
+            var el2 = listEl ? listEl.querySelector('[data-item-id="' + CSS.escape(items[i].id) + '"]') : null;
+            lines.push((el2 && el2.dataset.filePath) || items[i].id);
+        }
+        var plain = lines.join('\n');
+        var html = window.__batchPayload.buildHtmlClip(window.__batchPayload.TREE_CLIP_ATTR, meta, lines);
+        var fallback = function () { try { navigator.clipboard.writeText(plain); } catch (e2) { /* ignore */ } };
+        try {
+            navigator.clipboard.write([
+                new ClipboardItem({
+                    'text/plain': new Blob([plain], { type: 'text/plain' }),
+                    'text/html': new Blob([html], { type: 'text/html' }),
+                }),
+            ]).catch(function (err) {
+                console.warn('[Notes] tree clipboard.write failed, falling back to plain text:', err);
+                fallback();
+            });
+        } catch (err) { fallback(); }
+        return true;
+    }
+
+    /** W11: ツリーにフォーカスがあるか（linkedfd の paste 受け口がツリー宛ての paste を横取りしないための判定にも使う） */
+    function treeHasFocus() {
+        var ae = document.activeElement;
+        return !!(listEl && ae && (ae === listEl || listEl.contains(ae)));
+    }
+
+    /**
+     * W11: ツリーの cmd+v の貼り付け先（フォーカス行で決める）。
+     * - フォーカス無し = root の末尾 / 仮想フォルダの行 = そのフォルダの末尾
+     * - linkedfd の行 = その linkedfd の root（`{ linkId }`。clipboard の元にその行が入っていれば下の「後ろ」）
+     * - それ以外の行 = その行のすぐ後ろ（兄弟）。Finder と同じく、選んだ行の中ではなく隣に置く
+     * index は親の childIds 上の位置（host は anchor で覚えるので移動元を抜く前の位置でよい）。
+     * @param inClip その行が clipboard の元に入っているか（入っていれば linkedfd 行でも「後ろ」= その場複製）
+     */
+    function treePasteTarget(inClip) {
+        var navId = treeFocusId;
+        if (!navId) { return { parentId: null, index: getChildIdsOfParent(null).length }; }
+        var d = navRowDescriptor(navId);
+        if (!d) { return { parentId: null, index: getChildIdsOfParent(null).length }; }
+        if (d.kind === 'folder') { return { parentId: d.id, index: getChildIdsOfParent(d.id).length }; }
+        if (d.f && isFolderLinkRow(d.f) && !d.f.broken && !(inClip && inClip(d.id))) { return { linkId: d.id }; }
+        var parentId = findParentIdOf(d.id);
+        var sibs = getChildIdsOfParent(parentId);
+        var at = sibs.indexOf(d.id);
+        return { parentId: parentId, index: at >= 0 ? at + 1 : sibs.length };
+    }
+
+    /**
+     * W11: ツリーの cmd+v 受け口（4 種の clipboard を受ける）。
+     * 🔴 document レベルで受ける: ツリーはテキスト選択を持たないので Chromium は paste を document.body に配る
+     *    （linkedfd の onDocumentPaste と同じ理由 = ADRL-0118）。ツリーにフォーカスがあるときだけ動き、
+     *    linkedfd 側はツリーにフォーカスがある間は受けない（誤配送を作らない）。
+     * 🔴 fractal の payload が無ければ何もしない（preventDefault もしない）。getData は同期で読み切る。
+     * 1 回の貼り付け = bridge 1 回（件数ゲート・集計通知・移動 / 複製の判定は host）。
+     */
+    function onTreeDocumentPaste(e) {
+        if (!treeHasFocus()) { return; }
+        var t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) { return; }
+        if (e.defaultPrevented || !e.clipboardData || !bridge) { return; }
+        var html = '', plain = '', md = '', ctxRaw = '', mdCut = false;
+        try {
+            html = e.clipboardData.getData('text/html') || '';
+            plain = e.clipboardData.getData('text/plain') || '';
+            md = e.clipboardData.getData('text/x-any-md') || '';
+            ctxRaw = e.clipboardData.getData('text/x-any-md-context') || '';
+            mdCut = e.clipboardData.getData('text/x-any-md-iscut') === '1';
+        } catch (err) { return; }
+        var bp = window.__batchPayload;
+        if (!bp || typeof bp.readHtmlClipMeta !== 'function') { return; }
+
+        // ── ツリーの clipboard（W10）──
+        var tmeta = bp.readHtmlClipMeta(html, bp.TREE_CLIP_ATTR);
+        if (tmeta && Array.isArray(tmeta.items) && tmeta.items.length > 0) {
+            e.preventDefault();
+            var tTarget = treePasteTarget(function (id) {
+                return tmeta.items.some(function (it) { return it && it.id === id; });
+            });
+            if (tTarget.linkId) {
+                // linkedfd へは常に複製（tree → linkedfd の D&D と同じ host 入口。.out・フォルダは host が理由付きで数える）
+                if (typeof bridge.folderViewMoveInBatch === 'function') {
+                    bridge.folderViewMoveInBatch(tTarget.linkId, '', tmeta.items.map(function (it) {
+                        return { srcKind: it.kind, srcItemId: it.id };
+                    }));
+                }
+            } else if (typeof bridge.pasteTreeClip === 'function') {
+                bridge.pasteTreeClip({ items: tmeta.items, isCut: !!tmeta.isCut },
+                    { kind: 'tree', parentId: tTarget.parentId, index: tTarget.index });
+            }
+            return;
+        }
+        var target = treePasteTarget(null);
+
+        // ── linkedfd の clipboard（cmd+c だけ = 常に複製）──
+        var fmeta = bp.readHtmlClipMeta(html, 'data-fractal-fv-clip');
+        if (fmeta && fmeta.folderLinkId && Array.isArray(fmeta.relPaths) && fmeta.relPaths.length > 0) {
+            e.preventDefault();
+            if (target.linkId) {
+                if (target.linkId === fmeta.folderLinkId) {
+                    if (typeof bridge.folderViewMoveBatch === 'function') { bridge.folderViewMoveBatch(target.linkId, fmeta.relPaths, '', 'copy'); }
+                } else if (typeof bridge.folderViewCopyAcrossLinks === 'function') {
+                    // W12: 別の linkedfd へ = 常に複製
+                    bridge.folderViewCopyAcrossLinks(fmeta.folderLinkId, fmeta.relPaths, target.linkId, '');
+                }
+                return;
+            }
+            // linkedfd → ツリー（D&D と同じ dispatch。host が note へ複製して登録する）
+            dispatchFolderViewEntryDrop({
+                v: 1, folderLinkId: fmeta.folderLinkId,
+                items: fmeta.relPaths.map(function (r) { return { folderLinkId: fmeta.folderLinkId, relPath: r }; }),
+            }, target.parentId, target.index);
+            return;
+        }
+
+        // ── outliner の clipboard ──
+        var ometa = bp.readHtmlClipMeta(html, 'data-outliner-clipboard');
+        if (ometa && Array.isArray(ometa.nodes)) {
+            if (target.linkId) {
+                if (!Array.isArray(ometa.nodeIds) || ometa.nodeIds.length === 0 || !ometa.sourceOutFileKey) { return; }
+                e.preventDefault();
+                var mv = { outFileKey: ometa.sourceOutFileKey, nodeId: ometa.nodeIds[0] };
+                if (ometa.nodeIds.length > 1) { mv.nodeIds = ometa.nodeIds; }
+                if (ometa.isCut) { mv.clip = { isCut: true, plainText: plain }; }   // W9: cut は host が Store の nodes から書き出す
+                if (typeof bridge.sendOutNodesToFolderLinkFromDrop === 'function') { bridge.sendOutNodesToFolderLinkFromDrop(mv, target.linkId, ''); }
+                return;
+            }
+            e.preventDefault();
+            if (typeof bridge.pasteOutlinerClipToTree === 'function') {
+                bridge.pasteOutlinerClipToTree(plain, !!ometa.isCut, target.parentId, target.index);
+            }
+            return;
+        }
+
+        // ── md の範囲選択の clipboard（選択の中の 📎 / subpage リンクを全部）──
+        if (md && ctxRaw) {
+            var ctx = null;
+            try { ctx = JSON.parse(ctxRaw); } catch (err) { ctx = null; }
+            if (!ctx || typeof bridge.pasteMdClip !== 'function') { return; }
+            e.preventDefault();
+            bridge.pasteMdClip(md, ctx, mdCut, target.linkId
+                ? { kind: 'fv', folderLinkId: target.linkId, dstDirRelPath: '' }
+                : { kind: 'tree', parentId: target.parentId, index: target.index });
+        }
     }
 
     function openFolderView(folderLinkId, title) {
@@ -1358,6 +1532,33 @@ var notesFilePanel = (function() {
         } catch (err) { return null; }
     }
 
+    // W4: md の範囲選択から運んだ複数リンク（📎 / subpage 混在可）を選択順の 1 本にして返す
+    //（受け手 1 つにつき bridge 1 回の材料）。1 件だけ / どちらの MIME も無いときは null = 従来の単一経路。
+    // getData は drop 時にしか読めないので drop handler からだけ呼ぶ
+    function readMdLinksBatch(e) {
+        if (!isMdSubpageDrag(e) && !isMdFileLinkDrag(e)) return null;
+        // batch-payload.js が無い面（単体で組んだハーネス等）は従来の単一経路のまま
+        if (!window.__batchPayload || typeof window.__batchPayload.mergeMdLinksBySeq !== 'function') return null;
+        var pF = null, pS = null;
+        try { pF = JSON.parse(e.dataTransfer.getData(MD_FILELINK_MIME) || 'null'); } catch (err) { pF = null; }
+        try { pS = JSON.parse(e.dataTransfer.getData(MD_SUBPAGE_MIME) || 'null'); } catch (err) { pS = null; }
+        var batch = window.__batchPayload.mergeMdLinksBySeq(pF, pS);
+        return (batch.items.length > 1 && batch.sourceMdPath) ? batch : null;
+    }
+    // W4: 複数リンクをツリーへ登録（root / 余白 / folder 行 / 行の前後）。複数でなければ false（呼び出し側が単一経路へ）。
+    // 挿入位置は insFn で遅延評価する（resolveGapInsert は lastDropLine を消費するので、単一経路に落ちるときは呼ばない）
+    function dispatchMdLinksRegisterBatch(e, insFn) {
+        var batch = readMdLinksBatch(e);
+        if (!batch) return false;
+        var ins = insFn();
+        clearAllDragOver();
+        removeDropIndicator();
+        if (typeof bridge.notesRegisterFromMdLinksBatch === 'function') {
+            bridge.notesRegisterFromMdLinksBatch(batch, ins.parentId, ins.index);
+        }
+        return true;
+    }
+
     // 外部 drop / subpage / out-node-file / md-filelink の drop 位置 → 兄弟挿入 {parentId, index} 解決。
     function computeSiblingInsert(targetEl, e) {
         var rect = targetEl.getBoundingClientRect();
@@ -1367,6 +1568,23 @@ var notesFilePanel = (function() {
         var idx = sib.indexOf(targetEl.dataset.itemId);
         if (idx === -1) idx = sib.length;
         return { parentId: parentId, index: ratio < 0.5 ? idx : idx + 1 };
+    }
+
+    /**
+     * W5: 外部 payload（md の subpage / 📎、outliner の file / 添付、linkedfd のエントリ、外部ファイル）の
+     * item 上 drop 位置。仮想フォルダ行の中央帯（0.25-0.60 — dragover の「フォルダの中」表示と同じ帯）=
+     * フォルダ内末尾、それ以外 = 兄弟挿入（computeSiblingInsert）。全ての外部 payload がこの 1 つを通る。
+     */
+    function computeExternalDropInsert(targetEl, e) {
+        if (targetEl.dataset.itemType === 'folder' || targetEl.classList.contains('file-panel-folder-header')) {
+            var rect = targetEl.getBoundingClientRect();
+            var ratio = rect.height ? (e.clientY - rect.top) / rect.height : 0;
+            if (ratio >= 0.25 && ratio <= 0.60) {
+                var folderId = targetEl.dataset.folderId || targetEl.dataset.itemId;
+                return { parentId: folderId, index: getChildIdsOfParent(folderId).length };
+            }
+        }
+        return computeSiblingInsert(targetEl, e);
     }
 
     function readOutNodePagePayload(e) {
@@ -1737,7 +1955,9 @@ var notesFilePanel = (function() {
         if (ids.length === 1) { bridge.moveItem(ids[0], parentId, indexSingle); return; }
         // FR-MSEL-04 R3 との差: ツリー内移動では `.out` も**実際に動く**（除外していない）ので、
         // dragend の「N outline file(s) skipped」通知を出してはならない（set = dragstart と対の clear）。
+        // フォルダも同じく実際に動くので、フォルダの通知も出さない（W13）
         dragExcludedOut = 0;
+        dragExcludedFolder = 0;
         if (typeof bridge.moveItems === 'function') {
             bridge.moveItems(ids, parentId, indexRaw);
             return;
@@ -1760,6 +1980,9 @@ var notesFilePanel = (function() {
      *（N 回ループすると host の件数ゲートを迂回する — reviewer iteration 1 SEC-1）。
      */
     function dispatchTreeItemsOnTreeItem(targetExt, targetId, items) {
+        // W13: ここへ渡す items にはフォルダも入り、host が「扱えない」を集計して通知する。
+        // dragend の「フォルダを外した」通知と二重にしない
+        dragExcludedFolder = 0;
         if (!items || items.length === 0) { return; }
         var single = items.length === 1 ? items[0] : null;
         if (targetExt === 'out') {
@@ -1845,7 +2068,20 @@ var notesFilePanel = (function() {
                 }
                 return true;
             }
-            return false;   // linkedfd 行 / 上下帯は従来（FR-FLV-20 の tree 登録）
+            // W12: linkedfd の行の中央帯 = その linkedfd の root へ。別の linkedfd からは常に複製（境界をまたぐ）、
+            // 同じ linkedfd からは root への移動（linkedfd の中の D&D と同じ）。旧実装は note ツリーの兄弟として複製していた
+            if (ext === 'folder' && center && fvLink) {
+                clearAllDragOver(); removeDropIndicator();
+                var relLink = fvItems.filter(function (it) { return it && it.relPath !== undefined; }).map(function (it) { return it.relPath; });
+                if (relLink.length === 0) { return true; }
+                if (fvLink === targetId) {
+                    if (typeof bridge.folderViewMoveBatch === 'function') { bridge.folderViewMoveBatch(targetId, relLink, '', 'move'); }
+                } else if (typeof bridge.folderViewCopyAcrossLinks === 'function') {
+                    bridge.folderViewCopyAcrossLinks(fvLink, relLink, targetId, '');
+                }
+                return true;
+            }
+            return false;   // linkedfd 行の上下帯は従来（FR-FLV-20 の tree 登録）
         }
         if (nodeRef && nodeRef.outFileKey && nodeRef.nodeId) {
             // ── 2026-09-05 R25: outliner node → tree の linkedfd 行（全域）= 「linkedfd に送る」（root へ export） ──
@@ -1878,6 +2114,22 @@ var notesFilePanel = (function() {
                 return true;
             }
             return false;
+        }
+        // W4: 範囲選択から運んだ複数リンクは種類が混ざっても seq 順に 1 本にして bridge を 1 回
+        var mdBatch = readMdLinksBatch(e);
+        if (mdBatch && ext === 'folder') {
+            clearAllDragOver(); removeDropIndicator();
+            if (typeof bridge.folderViewMoveFromMdBatch === 'function') { bridge.folderViewMoveFromMdBatch(targetId, '', mdBatch); }
+            return true;
+        }
+        if (mdBatch && ext !== 'folder' && center) {
+            clearAllDragOver(); removeDropIndicator();
+            if (ext === 'out') {
+                if (typeof bridge.importMdLinksIntoOutItemBatch === 'function') { bridge.importMdLinksIntoOutItemBatch(mdBatch, targetId); }
+            } else if (typeof bridge.linkMdLinksIntoMdItemBatch === 'function') {
+                bridge.linkMdLinksIntoMdItemBatch(mdBatch, targetId);
+            }
+            return true;
         }
         var spP = isMdSubpageDrag(e) ? readMdSubpagePayload(e) : null;
         var flP = (!spP && isMdFileLinkDrag(e)) ? readMdFileLinkPayload(e) : null;
@@ -1933,6 +2185,9 @@ var notesFilePanel = (function() {
             // drop 意味論が無い）。除外件数は dragend で drop 成立時にだけ 1 回通知する（フォルダの
             // `excludedDirs` = 受け手集計とは経路が違う: 受け手が 3 面に分かれるため送り手側で数える）。
             dragExcludedOut = multiSel ? multiSel.out.length : 0;
+            // W13: folder link・仮想フォルダもどの MIME にも積まない（md / outliner / linkedfd に落とす意味論が無い）。
+            // 黙って外さず、drop が成立したら dragend で 1 回通知する（.out と同じ）
+            dragExcludedFolder = multiSel ? multiSel.folder.length : 0;
 
             if (multiSel && multiSel.md.length > 0) {
                 try {
@@ -1971,12 +2226,22 @@ var notesFilePanel = (function() {
             target.style.opacity = '';
             // FR-MSEL-04 R3（TASK-45）: 複数選択から除外した .out があり、drop が成立した（dropEffect !== 'none'）
             // ときだけ 1 回通知する。キャンセル（'none'）では通知しない（dragstart 時点では成否が分からない）。
-            if (dragExcludedOut > 0 && e && e.dataTransfer && e.dataTransfer.dropEffect !== 'none'
+            // W13: 外したフォルダ（folder link・仮想フォルダ）も同じ条件で数え、.out と合わせて**1 回の通知**にまとめる
+            if ((dragExcludedOut > 0 || dragExcludedFolder > 0) && e && e.dataTransfer && e.dataTransfer.dropEffect !== 'none'
                 && bridge && typeof bridge.notifyError === 'function') {
-                var tplOut = i18n.batchDndOutSkipped || '{count} outline file(s) skipped — .out items cannot be dropped here.';
-                bridge.notifyError(String(tplOut).replace('{count}', String(dragExcludedOut)));
+                var skippedParts = [];
+                if (dragExcludedOut > 0) {
+                    var tplOut = i18n.batchDndOutSkipped || '{count} outline file(s) skipped — .out items cannot be dropped here.';
+                    skippedParts.push(String(tplOut).replace('{count}', String(dragExcludedOut)));
+                }
+                if (dragExcludedFolder > 0) {
+                    var tplFolder = i18n.batchDndTreeFoldersSkipped || '{count} folder(s) skipped — folders and folder links cannot be dropped here.';
+                    skippedParts.push(String(tplFolder).replace('{count}', String(dragExcludedFolder)));
+                }
+                bridge.notifyError(skippedParts.join(' '));
             }
             dragExcludedOut = 0;   // one-shot clear（set = dragstart と対）
+            dragExcludedFolder = 0;   // one-shot clear（set = dragstart と対）
             dragItemId = null;
             dragItemType = null;
             dragSourceFileExt = null;
@@ -2063,7 +2328,8 @@ var notesFilePanel = (function() {
                 var mdLinkOrigin = fromMdSubpage || fromMdFileLink;
                 if ((extOv === 'out' && (nodeOrigin || (mdLinkOrigin && centerOv) || fromFolderView))
                     || (extOv === 'md' && centerOv && (nodeOrigin || mdLinkOrigin || fromFolderView))
-                    || (extOv === 'folder' && (nodeOrigin || mdLinkOrigin))) {   // 2026-09-05 R24..R26
+                    || (extOv === 'folder' && (nodeOrigin || mdLinkOrigin))   // 2026-09-05 R24..R26
+                    || (extOv === 'folder' && centerOv && fromFolderView)) {   // W12: linkedfd → 別の linkedfd の root
                     target.classList.add('file-panel-drag-over-md-into-out');
                     return;
                 }
@@ -2136,7 +2402,7 @@ var notesFilePanel = (function() {
             }
             // FR-NDA-02: 添付 payload が最優先（subtree より先。他 payload の不在を条件にしない）
             if (!dragItemId && tryDispatchNodeAssetsDrop(e, function() {
-                return computeSiblingInsert(el.closest('[data-item-id]') || el, e);
+                return computeExternalDropInsert(el.closest('[data-item-id]') || el, e);   // W5: フォルダ行の中央帯 = 中へ
             })) {
                 e.preventDefault();
                 return;
@@ -2159,33 +2425,23 @@ var notesFilePanel = (function() {
             if (folderViewPayload && !dragItemId) {
                 clearAllDragOver();
                 removeDropIndicator();
-                var targetFV = el.closest('[data-item-id]') || el;
-                var rectFV = targetFV.getBoundingClientRect();
-                var ratioFV = rectFV.height ? (e.clientY - rectFV.top) / rectFV.height : 0;
-                var insFV;
                 // フォルダ中央帯（0.25-0.60 — Feature B と同帯）= フォルダ内末尾。上下帯 = 兄弟挿入
-                if ((targetFV.dataset.itemType === 'folder' || targetFV.classList.contains('file-panel-folder-header'))
-                    && ratioFV >= 0.25 && ratioFV <= 0.60) {
-                    var fvFolderId = targetFV.dataset.folderId || targetFV.dataset.itemId;
-                    insFV = { parentId: fvFolderId, index: getChildIdsOfParent(fvFolderId).length };
-                } else {
-                    insFV = computeSiblingInsert(targetFV, e);
-                }
+                var insFV = computeExternalDropInsert(el.closest('[data-item-id]') || el, e);
                 dispatchFolderViewEntryDrop(folderViewPayload, insFV.parentId, insFV.index);
+                return;
+            }
+            // W4: md の範囲選択から運んだ複数リンク（📎 / subpage 混在）→ 選択順に登録（bridge 1 回）
+            if ((mdSubpagePayload || mdFileLinkPayload) && !dragItemId &&
+                dispatchMdLinksRegisterBatch(e, function() { return computeExternalDropInsert(el.closest('[data-item-id]') || el, e); })) {
                 return;
             }
             if (mdSubpagePayload && !dragItemId) {
                 clearAllDragOver();
                 removeDropIndicator();
-                var targetSp = el.closest('[data-item-id]') || el;
-                var rectSp = targetSp.getBoundingClientRect();
-                var ratioSp = (e.clientY - rectSp.top) / rectSp.height;
-                var parentSp = targetSp.dataset.parentId || null;
-                var sibSp = getChildIdsOfParent(parentSp);
-                var idxSp = sibSp.indexOf(targetSp.dataset.itemId);
-                if (idxSp === -1) idxSp = sibSp.length;
+                // W5: フォルダ行の中央帯 = フォルダの中（以前は常に兄弟に入っていた）
+                var insSp = computeExternalDropInsert(el.closest('[data-item-id]') || el, e);
                 if (typeof bridge.notesRegisterSubpageFromMd === 'function') {
-                    bridge.notesRegisterSubpageFromMd(mdSubpagePayload, parentSp, ratioSp < 0.5 ? idxSp : idxSp + 1);
+                    bridge.notesRegisterSubpageFromMd(mdSubpagePayload, insSp.parentId, insSp.index);
                 }
                 return;
             }
@@ -2193,7 +2449,7 @@ var notesFilePanel = (function() {
             if (outNodeFilePayload && !dragItemId) {
                 clearAllDragOver();
                 removeDropIndicator();
-                var insOF = computeSiblingInsert(el.closest('[data-item-id]') || el, e);
+                var insOF = computeExternalDropInsert(el.closest('[data-item-id]') || el, e);   // W5
                 if (typeof bridge.notesRegisterFileFromOutNode === 'function') {
                     bridge.notesRegisterFileFromOutNode(outNodeFilePayload, insOF.parentId, insOF.index);
                 }
@@ -2204,7 +2460,7 @@ var notesFilePanel = (function() {
             if (mdFileLinkPayload && !dragItemId) {
                 clearAllDragOver();
                 removeDropIndicator();
-                var insFL = computeSiblingInsert(el.closest('[data-item-id]') || el, e);
+                var insFL = computeExternalDropInsert(el.closest('[data-item-id]') || el, e);   // W5
                 if (typeof bridge.notesRegisterFileFromMdLink === 'function') {
                     bridge.notesRegisterFileFromMdLink(mdFileLinkPayload, insFL.parentId, insFL.index);
                 }
@@ -2215,14 +2471,8 @@ var notesFilePanel = (function() {
             if (!dragItemId && !outPayload && !subtreePayload && !mdSubpagePayload && !outNodeFilePayload && !mdFileLinkPayload && isExternalFilesDrag(e)) {
                 clearAllDragOver();
                 removeDropIndicator();
-                var targetEx = el.closest('[data-item-id]') || el;
-                var rectEx = targetEx.getBoundingClientRect();
-                var ratioEx = (e.clientY - rectEx.top) / rectEx.height;
-                var parentEx = targetEx.dataset.parentId || null;
-                var sibEx = getChildIdsOfParent(parentEx);
-                var idxEx = sibEx.indexOf(targetEx.dataset.itemId);
-                if (idxEx === -1) idxEx = sibEx.length;
-                registerExternalDroppedFiles(e, parentEx, ratioEx < 0.5 ? idxEx : idxEx + 1);
+                var insEx = computeExternalDropInsert(el.closest('[data-item-id]') || el, e);   // W5
+                registerExternalDroppedFiles(e, insEx.parentId, insEx.index);
                 return;
             }
             // FR-TF-17: VS Code Explorer uri-list → item の前/後に登録（Files 分岐の後 = Files 優先の
@@ -2230,14 +2480,8 @@ var notesFilePanel = (function() {
             if (!dragItemId && !outPayload && !subtreePayload && !mdSubpagePayload && !outNodeFilePayload && !mdFileLinkPayload && isVscodeUriListDrag(e)) {
                 clearAllDragOver();
                 removeDropIndicator();
-                var targetUl = el.closest('[data-item-id]') || el;
-                var rectUl = targetUl.getBoundingClientRect();
-                var ratioUl = (e.clientY - rectUl.top) / rectUl.height;
-                var parentUl = targetUl.dataset.parentId || null;
-                var sibUl = getChildIdsOfParent(parentUl);
-                var idxUl = sibUl.indexOf(targetUl.dataset.itemId);
-                if (idxUl === -1) idxUl = sibUl.length;
-                registerVscodeUriDrop(e, parentUl, ratioUl < 0.5 ? idxUl : idxUl + 1);
+                var insUl = computeExternalDropInsert(el.closest('[data-item-id]') || el, e);   // W5
+                registerVscodeUriDrop(e, insUl.parentId, insUl.index);
                 return;
             }
             // 2026-09-05（裁定 R32）: subtree payload をここで通してもこの先に担う分岐は無い
@@ -2430,12 +2674,15 @@ var notesFilePanel = (function() {
             // FR-TF-17: Explorer uri-list も同列で受理（files が空のため OR が必須）
             // FR-NDA-02: node 添付 payload も受理（3 面同型）
             var fromNodeAssetsC = isOutNodeAssetsDrag(e);
-            var fromExternal = !dragItemId && !fromOutliner && !fromFolderView && !fromNodeAssetsC && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
-            if (!dragItemId && !fromOutliner && !fromFolderView && !fromNodeAssetsC && !fromExternal) return;
+            // W5: outliner の file アイコン・md の subpage / 📎 もフォルダの隙間（= フォルダの中）へ落とせるようにする
+            //（item 行・listEl の余白と同じ受け口。以前はここだけ preventDefault せず drop が発火しなかった）
+            var fromMdLinkOrFileC = isOutNodeFileDrag(e) || isMdSubpageDrag(e) || isMdFileLinkDrag(e);
+            var fromExternal = !dragItemId && !fromOutliner && !fromFolderView && !fromNodeAssetsC && !fromMdLinkOrFileC && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
+            if (!dragItemId && !fromOutliner && !fromFolderView && !fromNodeAssetsC && !fromMdLinkOrFileC && !fromExternal) return;
             // 子要素がハンドルしない空エリアのみ
             if (e.target === childrenEl || e.target.className === 'file-panel-folder-children') {
                 e.preventDefault();
-                e.dataTransfer.dropEffect = (fromOutliner || fromFolderView || fromNodeAssetsC || fromExternal) ? 'copy' : 'move';
+                e.dataTransfer.dropEffect = (fromOutliner || fromFolderView || fromNodeAssetsC || fromMdLinkOrFileC || fromExternal) ? 'copy' : 'move';
                 clearAllDragOver();
                 // 改善1: 子を持つフォルダの隙間では「children 全域ハイライト → 末尾追加」を廃止
                 // (っっd+w が丸ごと選択される分かりづらい挙動)。直近の線を復元して線基準にする。
@@ -2462,7 +2709,26 @@ var notesFilePanel = (function() {
                 return;
             }
             var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
+            // W5: item 行と同じ優先順（page → subpage → out-node-file → md 📎）。挿入位置はそのフォルダ内の線 / 末尾
+            var mdSubpagePayloadC = !outPayload && isMdSubpageDrag(e) ? readMdSubpagePayload(e) : null;
+            var outNodeFilePayloadC = (!outPayload && !mdSubpagePayloadC) && isOutNodeFileDrag(e) ? readOutNodeFilePayload(e) : null;
+            var mdFileLinkPayloadC = (!outPayload && !mdSubpagePayloadC && !outNodeFilePayloadC) && isMdFileLinkDrag(e) ? readMdFileLinkPayload(e) : null;
             e.preventDefault();
+            if (!dragItemId && (mdSubpagePayloadC || outNodeFilePayloadC || mdFileLinkPayloadC)) {
+                var gLkC = resolveGapInsert(folderId, getChildIdsOfParent(folderId).length, folderId);
+                // W4: md の複数リンク → このフォルダの中へ選択順に（bridge 1 回）
+                if (!outNodeFilePayloadC && dispatchMdLinksRegisterBatch(e, function() { return gLkC; })) { return; }
+                clearAllDragOver();
+                removeDropIndicator();
+                if (mdSubpagePayloadC && typeof bridge.notesRegisterSubpageFromMd === 'function') {
+                    bridge.notesRegisterSubpageFromMd(mdSubpagePayloadC, gLkC.parentId, gLkC.index);
+                } else if (outNodeFilePayloadC && typeof bridge.notesRegisterFileFromOutNode === 'function') {
+                    bridge.notesRegisterFileFromOutNode(outNodeFilePayloadC, gLkC.parentId, gLkC.index);
+                } else if (mdFileLinkPayloadC && typeof bridge.notesRegisterFileFromMdLink === 'function') {
+                    bridge.notesRegisterFileFromMdLink(mdFileLinkPayloadC, gLkC.parentId, gLkC.index);
+                }
+                return;
+            }
             // FR-FLV-20 (W2 受信): フォルダビューのエントリ → フォルダ内末尾に移動登録
             if (!dragItemId && !outPayload && isFolderViewEntryDrag(e)) {
                 clearAllDragOver();
@@ -3599,6 +3865,13 @@ var notesFilePanel = (function() {
             listEl.__navWired = true;
             listEl.addEventListener('keydown', onNavKeyDown);
         }
+        // W11: ツリーの cmd+v。**プロセス内で 1 回だけ**登録する（document の listener は destroy で外れないので、
+        // open ごとに張ると「N 回貼られる」= linkedfd の __fvClipboardBound と同じ規律）
+        if (!window.__treeClipboardBound) {
+            window.__treeClipboardBound = true;
+            document.addEventListener('paste', function (e) { onTreeDocumentPaste(e); });
+        }
+        window.__notesTreeHasFocus = treeHasFocus;
 
         // FR-TF-16: drag 中 hover 抑止の set/clear 配線（受け側完結ライフサイクル）。
         // capture で拾う: 個別 handler（setupDropTarget 等）が preventDefault/return しても
@@ -3797,6 +4070,11 @@ var notesFilePanel = (function() {
                 var mdFileLinkPayloadR = (!outPayload && !mdSubpagePayloadR && !outNodeFilePayloadR) && isMdFileLinkDrag(e) ? readMdFileLinkPayload(e) : null;
                 e.preventDefault();
                 var rootIdsF = structure ? structure.rootIds : [];
+                // W4: md の複数リンク → 線の位置（無ければ末尾）へ選択順に（bridge 1 回）
+                if (!dragItemId && !outPayload && (mdSubpagePayloadR || mdFileLinkPayloadR) &&
+                    dispatchMdLinksRegisterBatch(e, function() { return resolveGapInsert(null, rootIdsF.length); })) {
+                    return;
+                }
                 // FR-FLV-20 (W2 受信): フォルダビューのエントリ → ルート末尾に移動登録
                 if (!dragItemId && !outPayload && !mdSubpagePayloadR && !outNodeFilePayloadR && !mdFileLinkPayloadR && isFolderViewEntryDrag(e)) {
                     clearAllDragOver();

@@ -135,6 +135,7 @@ export const webviewMessages = {
   sendToOutlinerNoOutlines: 'Aucun plan (.out) dans cette note. Créez-en un d’abord.',
   batchDndFoldersSkipped: '{count} dossier(s) ignoré(s) — utilisez « Envoyer vers Outliner » pour les dossiers.',
   batchDndOutSkipped: '{count} fichier(s) de plan (.out) ignoré(s) — les .out ne peuvent pas être déposés ici.',
+  batchDndTreeFoldersSkipped: '{count} dossier(s) ignoré(s) — les dossiers et liens de dossier ne peuvent pas être déposés ici.',
   closeOutline: 'Fermer le plan',
   openOutline: 'Ouvrir le plan',
   openInTextEditor: 'Ouvrir dans l\'éditeur de texte',

@@ -60,9 +60,10 @@
      * @param {object[]} mdItems     tree-md payload の items（`{ id, filePath?, seq? }`）
      * @param {object[]} fileItems   tree-file payload の items（`{ id, seq? }`）
      * @param {object[]} [folderItems] tree-folder payload の items（`{ id, seq? }`。FR-FDP-01 / TASK-03 で追加）
-     * @returns {{kind:'md'|'file'|'folder', id:string, filePath:string|null}[]} seq 昇順（同値は md → file → folder → 配列順）
+     * @param {object[]} [outItems] `.out` の items（`{ id, filePath?, seq? }`。W10: ツリーの clipboard だけが使う。D&D は載せない）
+     * @returns {{kind:'md'|'file'|'folder'|'out', id:string, filePath:string|null}[]} seq 昇順（同値は md → file → folder → out → 配列順）
      */
-    function mergeTreeItemsBySeq(mdItems, fileItems, folderItems) {
+    function mergeTreeItemsBySeq(mdItems, fileItems, folderItems, outItems) {
         var buf = [];
         var push = function (list, kind) {
             for (var i = 0; i < (list || []).length; i++) {
@@ -78,15 +79,81 @@
         push(mdItems, 'md');
         push(fileItems, 'file');
         push(folderItems, 'folder');   // FR-FDP-01（TASK-03）: 3 種目。未指定なら push が空扱いで従来と同一
+        push(outItems, 'out');         // W10: 4 種目（ツリーの clipboard 専用）。未指定なら従来と同一
         buf.sort(function (a, b) { return a.seq !== b.seq ? a.seq - b.seq : a.ord - b.ord; });
         var out = [];
         for (var j = 0; j < buf.length; j++) { out.push({ kind: buf[j].kind, id: buf[j].id, filePath: buf[j].filePath }); }
         return out;
     }
 
+    /**
+     * W10/W11: clipboard の payload は `text/html` の先頭タグの data 属性に encodeURIComponent(JSON) で埋める
+     * （OS clipboard に custom MIME を載せられないため。outliner の `data-outliner-clipboard` と同じ方式）。
+     * 受け手 4 面（md / outliner / ツリー / linkedfd）が同じ読み方をするための共有ヘルパ。
+     *
+     * @param {string} html  clipboard の text/html
+     * @param {string} attr  属性名（`data-fractal-tree-clip` 等）
+     * @returns {object|null} 壊れていれば null（受け手は「payload 無し」として扱う）
+     */
+    function readHtmlClipMeta(html, attr) {
+        if (!html || !attr || html.indexOf(attr + '=') === -1) { return null; }
+        var m = html.match(new RegExp(attr + '="([^"]*)"'));
+        if (!m) { return null; }
+        try { return JSON.parse(decodeURIComponent(m[1])); } catch (e) { return null; }
+    }
+
+    /** readHtmlClipMeta の対。`<div attr="…">行<br>行</div>`（行は外部アプリ向けの表示用に escape して並べる） */
+    function buildHtmlClip(attr, meta, lines) {
+        var esc = function (s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        };
+        return '<div ' + attr + '="' + encodeURIComponent(JSON.stringify(meta)) + '">'
+            + (lines || []).map(esc).join('<br>') + '</div>';
+    }
+
+    /**
+     * W1/W4: md の範囲選択ドラッグ（📎 = x-fractal-md-filelink / subpage = x-fractal-md-subpage）を
+     * **選択順の 1 本の配列**に戻す（mergeTreeItemsBySeq の md リンク版）。
+     *
+     * 送り手（editor.js の dragstart）は種類ごとの MIME に `{ v:1, sourceMdPath, items:[{href,title?,seq}] }` を積む。
+     * 受け手が MIME ごとに別々の batch を送ると件数ゲートが種類ごとに割れ、並びも種類順になるので、
+     * `seq`（選択の中の文書順）で結合して **受け手 1 つにつき bridge 1 回**の材料にする。
+     * 単一（旧形式 `{ href, sourceMdPath }`）は 1 件として読む（extractBatchItems と同じ後方互換）。
+     *
+     * @param {object|null} filePayload    x-fractal-md-filelink の payload
+     * @param {object|null} subpagePayload x-fractal-md-subpage の payload
+     * @returns {{sourceMdPath:string, items:{kind:'file'|'subpage', href:string, title?:string}[]}}
+     *          items は seq 昇順（同値は file → subpage → 配列順）。href の無い item は落とす
+     */
+    function mergeMdLinksBySeq(filePayload, subpagePayload) {
+        var buf = [];
+        var push = function (payload, kind) {
+            var list = extractBatchItems(payload);
+            for (var i = 0; i < list.length; i++) {
+                var it = list[i];
+                if (!it || !it.href) { continue; }
+                var o = { kind: kind, href: String(it.href) };
+                if (typeof it.title === 'string') { o.title = it.title; }
+                buf.push({ item: o, seq: (typeof it.seq === 'number') ? it.seq : Number.MAX_SAFE_INTEGER, ord: buf.length });
+            }
+        };
+        push(filePayload, 'file');
+        push(subpagePayload, 'subpage');
+        buf.sort(function (a, b) { return a.seq !== b.seq ? a.seq - b.seq : a.ord - b.ord; });
+        var out = [];
+        for (var j = 0; j < buf.length; j++) { out.push(buf[j].item); }
+        var src = (filePayload && filePayload.sourceMdPath) || (subpagePayload && subpagePayload.sourceMdPath) || '';
+        return { sourceMdPath: String(src), items: out };
+    }
+
     window.__batchPayload = {
         extractBatchItems: extractBatchItems,
         extractBatchIds: extractBatchIds,
         mergeTreeItemsBySeq: mergeTreeItemsBySeq,
+        mergeMdLinksBySeq: mergeMdLinksBySeq,
+        readHtmlClipMeta: readHtmlClipMeta,
+        buildHtmlClip: buildHtmlClip,
+        /** W10: ツリーの clipboard の属性名（送り手 = notes-file-panel.js / 受け手 = 4 面） */
+        TREE_CLIP_ATTR: 'data-fractal-tree-clip',
     };
 })();

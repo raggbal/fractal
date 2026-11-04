@@ -54,9 +54,11 @@
         // 受け 4 メソッド。sidePanelFilePath 省略 = main md（host が currentFile 宛て解決）。
         // 両ブロック（outlinerHostBridge / notesMarkdownHostBridge）に対で定義（TC-RG-02 番人）。
         attachOutNodeFileToMd: function(payload, sidePanelFilePath) {
+            flushOutlinerSync();   // host は src .out を disk から読んで書き戻す（忘れると 1 操作前の状態を読む）
             api.postMessage({ type: 'attachOutNodeFileToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
         },
         importOutPageNodeToMd: function(payload, sidePanelFilePath) {
+            flushOutlinerSync();   // host は src .out を disk から読んで書き戻す（忘れると 1 操作前の状態を読む）
             api.postMessage({ type: 'importOutPageNodeToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
         },
         attachMdFileLinkToMd: function(payload, sidePanelFilePath) {
@@ -64,6 +66,17 @@
         },
         linkMdSubpageToMd: function(payload, sidePanelFilePath) {
             api.postMessage({ type: 'linkMdSubpageToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        // W3: md の 📎 / subpage リンクの複数ドラッグ → md editor（payload = { sourceMdPath, items:[{kind,href,title?}] }）。
+        // 配列 1 回（N 回呼ぶと host の件数ゲートを迂回する）。両ブロックに対で定義（TC-RG-02 番人）
+        attachMdLinksToMdBatch: function(payload, sidePanelFilePath) {
+            api.postMessage({ type: 'attachMdLinksToMdBatch', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        // W8: outliner の複数選択 / bullet → md editor（payload = x-fractal-out-node-assets そのまま）。
+        // 配列 1 回（件数ゲート + 集計通知は host）。両ブロックに対で定義（TC-RG-02 番人）
+        attachOutNodeAssetsToMd: function(payload, sidePanelFilePath) {
+            flushOutlinerSync();   // host は src .out を disk から読んで書き戻す（忘れると 1 操作前の状態を読む）
+            api.postMessage({ type: 'attachOutNodeAssetsToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
         },
 
         // データ同期
@@ -372,11 +385,12 @@
                 destination: 'main-md',
             });
         },
-        pasteOutlinerNodesWithAssets: function(plainText, nodes) {
+        pasteOutlinerNodesWithAssets: function(plainText, nodes, _sidePanelFilePath, isCut) {
             api.postMessage({
                 type: 'pasteOutlinerNodesWithAssets',
                 plainText: plainText,
                 nodes: nodes,
+                isCut: !!isCut,   // W9
                 sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
                 // FR-PDB-01 (sprint 20260818-183407): 結果の宛先札 = main-md
                 // （sidepanel へ転送させない。下の pasteWithAssetCopy と同型）。
@@ -484,9 +498,11 @@
         // 受け 4 メソッド。sidePanelFilePath 省略 = main md（host が currentFile 宛て解決）。
         // 両ブロック（outlinerHostBridge / notesMarkdownHostBridge）に対で定義（TC-RG-02 番人）。
         attachOutNodeFileToMd: function(payload, sidePanelFilePath) {
+            flushOutlinerSync();   // host は src .out を disk から読んで書き戻す（忘れると 1 操作前の状態を読む）
             api.postMessage({ type: 'attachOutNodeFileToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
         },
         importOutPageNodeToMd: function(payload, sidePanelFilePath) {
+            flushOutlinerSync();   // host は src .out を disk から読んで書き戻す（忘れると 1 操作前の状態を読む）
             api.postMessage({ type: 'importOutPageNodeToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
         },
         attachMdFileLinkToMd: function(payload, sidePanelFilePath) {
@@ -494,6 +510,17 @@
         },
         linkMdSubpageToMd: function(payload, sidePanelFilePath) {
             api.postMessage({ type: 'linkMdSubpageToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        // W3: md の 📎 / subpage リンクの複数ドラッグ → md editor（payload = { sourceMdPath, items:[{kind,href,title?}] }）。
+        // 配列 1 回（N 回呼ぶと host の件数ゲートを迂回する）。両ブロックに対で定義（TC-RG-02 番人）
+        attachMdLinksToMdBatch: function(payload, sidePanelFilePath) {
+            api.postMessage({ type: 'attachMdLinksToMdBatch', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        // W8: outliner の複数選択 / bullet → md editor（payload = x-fractal-out-node-assets そのまま）。
+        // 配列 1 回（件数ゲート + 集計通知は host）。両ブロックに対で定義（TC-RG-02 番人）
+        attachOutNodeAssetsToMd: function(payload, sidePanelFilePath) {
+            flushOutlinerSync();   // host は src .out を disk から読んで書き戻す（忘れると 1 操作前の状態を読む）
+            api.postMessage({ type: 'attachOutNodeAssetsToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
         },
 
         // v0.207.81: 画像 cmd+v が複数枚同時挿入されるバグの修正。
@@ -690,6 +717,16 @@
         notesLinkMdLinkIntoMdItem: function(payload, kind, targetMdId) {
             api.postMessage({ type: 'notesLinkMdLinkIntoMdItem', payload: payload, kind: kind, targetMdId: targetMdId });
         },
+        // W3: md リンクの複数ドラッグ → ツリー（root / 余白 / 行の前後）・md 行・.out 行（どれも配列 1 回）
+        notesRegisterFromMdLinksBatch: function(payload, parentId, index) {
+            api.postMessage({ type: 'notesRegisterFromMdLinksBatch', payload: payload, parentId: parentId, index: index });
+        },
+        linkMdLinksIntoMdItemBatch: function(payload, targetMdId) {
+            api.postMessage({ type: 'linkMdLinksIntoMdItemBatch', payload: payload, targetMdId: targetMdId });
+        },
+        importMdLinksIntoOutItemBatch: function(payload, targetOutId) {
+            api.postMessage({ type: 'importMdLinksIntoOutItemBatch', payload: payload, targetOutId: targetOutId });
+        },
 
         // ── FR-TF: tree file item（ext:'file'）D&D 経路（host 側 4 層配線。§8 の 11 個中 panel 側 10 個） ──
         // FR-TF click（§4 :59）: kind==='file' の click → 外部アプリで開く
@@ -741,6 +778,10 @@
         },
         importMdSubpageIntoOut: function(payload, outFileId, targetNodeId, position) {
             api.postMessage({ type: 'importMdSubpageIntoOut', payload: payload, outFileId: outFileId, targetNodeId: targetNodeId || null, position: position || null });
+        },
+        // W3: md リンクの複数ドラッグ → outliner の drop 位置（配列 1 回。host が 1 本の dropFilesResult にまとめる）
+        importMdLinksIntoOutBatch: function(payload, outFileId, targetNodeId, position) {
+            api.postMessage({ type: 'importMdLinksIntoOutBatch', payload: payload, outFileId: outFileId, targetNodeId: targetNodeId || null, position: position || null });
         },
         // FR-TF-05b (§4e :97): outliner の file 添付 node → ツリーへ D&D（所有移し替え）。
         // node.filePath を disk から読むため flushOutlinerSync で src .out を最新化してから依頼。
@@ -942,8 +983,36 @@
         folderViewMoveIntoMd: function(id, relPath, targetMdPath) {
             api.postMessage({ type: 'folderViewMoveIntoMd', id: id, relPath: relPath || '', targetMdPath: targetMdPath || '' });
         },
+        // W7: linkedfd の複数選択 → md 本文（配列 1 回。件数ゲート + 集計通知 1 回は host の runBatchTransfer）
+        // W11: mode 'copy' = linkedfd の cmd+c → md の cmd+v（同じ linkedfd の md 宛てでも元を消さない）。D&D は渡さない（= 移動）
+        folderViewMoveIntoMdBatch: function(id, relPaths, targetMdPath, mode) {
+            var msg = { type: 'folderViewMoveIntoMdBatch', id: id, relPaths: relPaths || [], targetMdPath: targetMdPath || '' };
+            if (mode === 'copy') { msg.mode = 'copy'; }
+            api.postMessage(msg);
+        },
+        // W10/W11: ツリーの clipboard（data-fractal-tree-clip）→ md editor / outliner / ツリーの中。
+        // target = { kind:'md', sidePanelFilePath } | { kind:'outliner', outFileId, targetNodeId, position } | { kind:'tree', parentId, index }
+        pasteTreeClip: function(clip, target) {
+            api.postMessage({ type: 'pasteTreeClip', clip: clip || null, target: target || null });
+        },
+        // W11: md の範囲選択の clipboard → ツリー / linkedfd。target = { kind:'tree', parentId, index } | { kind:'fv', folderLinkId, dstDirRelPath }
+        pasteMdClip: function(mdText, sourceContext, isCut, target) {
+            api.postMessage({ type: 'pasteMdClip', mdText: mdText || '', sourceContext: sourceContext || null, isCut: !!isCut, target: target || null });
+        },
+        // W11: outliner の clipboard → ツリー（nodes の真実は host の OutlinerClipboardStore）
+        pasteOutlinerClipToTree: function(plainText, isCut, parentId, index) {
+            api.postMessage({ type: 'pasteOutlinerClipToTree', plainText: plainText || '', isCut: !!isCut, parentId: parentId || null, index: index || 0 });
+        },
+        // W12: linkedfd → 別の linkedfd（常に複製）
+        folderViewCopyAcrossLinks: function(srcLinkId, relPaths, dstLinkId, dstDirRelPath) {
+            api.postMessage({ type: 'folderViewCopyAcrossLinks', srcLinkId: srcLinkId, relPaths: relPaths || [], dstLinkId: dstLinkId, dstDirRelPath: dstDirRelPath || '' });
+        },
         folderViewMoveFromMd: function(id, dstDirRelPath, href, sourceMdPath, isSubpage) {
             api.postMessage({ type: 'folderViewMoveFromMd', id: id, dstDirRelPath: dstDirRelPath || '', href: href || '', sourceMdPath: sourceMdPath || '', isSubpage: !!isSubpage });
+        },
+        // W3: md リンクの複数ドラッグ → linkedfd（配列 1 回。1 件ごとの移動 / 複製は host が決める）
+        folderViewMoveFromMdBatch: function(id, dstDirRelPath, payload) {
+            api.postMessage({ type: 'folderViewMoveFromMdBatch', id: id, dstDirRelPath: dstDirRelPath || '', payload: payload });
         },
         // FR-TF-01 (§4a :65): 外部 D&D の per-file skip（50MB 超）等の明示通知
         notifyError: function(message) {

@@ -356,6 +356,54 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         expect(s3.msgs.find(m => m.type === 'removeFileLink')).toBeUndefined();
     });
 
+    test('TC-W6-01: treeFileRegisterFromMdLink 別 note の md の 📎 → この note の files/ へ複製して登録 + 元リンク除去 + 元実体温存', () => {
+        const srcNote = track(mkNote());
+        const dstNote = track(mkNote());
+        const fm = new NotesFileManager(dstNote); // drop 先ツリーの note
+        const srcMd = path.join(srcNote, 'src.md');
+        fs.writeFileSync(srcMd, '# src\n\n[📎 z](files/z.pdf)\n', 'utf8');
+        const srcFiles = path.join(srcNote, 'files');
+        fs.mkdirSync(srcFiles, { recursive: true });
+        fs.writeFileSync(path.join(srcFiles, 'z.pdf'), 'ZDATA');
+
+        const { sender, msgs } = spy();
+        treeFileRegisterFromMdLink(fm, sender, { href: 'files/z.pdf', sourceMdPath: srcMd }, null, 0);
+
+        const items = fileItems(fm);
+        expect(items.length).toBe(1);
+        // 名前だけの項目ではなく、この note の files/ に実体がある（バグ時は実体が無い）
+        const treeAbs = fm.getTreeFilePath(items[0].id) as string;
+        expect(fs.existsSync(treeAbs), '別 note の 📎 が実体なしで登録された（W6）').toBe(true);
+        expect(fs.readFileSync(treeAbs, 'utf8')).toBe('ZDATA');
+        expect(path.dirname(treeAbs)).toBe(fm.getMdFilesDirPath());
+        // 移動: 元リンクは除去、元実体は温存（元 note の所有物）
+        expect(msgs.find(m => m.type === 'removeFileLink')).toBeTruthy();
+        expect(fs.readFileSync(srcMd, 'utf8')).not.toContain('files/z.pdf');
+        expect(fs.existsSync(path.join(srcFiles, 'z.pdf'))).toBe(true);
+    });
+
+    test('TC-W6-02: treeFileRegisterFromMdLink 別 note で複製に失敗したら登録も元リンク除去もしない', () => {
+        const srcNote = track(mkNote());
+        const dstNote = track(mkNote());
+        const fm = new NotesFileManager(dstNote);
+        const srcMd = path.join(srcNote, 'src.md');
+        fs.writeFileSync(srcMd, '[📎 z](files/z.pdf)\n', 'utf8');
+        const srcFiles = path.join(srcNote, 'files');
+        fs.mkdirSync(srcFiles, { recursive: true });
+        fs.writeFileSync(path.join(srcFiles, 'z.pdf'), 'Z');
+        const orig = (NotesFileManager as any).copyTreeFileEntityTo;
+        (NotesFileManager as any).copyTreeFileEntityTo = () => null;
+        try {
+            const { sender, msgs } = spy();
+            treeFileRegisterFromMdLink(fm, sender, { href: 'files/z.pdf', sourceMdPath: srcMd }, null, 0);
+            expect(fileItems(fm).length).toBe(0);
+            expect(msgs.find(m => m.type === 'removeFileLink')).toBeUndefined();
+            expect(fs.readFileSync(srcMd, 'utf8')).toContain('files/z.pdf');
+        } finally {
+            (NotesFileManager as any).copyTreeFileEntityTo = orig;
+        }
+    });
+
     test('TC-TF-18: registerExternalDroppedFileItem — binary round-trip + 50MB skip+notify + md は null', () => {
         const dir = track(mkNote());
         const fm = new NotesFileManager(dir);

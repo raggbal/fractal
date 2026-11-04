@@ -135,6 +135,7 @@ export const webviewMessages = {
   sendToOutlinerNoOutlines: 'No hay esquemas (.out) en esta nota. Crea uno primero.',
   batchDndFoldersSkipped: '{count} carpeta(s) omitidas: usa «Enviar a Outliner» para carpetas.',
   batchDndOutSkipped: '{count} archivo(s) de esquema (.out) omitidos: los .out no se pueden soltar aquí.',
+  batchDndTreeFoldersSkipped: '{count} carpeta(s) omitidas: las carpetas y los vínculos de carpeta no se pueden soltar aquí.',
   closeOutline: 'Cerrar esquema',
   openOutline: 'Abrir esquema',
   openInTextEditor: 'Abrir en editor de texto',

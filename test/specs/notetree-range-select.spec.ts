@@ -769,6 +769,58 @@ test.describe('TC-MSEL-28..32 種別混在は結合 batch 1 回 / .out は除外
         expect(none.length, 'キャンセル（不成立）なのに通知が出た').toBe(0);
     });
 
+    test('TC-MSEL-31b（W13）folder link を含む選択: 外へ drop したら 1 回だけ通知（黙って外さない）・ツリー内の受け手では通知しない', async ({ page }) => {
+        // folder link（type file / ext folder）を m1 と m2 の間に置いた構造で起動し直す（範囲選択に入るのは .file-panel-item）
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready, undefined, { timeout: 8000 });
+        await page.evaluate(({ files, st }) => {
+            const s2 = JSON.parse(JSON.stringify(st));
+            s2.rootIds = ['o1', 'm1', 'fl1', 'm2', 'm3', 'f1'];
+            s2.items.fl1 = { type: 'file', id: 'fl1', title: 'Docs', ext: 'folder' };
+            (window as any).__testApi.initNotesPanel(
+                files.concat([{ filePath: '', title: 'Docs', id: 'fl1', kind: 'folder', broken: false }]), '/n/o1.out', s2);
+        }, { files: FILES, st: STRUCTURE });
+        await page.waitForSelector('.file-panel-item[data-file-id="fl1"]', { timeout: 5000 });
+        await initOutlinerNode(page);
+        const notifies = () => page.evaluate(() =>
+            (window as any).__testApi.notesMessages.filter((m: any) => m.type === 'notifyError'));
+
+        // (1) m1 .. m2（m1 / fl1 / m2）を outliner へ実 drag → フォルダ 1 件を外した通知が 1 回
+        await clickItem(page, 'm1');
+        await clickItem(page, 'm2', { shift: true });
+        expect(await selectedIds(page)).toEqual(['m1', 'fl1', 'm2']);
+        await page.evaluate(() => { (window as any).__testApi.notesMessages.length = 0; });
+        await page.dragAndDrop('.file-panel-item[data-file-id="m1"]', '.outliner-node[data-id="x"]');
+        const ok = await notifies();
+        expect(ok.length, `フォルダを外したのに通知が ${ok.length} 回（1 回であるべき）`).toBe(1);
+        expect(String(ok[0].message)).toMatch(/1 folder/);
+        // 運ぶのは md 2 件だけ（フォルダは payload に載らない）
+        const got = await fireDragstart(page, 'm1');
+        expect(got.md.items.map((x: any) => x.id)).toEqual(['m1', 'm2']);
+        expect(got.file, 'フォルダが file payload に載った').toBeNull();
+        await fireDragend(page, 'm1', 'none');
+
+        // (2) .out とフォルダの両方を外したときも通知は 1 回にまとめる（o1 .. m2 = o1 / m1 / fl1 / m2）
+        await clickItem(page, 'o1');
+        await clickItem(page, 'm2', { shift: true });
+        await page.evaluate(() => { (window as any).__testApi.notesMessages.length = 0; });
+        await page.dragAndDrop('.file-panel-item[data-file-id="m1"]', '.outliner-node[data-id="x"]');
+        const both = await notifies();
+        expect(both.length, '.out とフォルダで通知が分かれた').toBe(1);
+        expect(String(both[0].message)).toMatch(/outline/);
+        expect(String(both[0].message)).toMatch(/folder/);
+
+        // (3) ツリー内の md 行（中央帯）へ落とす: フォルダも items に入り host が集計するので、webview は通知しない
+        await clickItem(page, 'm1');
+        await clickItem(page, 'm2', { shift: true });
+        await page.evaluate(() => { (window as any).__testApi.notesMessages.length = 0; });
+        await page.dragAndDrop('.file-panel-item[data-file-id="m1"]', '.file-panel-item[data-file-id="m3"]');
+        const inTree = await page.evaluate(() => (window as any).__testApi.notesMessages.slice());
+        expect(inTree.filter((m: any) => m.type === 'attachTreeItemsIntoMdItemBatch').length,
+            `md 行の batch が呼ばれていない: ${inTree.map((m: any) => m.type).join(',')}`).toBe(1);
+        expect(inTree.filter((m: any) => m.type === 'notifyError').length, 'ツリー内の受け手なのに webview が通知した（二重）').toBe(0);
+    });
+
     test('TC-MSEL-28 outliner: md + file 混在 → notesImportTreeItemsBatch 1 回・seq 順・per-kind batch 0 回', async ({ page }) => {
         await setup(page);
         await initOutlinerNode(page);

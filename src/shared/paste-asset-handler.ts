@@ -1340,8 +1340,15 @@ export function buildOutlinerNodesPasteMd(opts: {
     destFilesDir: string;    // resolveFilesDirForMd(destMdPath)
     destImagesDir: string;   // resolveImagesDirForMd(destMdPath)
     generatePageId?: () => string; // テスト注入用 (default: crypto.randomUUID)
+    /**
+     * W9: 同じ note の中への cut（移動）。呼び出し側が「cut で、同じ note で、linkedfd の境界をまたがない」と
+     * 判定したときだけ true にする（outliner → outliner の cut と同じ規約: 同じ dir なら実体はそのまま参照、
+     * dir が違えば名前を保って置く。元の実体は消さない = Clean Notes が回収）。false / 省略 = 従来どおり複製。
+     */
+    isCut?: boolean;
 }): { markdown: string } {
     const destMdDir = path.dirname(opts.destMdPath);
+    const isCut = !!opts.isCut;
     const genId = opts.generatePageId
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         || (() => (require('crypto') as typeof import('crypto')).randomUUID());
@@ -1355,7 +1362,21 @@ export function buildOutlinerNodesPasteMd(opts: {
         // (a) page md → 複製 + subpage リンク (FR-NP-02)
         if (node.isPage && node.pageId) {
             const srcMd = path.join(opts.srcPagesDir, `${node.pageId}.md`);
-            if (fs.existsSync(srcMd)) {
+            if (isCut && fs.existsSync(srcMd)) {
+                // W9: cut = 移動。同じ dir ならその md をそのまま指す（newPageId=null + sameDirSkip は
+                // outliner → outliner の cut（handlePageAssetsCross）と同じ呼び方）
+                handlePageAssets({
+                    srcOutDir: opts.srcOutDir,
+                    srcPagesDir: opts.srcPagesDir,
+                    destOutDir: destMdDir,
+                    destPagesDir: destMdDir,
+                    pageId: node.pageId,
+                    newPageId: null,
+                    nodeImages: node.images || [],
+                    sameDirSkip: path.resolve(opts.srcPagesDir) === path.resolve(destMdDir),
+                });
+                line = `${indent}- [[${sanitizeSubpageLabel(node.text)}]](${node.pageId}.md)`;
+            } else if (fs.existsSync(srcMd)) {
                 const newPageId = genId();
                 // handlePageAssets が md 複製 + 本文参照 images/files の再帰複製 + リンク書換を行う
                 // (destPagesDir = destMdDir: 新規 subpage md は「dirname(対象 md)」に置く —
@@ -1379,18 +1400,25 @@ export function buildOutlinerNodesPasteMd(opts: {
 
         // (b) ファイル添付 → 複製 + 📎 リンク (FR-NP-03)
         if (node.filePath) {
+            // W9: cut = 移動。同じ files/ なら実体をそのまま指す（handleFileAssetCross の cut と同じ呼び方）
+            const sameFileDir = isCut && path.resolve(opts.srcFileDir) === path.resolve(opts.destFilesDir);
             const r = handleFileAsset({
                 srcOutDir: opts.srcOutDir,
                 srcFileDir: opts.srcFileDir,
                 destOutDir: destMdDir,
                 destFileDir: opts.destFilesDir,
                 filePath: node.filePath,
-                useCollisionSuffix: true,
+                // 実体をそのまま指すのは同じ files/ のときだけ。files/ が違えば cut でも複製になるので、
+                // 先に同名の別ファイルがあっても上書きも流用もしない（uniquify = copy と同じ）
+                useCollisionSuffix: !sameFileDir,
+                sameDirSkip: sameFileDir,
             });
+            if (sameFileDir && !fs.existsSync(path.resolve(opts.srcOutDir, node.filePath))) { r.newFilePath = null; }
             if (r.newFilePath) {
+                // sameDirSkip は元の filePath（.out 基準）をそのまま返すので、そのときは .out の dir から解決する
                 const abs = path.isAbsolute(r.newFilePath)
                     ? r.newFilePath
-                    : path.resolve(destMdDir, r.newFilePath);
+                    : path.resolve(sameFileDir ? opts.srcOutDir : destMdDir, r.newFilePath);
                 const rel = path.relative(destMdDir, abs).replace(/\\/g, '/');
                 // 改善2: nodetext をリンクテキストに使い、素の text の繰り返しを避ける
                 // (page 添付と併存する場合は line が既にリンク化済みなので append)
@@ -1413,6 +1441,11 @@ export function buildOutlinerNodesPasteMd(opts: {
                 const srcImg = resolveSourceImage(ref, opts.srcOutDir, opts.srcPagesDir);
                 if (!srcImg) {
                     console.warn(`[buildOutlinerNodesPasteMd] node image not found: ${ref}`);
+                    continue;
+                }
+                if (isCut && path.resolve(path.dirname(srcImg)) === path.resolve(opts.destImagesDir)) {
+                    // W9: cut = 移動。同じ images/ ならその画像をそのまま指す
+                    lines.push(`${indent}  ![](${path.relative(destMdDir, srcImg).replace(/\\/g, '/')})`);
                     continue;
                 }
                 ensureDir(opts.destImagesDir);   // FR-ACC-02: 実体をコピーするときだけ作る
@@ -1445,10 +1478,18 @@ export function runOutlinerNodesPaste(opts: {
         sourcePagesDirPath: string;
         sourceFileDirPath: string;
         sourceOutDir: string;
+        sourceOutFilePath?: string;
+        isCut?: boolean;
     } | null;
     destFilesDir: string;
     destImagesDir: string;
-}): { markdown: string } {
+    /** W9: 貼り付け元が cut か（webview の clipboard メタ）。真実は Store の isCut と両方が真のときだけ（resolveCrossPasteCut） */
+    isCut?: boolean;
+    /** W9: 同じ note の中で、linkedfd の境界もまたがないか（呼び出し側の host が決める）。偽なら cut でも複製 */
+    canMove?: (store: { sourceOutDir: string; sourceOutFilePath?: string }) => boolean;
+    /** W9: 移動として貼ったら呼ぶ（Store の cut を消費する = 2 回目の貼り付けは複製にして、同じ実体を 2 か所が指さないようにする） */
+    onCutConsumed?: () => void;
+}): { markdown: string; moved?: boolean } {
     const store = opts.getClipboard(opts.plainText);
     if (!store) {
         // fallback: 添付なしリストのみ (複製はソース dir が不明なため不可)
@@ -1456,7 +1497,10 @@ export function runOutlinerNodesPaste(opts: {
             `${'  '.repeat(Math.max(0, n.level || 0))}- ${String(n.text || '').replace(/\n/g, ' ')}`);
         return { markdown: lines.join('\n') + '\n' };
     }
-    return buildOutlinerNodesPasteMd({
+    const storeIsCut = !!store.isCut;
+    const moved = resolveCrossPasteCut(!!opts.isCut, storeIsCut).effectiveIsCut
+        && (typeof opts.canMove === 'function' ? opts.canMove(store) : false);
+    const r = buildOutlinerNodesPasteMd({
         nodes: store.nodes,
         srcOutDir: store.sourceOutDir,
         srcPagesDir: store.sourcePagesDirPath,
@@ -1464,7 +1508,10 @@ export function runOutlinerNodesPaste(opts: {
         destMdPath: opts.destMdPath,
         destFilesDir: opts.destFilesDir,
         destImagesDir: opts.destImagesDir,
+        isCut: moved,
     });
+    if (moved && typeof opts.onCutConsumed === 'function') { opts.onCutConsumed(); }
+    return { markdown: r.markdown, moved };
 }
 
 /**
@@ -1544,6 +1591,38 @@ export function resolvePasteWithAssetCopyDest(
 // (updateNodeFilePath 等の placeholder 上書き postback) は使わない。
 // ─────────────────────────────────────────────────────────────────────────────
 
+interface MdLinkToken { kind: string; alt: string; url: string; isSubpage?: boolean; start: number; end: number }
+
+/**
+ * md のリンク token 1 個を 画像 / 📎 file / subpage に分ける（それ以外 = null）。
+ * runMdIntoOutlinerPaste の行分類と W11 の extractMdClipFileLinks が共有する（判定を 2 か所に書かない）。
+ */
+function classifyMdLinkToken(t: MdLinkToken): { kind: 'image' | 'file' | 'subpage'; alt: string; url: string } | null {
+    const url = (t.url || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
+    if (!url) return null;
+    const altTrim = (t.alt || '').trim();
+    if (t.kind === 'image') return { kind: 'image', alt: altTrim, url };
+    if (t.isSubpage && url.toLowerCase().endsWith('.md')) return { kind: 'subpage', alt: altTrim, url };
+    if (altTrim.indexOf('📎') === 0) return { kind: 'file', alt: altTrim.replace(/^📎\s*/, ''), url };
+    return null;
+}
+
+/**
+ * W11: md の clipboard（text/x-any-md）から 📎 file / subpage リンクを**文書順に**取り出す。
+ * 間の文字・画像は運ばない（範囲選択の中のファイル参照だけが行き先へ行く = 複数選択 D&D と同じ決め）。
+ * @returns `{ kind, href, title }`（href は元 md の dir 基準の相対のまま。解決と containment は呼び出し側）
+ */
+export function extractMdClipFileLinks(md: string): { kind: 'file' | 'subpage'; href: string; title: string }[] {
+    const out: { kind: 'file' | 'subpage'; href: string; title: string }[] = [];
+    const toks = parser.parseMarkdownLinks(String(md || '')) as MdLinkToken[];
+    for (const t of toks) {
+        const c = classifyMdLinkToken(t);
+        if (!c || c.kind === 'image') { continue; }
+        out.push({ kind: c.kind, href: c.url, title: c.alt });
+    }
+    return out;
+}
+
 export interface MdOutlinerPasteNode {
     text: string;
     level: number;
@@ -1610,17 +1689,11 @@ export function runMdIntoOutlinerPaste(opts: {
     // ファイル名にマッチせず、docx がテキスト node に落ちてリンク切れになった。
     // 正典パーサで解析し「行 == リンクトークン 1 個」を判定する）。
     const classifyLine = (content: string): { kind: 'image' | 'file' | 'subpage'; alt: string; url: string } | null => {
-        const toks = parser.parseMarkdownLinks(content) as Array<{ kind: string; alt: string; url: string; isSubpage?: boolean; start: number; end: number }>;
+        const toks = parser.parseMarkdownLinks(content) as MdLinkToken[];
         if (toks.length !== 1) return null;
         const t = toks[0];
         if (t.start !== 0 || t.end !== content.length) return null; // 行内混在はテキスト node
-        const url = (t.url || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
-        if (!url) return null;
-        const altTrim = (t.alt || '').trim();
-        if (t.kind === 'image') return { kind: 'image', alt: altTrim, url };
-        if (t.isSubpage && url.toLowerCase().endsWith('.md')) return { kind: 'subpage', alt: altTrim, url };
-        if (altTrim.indexOf('📎') === 0) return { kind: 'file', alt: altTrim.replace(/^📎\s*/, ''), url };
-        return null;
+        return classifyMdLinkToken(t);
     };
 
     const nodes: MdOutlinerPasteNode[] = [];

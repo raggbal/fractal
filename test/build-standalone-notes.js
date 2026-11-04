@@ -155,6 +155,23 @@ const testNotesHostBridge = `
 
     // outliner.js 用ブリッジ
     window.outlinerHostBridge = Object.assign(shared, {
+        // W3: md リンクの複数ドラッグ → md editor（本番 notes-host-bridge.js の両ブロックのミラー。
+        // notesMarkdownHostBridge はこのブリッジを Object.assign で引き継ぐ）
+        attachMdLinksToMdBatch: function(payload, sidePanelFilePath) {
+            window.__testApi.notesMessages.push({ type: 'attachMdLinksToMdBatch', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        // FR-TF-19 / W8: outliner の page / file アイコンの単一 drag → md editor（本番 notes-host-bridge.js のミラー。
+        // 複数選択との経路の分かれ目をテストで観測するため）
+        attachOutNodeFileToMd: function(payload, sidePanelFilePath) {
+            window.__testApi.notesMessages.push({ type: 'attachOutNodeFileToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        importOutPageNodeToMd: function(payload, sidePanelFilePath) {
+            window.__testApi.notesMessages.push({ type: 'importOutPageNodeToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        // W8: outliner の複数選択 / bullet → md editor（本番 notes-host-bridge.js の両ブロックのミラー）
+        attachOutNodeAssetsToMd: function(payload, sidePanelFilePath) {
+            window.__testApi.notesMessages.push({ type: 'attachOutNodeAssetsToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
         // TASK-17: ツリー md → sidepanel md D&D（SidePanelHostBridge の _mainHost = このブリッジ）
         linkMdAsSubpageForSidePanel: function(filePath, mdFileId, sidePanelFilePath) {
             window.__testApi.notesMessages.push({ type: 'linkMdAsSubpage', filePath: filePath, mdFileId: mdFileId, sidePanelFilePath: sidePanelFilePath });
@@ -428,6 +445,25 @@ const testNotesHostBridge = `
         folderViewMoveIntoMdItem: function(folderLinkId, relPaths, targetMdId) {
             window.__testApi.notesMessages.push({ type: 'folderViewMoveIntoMdItem', folderLinkId: folderLinkId, relPaths: relPaths, targetMdId: targetMdId });
         },
+        // W7: linkedfd の複数選択 → md 本文（本番 notes-host-bridge.js のミラー）
+        folderViewMoveIntoMdBatch: function(id, relPaths, targetMdPath, mode) {
+            var msg = { type: 'folderViewMoveIntoMdBatch', id: id, relPaths: relPaths, targetMdPath: targetMdPath };
+            if (mode === 'copy') { msg.mode = 'copy'; }
+            window.__testApi.notesMessages.push(msg);
+        },
+        // W10/W11/W12: clipboard の貼り付け（本番 notes-host-bridge.js のミラー）
+        pasteTreeClip: function(clip, target) {
+            window.__testApi.notesMessages.push({ type: 'pasteTreeClip', clip: clip, target: target });
+        },
+        pasteMdClip: function(mdText, sourceContext, isCut, target) {
+            window.__testApi.notesMessages.push({ type: 'pasteMdClip', mdText: mdText, sourceContext: sourceContext, isCut: !!isCut, target: target });
+        },
+        pasteOutlinerClipToTree: function(plainText, isCut, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'pasteOutlinerClipToTree', plainText: plainText, isCut: !!isCut, parentId: parentId || null, index: index || 0 });
+        },
+        folderViewCopyAcrossLinks: function(srcLinkId, relPaths, dstLinkId, dstDirRelPath) {
+            window.__testApi.notesMessages.push({ type: 'folderViewCopyAcrossLinks', srcLinkId: srcLinkId, relPaths: relPaths, dstLinkId: dstLinkId, dstDirRelPath: dstDirRelPath || '' });
+        },
         sendOutNodesToFolderLinkFromDrop: function(payload, folderLinkId, dstDirRelPath) {
             window.__testApi.notesMessages.push({ type: 'sendOutNodesToFolderLinkFromDrop', payload: payload, folderLinkId: folderLinkId, dstDirRelPath: dstDirRelPath });
         },
@@ -468,6 +504,22 @@ const testNotesHostBridge = `
         },
         notesLinkMdLinkIntoMdItem: function(payload, kind, targetMdId) {
             window.__testApi.notesMessages.push({ type: 'notesLinkMdLinkIntoMdItem', payload: payload, kind: kind, targetMdId: targetMdId });
+        },
+        // W3: md リンクの複数ドラッグ（本番 notes-host-bridge.js のミラー。どれも配列 1 回）
+        importMdLinksIntoOutBatch: function(payload, outFileId, targetNodeId, position) {
+            window.__testApi.notesMessages.push({ type: 'importMdLinksIntoOutBatch', payload: payload, outFileId: outFileId, targetNodeId: targetNodeId || null, position: position || null });
+        },
+        notesRegisterFromMdLinksBatch: function(payload, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'notesRegisterFromMdLinksBatch', payload: payload, parentId: parentId, index: index });
+        },
+        linkMdLinksIntoMdItemBatch: function(payload, targetMdId) {
+            window.__testApi.notesMessages.push({ type: 'linkMdLinksIntoMdItemBatch', payload: payload, targetMdId: targetMdId });
+        },
+        importMdLinksIntoOutItemBatch: function(payload, targetOutId) {
+            window.__testApi.notesMessages.push({ type: 'importMdLinksIntoOutItemBatch', payload: payload, targetOutId: targetOutId });
+        },
+        folderViewMoveFromMdBatch: function(id, dstDirRelPath, payload) {
+            window.__testApi.notesMessages.push({ type: 'folderViewMoveFromMdBatch', id: id, dstDirRelPath: dstDirRelPath || '', payload: payload });
         },
         openDailyNotes: function() {
             window.__testApi.notesMessages.push({ type: 'openDailyNotes' });
@@ -827,11 +879,12 @@ const html = `<!DOCTYPE html>
         },
         // FR-PDB-01 (sprint 20260818-183407): 本番 notes-host-bridge.js の
         // pasteOutlinerNodesWithAssets override をミラー（自 filePath 畳み + destination='main-md'）。
-        pasteOutlinerNodesWithAssets: function(plainText, nodes) {
+        pasteOutlinerNodesWithAssets: function(plainText, nodes, _sidePanelFilePath, isCut) {
             window.__testApi.messages.push({
                 type: 'pasteOutlinerNodesWithAssets',
                 plainText: plainText,
                 nodes: nodes,
+                isCut: !!isCut,
                 sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
                 destination: 'main-md',
             });

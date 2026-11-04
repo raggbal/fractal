@@ -11,14 +11,18 @@ import {
     treeFileImportAtPosition, treeFileRegisterFromOutNode, treeFileRegisterFromMdLink, insertNodeAtDropPosition,
     treeNodeAssetsRegister, OutNodeAsset, OutNodeAssetsPayload,
     registerExternalDroppedFileItem, registerExternalDroppedUris, linkMdAsSubpageForSidePanelCore,
-    attachOutNodeFileToMd, importOutPageNodeToMd, attachMdFileLinkToMd, linkMdSubpageToMd,
+    attachOutNodeFileToMd, importOutPageNodeToMd, attachOutNodeAssetsToMd, attachMdFileLinkToMd, linkMdSubpageToMd,
     FolderLinkDeps, folderLinkAdd, folderLinkRelink, folderLinkRemove, folderLinkRename,
     folderLinkReveal, folderLinkCopyPath,
     FolderViewDeps, folderViewList, folderViewSearch, folderViewOpen, folderViewToggleHidden, folderViewCreate,
     folderViewRename, folderViewDelete, folderViewDuplicate, folderViewMove, folderViewMoveBatch, folderViewRevealEntry, folderViewCopyEntryPath, folderViewStateSave,
     resolveTrustedOutPath, trustedSrcOutDir,   // ADRL-0121: clipboard 由来 .out パスの containment
-    FolderMoveDeps, folderViewMoveIn, folderViewMoveToTree, folderViewMoveIntoMd, folderViewMoveFromMd,
+    FolderMoveDeps, folderViewMoveIn, folderViewMoveToTree, folderViewMoveIntoMd, folderViewMoveIntoMdBatch, folderViewMoveFromMd,
     folderViewMoveToTreeBatch, folderViewMoveInBatch, runPlatformBatch, BatchOutcome, TreeBatchItem, TreeBatchKind, assertNeverKind,
+    attachMdLinksToMdBatch, importMdLinksIntoOutBatch, importMdLinksIntoOutItemBatch, linkMdLinksIntoMdItemBatch,
+    folderViewMoveFromMdBatch, normalizeMdLinkBatch, outlinerCutCanMoveToMd, cutClipNodesForOut, buildExportNodesFromClipNodes,
+    normalizeTreeClipItems, pasteTreeClipIntoEditor, treeMdItemToMdEditor, pasteTreeClipIntoTree, pasteMdClipToTree, pasteMdClipToFolderView,
+    pasteOutlinerClipToTree, folderViewCopyAcrossLinks,
 } from './shared/notes-message-handler';
 import { getNotesWebviewContent } from './notesWebviewContent';
 import { getNotesMigrationGateContent } from './notesMigrationGate';
@@ -32,7 +36,7 @@ import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
 import { runFolderImportWithDialog, runSendToOutlinerWithDialogs, notifyBatchOutcome, resolveSendToOutlinerTarget, importDroppedFoldersIntoOut } from './shared/folder-import-host';
-import { prependImportEntriesToOutData } from './shared/folder-import';
+import { prependImportEntriesToOutData, BatchLimitVerdict } from './shared/folder-import';
 import { runFolderExportWithDialog, runSendNodesToFolderLink } from './shared/folder-export-host';
 import { ExportNode } from './shared/folder-export';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem, partitionDroppedUris, materializeDroppedFolder, DroppedFolderPayload } from './shared/drop-import';
@@ -880,6 +884,29 @@ export class NotesEditorProvider {
                 resolveFile: (url: string) => resolveLinkTargetUnder(resolveFilesDirForMd(mdFilePath), mdFilePath, url),
             };
         };
+        // W10: ツリーの項目 1 件分の転送（D&D の batch と clipboard の pasteTreeClip が**同じ関数**を回す）。
+        // keepSource = ツリーの cmd+c を別の note・linkedfd の md へ貼るとき（正典が実体を複製するので台帳を残す）
+        // asBlock = 複数件のとき（subpage を 1 行 1 リンクにする）。md の実体は台帳から引く（treeMdItemToMdEditor）
+        const treeItemToMdEditor = (it: TreeBatchItem, sidePanelFilePath: string | null, senderRef: NotesSender, keepSource?: boolean, asBlock?: boolean) => {
+            switch (it.kind) {
+                case 'md': return treeMdItemToMdEditor(
+                    fileManager,
+                    { postMessage: (m: unknown) => panel.webview.postMessage(m) },
+                    it.id, sidePanelFilePath ?? fileManager.getCurrentFilePath() ?? '', keepSource, asBlock);
+                case 'file': return treeFileAttachToMdEditor(fileManager, senderRef, it.id, sidePanelFilePath, keepSource);
+                case 'folder': return { ok: false, reason: 'kind_unsupported' };
+                default: return assertNeverKind(it);
+            }
+        };
+        const treeItemToOutliner = async (it: TreeBatchItem, outFileId: string, targetNodeId: string | null, position: string | null, senderRef: NotesSender) => {
+            switch (it.kind) {
+                case 'md': return await platform.notesImportMdIntoOut?.(it.id, outFileId, senderRef, targetNodeId ?? null, position ?? null, true);
+                case 'file': return await platform.notesImportTreeFileAtPosition?.(it.id, outFileId, targetNodeId, position, senderRef);
+                case 'folder': return { ok: false, reason: 'kind_unsupported' };
+                default: return assertNeverKind(it);
+            }
+        };
+
         const platform: NotesPlatformActions = {
             openExternalLink: (href: string) => {
                 vscode.env.openExternal(vscode.Uri.parse(href));
@@ -2302,7 +2329,7 @@ export class NotesEditorProvider {
                 await vscode.commands.executeCommand('fractal.cleanUnusedFilesInCurrentNote');
             },
             // outliner node paste の添付複製 (sprint 20260727-124904 / ADRL-0001)
-            pasteOutlinerNodesWithAssets: (plainText: string, nodes: unknown[], sidePanelFilePath: string, destination?: string) => {
+            pasteOutlinerNodesWithAssets: (plainText: string, nodes: unknown[], sidePanelFilePath: string, destination?: string, isCut?: boolean) => {
                 // eslint-disable-next-line @typescript-eslint/no-var-requires
                 const { runOutlinerNodesPaste } = require('./shared/paste-asset-handler');
                 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -2314,6 +2341,11 @@ export class NotesEditorProvider {
                     getClipboard: (pt: string) => OutlinerClipboardStore.get(pt),
                     destFilesDir: resolveFilesDirForMd(sidePanelFilePath),
                     destImagesDir: resolveImagesDirForMd(sidePanelFilePath),
+                    // W9: cut は同じ note の中なら移動（実体をそのまま指す）、別 note・linkedfd へは複製。判定は host
+                    isCut: !!isCut,
+                    canMove: (store: { sourceOutDir: string; sourceOutFilePath?: string }) =>
+                        outlinerCutCanMoveToMd(fileManager, store, sidePanelFilePath),
+                    onCutConsumed: () => OutlinerClipboardStore.markCutConsumed(),
                 });
                 panel.webview.postMessage({
                     type: 'pasteWithAssetCopyResult',
@@ -2685,17 +2717,8 @@ export class NotesEditorProvider {
             // webview が seq 順に結合した 1 本の配列を受け、runPlatformBatch を **1 回**通す（件数ゲートが合計で効く）。
             // transferOne は kind で既存の単一関数へ分岐し、返り値（boolean）をそのまま返す（TASK-38 契約）。
             attachTreeItemsToMdBatch: async (items: TreeBatchItem[], sidePanelFilePath: string | null, senderRef: NotesSender) => {
-                await runPlatformBatch(items, (it) => {
-                    switch (it.kind) {
-                        case 'md': return linkMdAsSubpageForSidePanelCore(
-                            fileManager,
-                            { postMessage: (m: unknown) => panel.webview.postMessage(m) },
-                            it.filePath || '', it.id, sidePanelFilePath ?? fileManager.getCurrentFilePath() ?? '');
-                        case 'file': return treeFileAttachToMdEditor(fileManager, senderRef, it.id, sidePanelFilePath);
-                        case 'folder': return { ok: false, reason: 'kind_unsupported' };
-                        default: return assertNeverKind(it);
-                    }
-                }, platformBatchDeps);
+                const asBlock = Array.isArray(items) && items.length > 1;   // 複数は 1 行 1 リンク
+                await runPlatformBatch(items, (it) => treeItemToMdEditor(it, sidePanelFilePath, senderRef, false, asBlock), platformBatchDeps);
             },
             // FR-TF-19 (§4m): md editor drop 受け 4 経路（seam は notes-message-handler の pure-fs 関数）
             attachOutNodeFileToMd: (payload: { outFileKey: string; nodeId: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
@@ -2704,11 +2727,32 @@ export class NotesEditorProvider {
             importOutPageNodeToMd: (payload: { outFileKey: string; nodeId: string; pageId: string; title?: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
                 importOutPageNodeToMd(fileManager, senderRef, payload, sidePanelFilePath);
             },
+            // W8: outliner の複数選択 / bullet → md editor。既存の単一の正典を添付 1 件ずつ回す（件数ゲート + 集計通知 1 回）
+            attachOutNodeAssetsToMd: async (payload: OutNodeAssetsPayload, sidePanelFilePath: string | null, senderRef: NotesSender) => {
+                await attachOutNodeAssetsToMd(fileManager, senderRef, payload, sidePanelFilePath, platformBatchDeps);
+            },
             attachMdFileLinkToMd: (payload: { href: string; sourceMdPath: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
                 attachMdFileLinkToMd(fileManager, senderRef, payload, sidePanelFilePath);
             },
             linkMdSubpageToMd: (payload: { href: string; sourceMdPath: string; title?: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
                 linkMdSubpageToMd(fileManager, senderRef, payload, sidePanelFilePath);
+            },
+            // W3: md の 📎 / subpage リンクの複数ドラッグ。受け手ごとに 1 本の message を、既存の単一経路の
+            // ループ（runPlatformBatch = 件数ゲート + 集計通知 1 回）で処理する。移動 / 複製は単一経路が 1 件ごとに決める
+            attachMdLinksToMdBatch: async (payload: unknown, sidePanelFilePath: string | null, senderRef: NotesSender) => {
+                await attachMdLinksToMdBatch(fileManager, senderRef, payload, sidePanelFilePath, platformBatchDeps);
+            },
+            importMdLinksIntoOutBatch: async (payload: unknown, outFileId: string, targetNodeId: string | null, position: string | null, senderRef: NotesSender) => {
+                await importMdLinksIntoOutBatch(fileManager, senderRef, payload, outFileId, targetNodeId, position, platformBatchDeps);
+            },
+            notesRegisterFromMdLinksBatch: async (payload: unknown, parentId: string | null, index: number, senderRef: NotesSender) => {
+                await registerMdLinksToTreeBatch(fileManager, senderRef, payload, parentId, index, platformBatchDeps);
+            },
+            linkMdLinksIntoMdItemBatch: async (payload: unknown, targetMdId: string, senderRef: NotesSender) => {
+                await linkMdLinksIntoMdItemBatch(fileManager, senderRef, payload, targetMdId, platformBatchDeps);
+            },
+            importMdLinksIntoOutItemBatch: async (payload: unknown, targetOutId: string, senderRef: NotesSender) => {
+                await importMdLinksIntoOutItemBatch(fileManager, senderRef, payload, targetOutId, platformBatchDeps);
             },
             // FR-TF-05a (§4d): tree file → outliner の node 位置（dropFilesResult 互換 postback）
             // 🔴 TASK-38: 委譲先の返り値を `return` する（捨てると集計通知が発火しない）。
@@ -2723,14 +2767,58 @@ export class NotesEditorProvider {
             // runPlatformBatch を **1 回**通し（件数ゲートが合計で効く）、transferOne は kind で既存の単一 platform へ分岐。
             // 返り値を捨てない（TASK-38）。md は suppressToast=true（集計通知 1 回に一本化）。
             notesImportTreeItemsBatch: async (items: TreeBatchItem[], outFileId: string, targetNodeId: string | null, position: string | null, senderRef: NotesSender) => {
-                await runPlatformBatch(items, async (it) => {
-                    switch (it.kind) {
-                        case 'md': return await platform.notesImportMdIntoOut?.(it.id, outFileId, senderRef, targetNodeId ?? null, position ?? null, true);
-                        case 'file': return await platform.notesImportTreeFileAtPosition?.(it.id, outFileId, targetNodeId, position, senderRef);
-                        case 'folder': return { ok: false, reason: 'kind_unsupported' };
-                        default: return assertNeverKind(it);
-                    }
-                }, platformBatchDeps);
+                await runPlatformBatch(items, (it) => treeItemToOutliner(it, outFileId, targetNodeId, position, senderRef), platformBatchDeps);
+            },
+            // W10/W11: ツリーの clipboard → md editor / outliner / ツリーの中。受け手ごとに 1 本、1 件ずつは D&D と同じ関数。
+            // cut = そのまま（移動）。copy = 先に Duplicate した複製を渡す（別 note・linkedfd の md へは正典が複製するので台帳を残す）。
+            // .out は md / outliner に落とす意味が無いので理由付きで飛ばす（ツリーの中では動く）。集計通知は 1 回
+            pasteTreeClip: async (clip: unknown, target: unknown, senderRef: NotesSender) => {
+                const c = (clip || {}) as { items?: unknown; isCut?: unknown };
+                const tg = (target || {}) as Record<string, unknown>;
+                const items = normalizeTreeClipItems(c.items);
+                const copy = !c.isCut;
+                if (items.length === 0) { return; }
+                if (tg.kind === 'tree') {
+                    await pasteTreeClipIntoTree(fileManager, senderRef, items, copy,
+                        typeof tg.parentId === 'string' ? tg.parentId : null, Number(tg.index ?? 0), platformBatchDeps);
+                    return;
+                }
+                const sidePanelFilePath = typeof tg.sidePanelFilePath === 'string' && tg.sidePanelFilePath ? tg.sidePanelFilePath : null;
+                const mdTarget = tg.kind === 'md' ? (sidePanelFilePath ?? fileManager.getCurrentFilePath() ?? '') : null;
+                const outFileId = String(tg.outFileId ?? '');
+                const targetNodeId = typeof tg.targetNodeId === 'string' ? tg.targetNodeId : null;
+                const position = typeof tg.position === 'string' ? tg.position : null;
+                if (tg.kind !== 'md' && tg.kind !== 'outliner') { return; }
+                // 台帳の引き直し・copy の複製と失敗時の片付け・'after' の逆順は pasteTreeClipIntoEditor。1 件分は D&D と同じ関数
+                const asBlock = tg.kind === 'md' && items.length > 1;   // 複数は 1 行 1 リンク
+                await pasteTreeClipIntoEditor(fileManager, senderRef, items, copy, mdTarget,
+                    tg.kind === 'outliner' && position === 'after',
+                    async (item, keepSource) => (tg.kind === 'md'
+                        ? treeItemToMdEditor(item, sidePanelFilePath, senderRef, keepSource, asBlock)
+                        : await treeItemToOutliner(item, outFileId, targetNodeId, position, senderRef)),
+                    platformBatchDeps);
+            },
+            // W11: md の範囲選択の clipboard → ツリー（root / フォルダ / 行の後ろ）/ linkedfd（view・ツリーの linkedfd 行）
+            pasteMdClip: async (mdText: string, sourceContext: unknown, isCut: boolean, target: unknown, senderRef: NotesSender) => {
+                const tg = (target || {}) as Record<string, unknown>;
+                if (tg.kind === 'tree') {
+                    await pasteMdClipToTree(fileManager, senderRef, mdText, sourceContext, isCut,
+                        typeof tg.parentId === 'string' ? tg.parentId : null, Number(tg.index ?? 0), platformBatchDeps);
+                } else if (tg.kind === 'fv') {
+                    const linkId = String(tg.folderLinkId ?? '');
+                    await runFolderViewTransfer(senderRef, linkId, () =>
+                        pasteMdClipToFolderView(fileManager, mdText, sourceContext, isCut, linkId, String(tg.dstDirRelPath ?? ''),
+                            folderViewDeps, platformBatchDeps, senderRef));
+                }
+            },
+            // W11: outliner の clipboard → ツリー（Store の nodes から登録。cut は同じ note なら移動）
+            pasteOutlinerClipToTree: async (plainText: string, isCut: boolean, parentId: string | null, index: number, senderRef: NotesSender) => {
+                await pasteOutlinerClipToTree(fileManager, senderRef, plainText, isCut, parentId, index, platformBatchDeps);
+            },
+            // W12: linkedfd → 別の linkedfd（常に複製。フォルダも中身の実件数で件数ゲート）
+            folderViewCopyAcrossLinks: async (srcLinkId: string, relPaths: string[], dstLinkId: string, dstDirRelPath: string, senderRef: NotesSender) => {
+                await runFolderViewTransfer(senderRef, dstLinkId, () =>
+                    folderViewCopyAcrossLinks(fileManager, srcLinkId, relPaths, dstLinkId, dstDirRelPath, folderMoveDeps, senderRef));
             },
             // FR-TF-05b (§4e): outliner の file 添付 node → tree（所有移し替え）
             notesRegisterFileFromOutNode: (payload: { outFileKey: string; nodeId: string }, parentId: string | null, index: number, senderRef: NotesSender) => {
@@ -2842,12 +2930,12 @@ export class NotesEditorProvider {
             folderViewMoveIntoMdItem: async (folderLinkId: string, relPaths: string[], targetMdId: string, senderRef: NotesSender) => {
                 const targetMdPath = fileManager.getFilePathById(targetMdId);
                 if (!targetMdPath || !targetMdPath.endsWith('.md') || !fs.existsSync(targetMdPath)) return;
-                for (const rel of relPaths) {
-                    await folderViewMoveIntoMd(fileManager, folderLinkId, rel, targetMdPath, folderMoveDeps, senderRef, { writeToDisk: true });
-                }
+                // W7: md 本文宛てと同じ batch（件数ゲート + 集計通知 1 回）を通す。以前は for で回すだけでゲートが無かった
+                // フォルダは webview が除外済み（ファイルだけ）なので文言は batchTransfer*（platformBatchDeps — folderViewMoveBatch と同じ理由）
+                await folderViewMoveIntoMdBatch(fileManager, folderLinkId, relPaths, targetMdPath, platformBatchDeps, senderRef, { writeToDisk: true });
             },
             // 2026-09-05 R25/R26: outliner node（複数可）→ linkedfd（tree の行 = root / 面 = drop 先 dir）。「linkedfd に送る」と同一経路
-            sendOutNodesToFolderLinkFromDrop: async (payload: { outFileKey: string; nodeId: string; nodeIds?: string[] }, folderLinkId: string, dstDirRelPath: string, senderRef: NotesSender) => {
+            sendOutNodesToFolderLinkFromDrop: async (payload: { outFileKey: string; nodeId: string; nodeIds?: string[]; clip?: { isCut?: boolean; plainText?: string } }, folderLinkId: string, dstDirRelPath: string, senderRef: NotesSender) => {
                 if (!payload || !payload.outFileKey || !payload.nodeId) return;
                 // 🔴 TASK-27 (SEC-1 / NFR-CBD-04 / ADRL-0121): **clipboard 由来のパスを信じない**。
                 // 旧実装は `endsWith('.out') && fs.existsSync(...)` だけで実在する任意の絶対 `.out` を
@@ -2871,7 +2959,10 @@ export class NotesEditorProvider {
                 if (!dest || !fs.existsSync(dest) || !fs.statSync(dest).isDirectory()) return;
                 const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
                 const ids = Array.isArray(payload.nodeIds) && payload.nodeIds.length > 0 ? payload.nodeIds : [payload.nodeId];
-                const tree = buildExportNodesFromOutData(outData, ids);
+                // W9: outliner の cut を貼ったときは node が .out から消えている（単一 cut は空）ので、
+                // Store が持つ cut の nodes から書き出す（境界をまたぐので常に複製。元の実体はそのまま）
+                const cutNodes = cutClipNodesForOut(payload, outPath);
+                const tree = cutNodes ? buildExportNodesFromClipNodes(cutNodes) : buildExportNodesFromOutData(outData, ids);
                 if (tree.length === 0) return;
                 const outcome = await runSendNodesToFolderLink({
                     tree,
@@ -3061,8 +3152,17 @@ export class NotesEditorProvider {
             folderViewMoveIntoMd: async (id: string, relPath: string, targetMdPath: string, senderRef: NotesSender) => {
                 await folderViewMoveIntoMd(fileManager, id, relPath, targetMdPath, folderMoveDeps, senderRef);
             },
+            // W7: linkedfd の複数選択 → md 本文（main / sidepanel とも targetMdPath で宛先を一意化）
+            folderViewMoveIntoMdBatch: async (id: string, relPaths: string[], targetMdPath: string, senderRef: NotesSender, mode?: 'move' | 'copy') => {
+                await folderViewMoveIntoMdBatch(fileManager, id, relPaths, targetMdPath, platformBatchDeps, senderRef,
+                    mode === 'copy' ? { mode: 'copy' } : undefined);
+            },
             folderViewMoveFromMd: async (id: string, dstDirRelPath: string, payload: { href: string; sourceMdPath: string; isSubpage?: boolean }, senderRef: NotesSender) => {
                 await folderViewMoveFromMd(fileManager, id, dstDirRelPath, payload, folderMoveDeps, senderRef);
+            },
+            // W3: md リンクの複数ドラッグ → linkedfd（フォルダは来ないので文言は batchTransfer* = platformBatchDeps）
+            folderViewMoveFromMdBatch: async (id: string, dstDirRelPath: string, payload: unknown, senderRef: NotesSender) => {
+                await folderViewMoveFromMdBatch(fileManager, id, dstDirRelPath, payload, platformBatchDeps, senderRef);
             },
 
             // md editor 内 subpage リンク → Notes ツリー D&D（実処理 = registerSubpageFromMdCore、
@@ -3259,6 +3359,12 @@ export class NotesEditorProvider {
 
         // --- パネル固有の disposables ---
         const disposables: vscode.Disposable[] = [];
+        // W9 / W11: Store の cut が md・ツリーへの移動で消費されたら、この panel の outliner の cut も解く
+        //（解かないと outliner へ戻って貼ったとき、md・ツリーが持った page / 添付を指す node を cut のまま復元する）
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        disposables.push(require('./shared/outliner-clipboard-store').OutlinerClipboardStore.onCutConsumed((plainText: string) => {
+            panel.webview.postMessage({ type: 'outlinerCutConsumed', plainText });
+        }));
 
         // メッセージハンドラ登録
         disposables.push(
@@ -3822,7 +3928,10 @@ export function linkMdAsSubpageForNotesMdCore(
         // **cur の隣へ随伴転送**する（相手側に実体を渡す。this-note のツリーは触らない = 所有不変）
         const mainFolder = fileManager.getMainFolderPath();
         const curInThisNote = !path.relative(mainFolder, path.resolve(cur)).startsWith('..');
-        if (!curInThisNote) {
+        // spec linkedfd-copy-only D1/D2（W13）: linkedfd の md へ送るなら境界をまたぐので複製（cur の隣へ随伴転送）。
+        // 相対リンクにすると linkedfd の md が Fractal の md を指し、1 つの実体をツリーと linkedfd が共有してしまう
+        const crossesBoundary = crossesLinkedfdBoundary(linkedfdRootsOf(fileManager), filePath, cur);
+        if (!curInThisNote || crossesBoundary) {
             const r = transferMdWithAssets(filePath, makeTransferCoords(mdCoords(filePath), mdCoords(cur)));
             senderRef.postMessage({
                 type: 'insertSubpageLink',
@@ -3839,6 +3948,7 @@ export function linkMdAsSubpageForNotesMdCore(
         });
         // US-09: subpage 化したらツリーから md エントリを除去（ファイル実体・ファイル名は不変。
         // notesImportMdIntoOut の「画面のエントリは消す・物理は消さない」と同じ方針）
+        // （linkedfd の境界をまたぐ場合は上の複製の分岐で return 済み = 元のツリー項目は残る）
         if (mdFileId) {
             fileManager.unregisterMdFromStructureOnly(mdFileId);
             senderRef.postMessage({
@@ -3859,10 +3969,10 @@ export function registerSubpageFromMdCore(
     parentId: string | null,
     index: number,
     senderRef: NotesSender
-): void {
+): boolean {
     try {
-        if (!payload || !payload.href || !payload.sourceMdPath) return;
-        if (!/\.md$/i.test(payload.href)) return;
+        if (!payload || !payload.href || !payload.sourceMdPath) return false;
+        if (!/\.md$/i.test(payload.href)) return false;
         // href の解決 + clamp は兄弟正典（importMdSubpageIntoOut / linkMdSubpageToMd）と同型:
         // source md の note フォルダ（srcMainFolder）基準の safeResolveUnderDir で note 外・
         // 絶対パス抜けを拒否する（decode 後 containment — 別 note 境界内の copy-in は従来どおり通る）。
@@ -3873,7 +3983,7 @@ export function registerSubpageFromMdCore(
             srcMainFolder,
             path.relative(srcMainFolder, path.resolve(path.dirname(payload.sourceMdPath), decoded))
         );
-        if (!abs || !fs.existsSync(abs)) return;
+        if (!abs || !fs.existsSync(abs)) return false;
         const content = fs.readFileSync(abs, 'utf8');
         const title = resolveSubpageTitle(content, path.basename(abs));
         const mainFolder = fileManager.getMainFolderPath();
@@ -3895,9 +4005,36 @@ export function registerSubpageFromMdCore(
         // 元 md からアンカー除去 = fs 正典 + webview エコーの 2 段（兄弟 3 経路と同型 —
         // エコーのみだと source md の EditorInstance 非生存時にアンカーが残留する。TASK-03 集約）
         // spec linkedfd-copy-only D1/D2: linkedfd の中の md から来たら境界をまたぐので、元 md のリンクは残す（複製）
-        if (crossesLinkedfdBoundary(linkedfdRootsOf(fileManager), payload.sourceMdPath, mainFolder)) { return; }
+        if (crossesLinkedfdBoundary(linkedfdRootsOf(fileManager), payload.sourceMdPath, mainFolder)) { return true; }
         removeMdAnchorAndEcho(payload.sourceMdPath, payload.href, senderRef, 'subpage');
+        return true;
     } catch (e) {
         console.error('[Notes] notesRegisterSubpageFromMd error:', e);
+        return false;
     }
+}
+
+/**
+ * W3: md の 📎 / subpage リンクの複数ドラッグ → ツリー（root / 余白 / folder 行 / file 行の前後）。
+ * 1 件は registerSubpageFromMdCore / treeFileRegisterFromMdLink（同じ note = 無コピー登録、別 note = 複製、
+ * linkedfd の中の md = 複製して元リンクを残す — 判定はどれも単一経路の中）。登録できた分だけ挿入位置を進めて
+ * 選択順に並べる。件数ゲート + 集計通知 1 回は runPlatformBatch。
+ */
+export async function registerMdLinksToTreeBatch(
+    fileManager: NotesFileManager,
+    senderRef: NotesSender,
+    batch: unknown,
+    parentId: string | null,
+    index: number,
+    deps: Parameters<typeof runPlatformBatch>[2]
+): Promise<{ verdict: BatchLimitVerdict; outcome: BatchOutcome }> {
+    const { sourceMdPath, items } = normalizeMdLinkBatch(batch);
+    let cursor = index;
+    return runPlatformBatch(items, (it) => {
+        const ok = it.kind === 'subpage'
+            ? registerSubpageFromMdCore(fileManager, { href: it.href, sourceMdPath, title: it.title }, parentId, cursor, senderRef)
+            : treeFileRegisterFromMdLink(fileManager, senderRef, { href: it.href, sourceMdPath }, parentId, cursor);
+        if (ok) { cursor += 1; }
+        return ok;
+    }, deps);
 }

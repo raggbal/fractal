@@ -135,6 +135,7 @@ export const webviewMessages = {
   sendToOutlinerNoOutlines: '此笔记中没有大纲（.out）。请先创建一个。',
   batchDndFoldersSkipped: '已跳过 {count} 个文件夹 — 文件夹请使用“发送到 Outliner”。',
   batchDndOutSkipped: '已跳过 {count} 个大纲文件（.out）— .out 不能拖放到这里。',
+  batchDndTreeFoldersSkipped: '已跳过 {count} 个文件夹 — 文件夹和文件夹链接不能拖放到这里。',
   closeOutline: '关闭大纲',
   openOutline: '打开大纲',
   openInTextEditor: '在文本编辑器中打开',

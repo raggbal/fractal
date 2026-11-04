@@ -152,6 +152,7 @@ export const webviewMessages = {
   sendToOutlinerNoOutlines: 'No outline (.out) in this note. Create one first.',
   batchDndFoldersSkipped: '{count} folder(s) skipped — use Send to Outliner for folders.',
   batchDndOutSkipped: '{count} outline file(s) skipped — .out items cannot be dropped here.',
+  batchDndTreeFoldersSkipped: '{count} folder(s) skipped — folders and folder links cannot be dropped here.',
   closeOutline: 'Close Outline',
   openOutline: 'Open Outline',
   openInTextEditor: 'Open in Text Editor',

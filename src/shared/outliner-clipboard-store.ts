@@ -55,6 +55,36 @@ export class OutlinerClipboardStore {
     }
 
     /**
+     * W9: outliner の cut を md へ 1 回の message で「移動」として貼ったあとに呼ぶ。
+     * 以降の貼り付けは複製になる（同じ実体を 2 か所のリンクが指す = 1:1 所有の破れを作らない）。
+     * outliner → outliner の cut は node ごとに複数 message を送るのでここは使わない（旧 consumeIfCut の轍）。
+     */
+    static markCutConsumed(): void {
+        if (!this.data) { return; }
+        const wasCut = this.data.isCut;
+        this.data = { ...this.data, isCut: false };
+        // outliner の webview も自分の cut（internalClipboard.isCut / OS clipboard の cut メタ）を持っているので知らせる。
+        // 知らせないと、outliner へ戻って貼ったとき同じ page / 添付を持つ node を cut のまま復元してしまう
+        if (wasCut) {
+            const plainText = this.data.plainText;
+            for (const fn of Array.from(this.cutConsumedListeners)) {
+                try { fn(plainText); } catch (e) { console.error('[OutlinerClipboardStore] cutConsumed listener failed:', e); }
+            }
+        }
+    }
+
+    private static cutConsumedListeners = new Set<(plainText: string) => void>();
+
+    /**
+     * W9 / W11: Store の cut が md・ツリーへの移動で消費されたときに呼ばれる。outliner を開く panel ごとに登録し、
+     * webview へ `outlinerCutConsumed` を送る（panel の dispose で外す）。
+     */
+    static onCutConsumed(fn: (plainText: string) => void): { dispose(): void } {
+        this.cutConsumedListeners.add(fn);
+        return { dispose: () => { this.cutConsumedListeners.delete(fn); } };
+    }
+
+    /**
      * ⚠️ 末尾の**無条件 `return this.data;`**（下記）を削除・厳格化する場合は、
      *    `src/shared/notes-message-handler.ts` の `resolveTrustedOutPath` / `trustedSrcOutDir` が
      *    `peek()` を使っていることを確認すること（かつては `get()` にファイルパスを渡していた）。

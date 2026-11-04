@@ -50,6 +50,7 @@ async function setup(page: Page, opts?: { showFolderView?: boolean }): Promise<v
         w.__dndCalls = [];
         ['folderViewList', 'folderViewSearch', 'folderViewOpen', 'folderViewMove',
          'folderViewMoveIn', 'folderViewMoveToTree', 'folderViewMoveIntoMd', 'folderViewMoveFromMd',
+         'folderViewMoveIntoMdBatch',   // W7
          'sendOutNodesToFolderLinkFromDrop',   // 2026-09-05 R25
          'notifyError'].forEach((k) => {
             w.notesHostBridge[k] = (...args: any[]) => { w.__dndCalls.push({ type: k, args }); };
@@ -89,6 +90,18 @@ async function realDrag(page: Page, srcSel: string, dstSel: string, ratio = 0.5,
     if (assertMidDrag) { await assertMidDrag(page); }
     await page.mouse.up();
     await page.waitForTimeout(120);
+}
+
+/** 要素の位置が止まるまで待つ（開くときに動く panel の座標を、動いている途中で測らない） */
+async function waitStableBox(page: Page, sel: string): Promise<void> {
+    let prev = '';
+    for (let i = 0; i < 40; i++) {
+        const b = await page.locator(sel).boundingBox();
+        const cur = JSON.stringify(b);
+        if (b && cur === prev) { return; }
+        prev = cur;
+        await page.waitForTimeout(50);
+    }
 }
 
 /** フォルダビュー内に視覚残留（highlight・root 強調の 2 系統）が無いこと */
@@ -321,6 +334,89 @@ test.describe('TC-FLV-43 — W4 受信端: FV entry → md 本文（editor.js �
         await realDrag(page, '#testDragSrc', '.markdown-container .editor', 0.4);
         expect((await calls(page, 'folderViewMoveIntoMd')).length).toBe(0);
         expect((await calls(page, 'notifyError')).length).toBe(1);
+    });
+});
+
+/**
+ * W7: linkedfd の複数選択 → md 本文。旧実装は payload の最上位に relPath が無いと無音で return していた
+ *（掴んだ 1 件も行かない）。ファイルは配列 bridge を 1 回、フォルダは外して通知 1 回。
+ * main pane の md と sidepanel の md は同じ editor.js の drop handler を通る — 両方の面で確かめる。
+ */
+test.describe('W7 — linkedfd の複数選択 → md 本文（main / sidepanel）', () => {
+    const MULTI = {
+        v: 1, folderLinkId: 'fl1', excludedDirs: 0,
+        items: [
+            { folderLinkId: 'fl1', relPath: 'b.md', isDir: false },
+            { folderLinkId: 'fl1', relPath: 'dirA', isDir: true },
+            { folderLinkId: 'fl1', relPath: 'a.txt', isDir: false },
+        ],
+    };
+
+    test('TC-W7-01 main pane の md: ファイル 2 件 → folderViewMoveIntoMdBatch 1 回（選択順）+ フォルダは通知 1 回', async ({ page }) => {
+        await setup(page, { showFolderView: false });
+        await page.evaluate(() => {
+            (window as any).__testApi.mdDispatcher.loadMarkdown('# Target\n\ntext', '/x/target.md', '');
+        });
+        await page.waitForSelector('.markdown-container .editor', { timeout: 5000 });
+        await makeDragSource(page, FV_MIME, MULTI);
+        await resetCalls(page);
+        await realDrag(page, '#testDragSrc', '.markdown-container .editor', 0.4);
+        const b = await calls(page, 'folderViewMoveIntoMdBatch');
+        expect(b.length, '複数の linkedfd → md が無音で何もしない').toBe(1);
+        expect(b[0].args).toEqual(['fl1', ['b.md', 'a.txt'], '/x/target.md']);
+        expect((await calls(page, 'folderViewMoveIntoMd')).length, '単一版が N 回呼ばれている（件数ゲート迂回）').toBe(0);
+        expect((await calls(page, 'notifyError')).length, 'フォルダの不受理通知が 1 回でない').toBe(1);
+    });
+
+    test('TC-W7-02 sidepanel の md: fv の実選択（cmd+click）を real mouse で落とす → 同じ batch 1 回', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => {
+            (window as any).__hostMessageHandler({
+                type: 'openSidePanel', markdown: '# SP\n\nbody\n',
+                filePath: '/x/sp.md', fileName: 'sp.md', toc: [], documentBaseUri: '',
+            });
+        });
+        const spSel = '.side-panel .editor, .side-panel-iframe-container .editor';
+        await page.waitForSelector(spSel, { timeout: 5000 });
+        // sidepanel は開くときに横へ動く（transition）。止まる前に座標を測ると落とす先が画面の外になる
+        await waitStableBox(page, spSel);
+        // fv の行は横いっぱいに伸び、中央は開いた sidepanel（resize handle）の下になる。行の左側を押して掴む
+        const left = { x: 24, y: 10 };
+        await page.locator('.fv-row[data-rel="b.md"]').click({ position: left });
+        await page.locator('.fv-row[data-rel="a.txt"]').click({ modifiers: ['Meta'], position: left });
+        await page.locator('.fv-row[data-rel="dirA"]').click({ modifiers: ['Meta'], position: left });
+        await resetCalls(page);
+        const srcBox = await page.locator('.fv-row[data-rel="a.txt"]').boundingBox();
+        const dstBox = await page.locator(spSel).boundingBox();
+        if (!srcBox || !dstBox) { throw new Error('boundingBox 不可'); }
+        await page.mouse.move(srcBox.x + left.x, srcBox.y + left.y);
+        await page.mouse.down();
+        await page.mouse.move(srcBox.x + left.x + 12, srcBox.y + left.y + 4, { steps: 4 });
+        await page.mouse.move(dstBox.x + dstBox.width / 2, dstBox.y + dstBox.height * 0.4, { steps: 10 });
+        await page.mouse.move(dstBox.x + dstBox.width / 2, dstBox.y + dstBox.height * 0.4);
+        await page.mouse.up();
+        await page.waitForTimeout(120);
+        const b = await calls(page, 'folderViewMoveIntoMdBatch');
+        expect(b.length, `sidepanel への複数 drop が届かない: ${JSON.stringify(await calls(page))}`).toBe(1);
+        expect(b[0].args[0]).toBe('fl1');
+        expect([...b[0].args[1]].sort()).toEqual(['a.txt', 'b.md']);
+        expect(b[0].args[2]).toBe('/x/sp.md');
+        expect((await calls(page, 'folderViewMoveIntoMd')).length).toBe(0);
+        expect((await calls(page, 'notifyError')).length).toBe(1);
+    });
+
+    test('TC-W7-03 単一（旧形式）は従来の単一 bridge のまま', async ({ page }) => {
+        await setup(page, { showFolderView: false });
+        await page.evaluate(() => {
+            (window as any).__testApi.mdDispatcher.loadMarkdown('# Target\n\ntext', '/x/target.md', '');
+        });
+        await page.waitForSelector('.markdown-container .editor', { timeout: 5000 });
+        // 複数 payload でもファイルが 1 件だけなら単一 bridge
+        await makeDragSource(page, FV_MIME, { v: 1, folderLinkId: 'fl1', items: [{ folderLinkId: 'fl1', relPath: 'a.txt', isDir: false }] });
+        await resetCalls(page);
+        await realDrag(page, '#testDragSrc', '.markdown-container .editor', 0.4);
+        expect((await calls(page, 'folderViewMoveIntoMd')).map((c: any) => c.args)).toEqual([['fl1', 'a.txt', '/x/target.md']]);
+        expect((await calls(page, 'folderViewMoveIntoMdBatch')).length).toBe(0);
     });
 });
 

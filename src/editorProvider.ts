@@ -1472,6 +1472,11 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                         getClipboard: (pt: string) => OutlinerClipboardStore.get(pt),
                         destFilesDir: flatLayout.resolveFilesDirForMd(targetMd),
                         destImagesDir: flatLayout.resolveImagesDirForMd(targetMd),
+                        // W9: standalone では「.out と貼り付け先 md が同じフォルダ」を同じ note とみなして移動、それ以外は複製
+                        isCut: !!message.isCut,
+                        canMove: (store: { sourceOutDir: string }) =>
+                            path.resolve(store.sourceOutDir) === path.resolve(path.dirname(targetMd)),
+                        onCutConsumed: () => OutlinerClipboardStore.markCutConsumed(),
                     });
                     webviewPanel.webview.postMessage({
                         type: 'pasteWithAssetCopyResult',

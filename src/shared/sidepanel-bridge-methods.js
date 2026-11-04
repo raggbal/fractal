@@ -201,12 +201,14 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         // outliner node リスト paste の添付複製 (sprint 20260727-124904 / ADRL-0001)。
         // nodes は検知用。真実 (ソース dir 込み) は host の OutlinerClipboardStore が
         // plainText キーで持つ (NFR-NP-03)。結果は pasteWithAssetCopyResult で返る。
-        pasteOutlinerNodesWithAssets: function(plainText, nodes, sidePanelFilePath) {
+        // W9: isCut = outliner の cut 由来か（host が Store の isCut と突き合わせて移動 / 複製を決める）
+        pasteOutlinerNodesWithAssets: function(plainText, nodes, sidePanelFilePath, isCut) {
             postFn({
                 type: 'pasteOutlinerNodesWithAssets',
                 plainText: plainText,
                 nodes: nodes,
                 sidePanelFilePath: sidePanelFilePath,
+                isCut: !!isCut,
                 // FR-PDB-01 (sprint 20260818-183407): 結果 (pasteWithAssetCopyResult) の宛先札。
                 // 無しだと md ペイン無条件処理 + outliner→sidepanel 転送の両方が挿入する二重貼付
                 // (下の pasteWithAssetCopy と同型・host は echo back するだけ)。

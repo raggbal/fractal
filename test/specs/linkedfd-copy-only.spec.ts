@@ -604,6 +604,217 @@ test.describe('AC-3 内側の移動は移動のまま', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════
+// W7: linkedfd の複数選択 → md（folderViewMoveIntoMdBatch）— 移動か複製かは 1 件ずつ host が決める
+// ═════════════════════════════════════════════════════════════════════
+
+test.describe('W7 linkedfd の複数 → md（folderViewMoveIntoMdBatch）', () => {
+    function batchDeps(base: any, over?: any) {
+        const seen: { confirm: number[]; outcome: any[] } = { confirm: [], outcome: [] };
+        const d = Object.assign({}, base, {
+            confirmLarge: (n: number) => { seen.confirm.push(n); return over && over.confirm === false ? false : true; },
+            notifyLimitExceeded: () => { /* noop */ },
+            notifyOutcome: (o: any) => { seen.outcome.push(o); },
+        });
+        return { d, seen };
+    }
+
+    test('W7 note の md 宛て: 全件複製（linkedfd の元は残る）・挿入指示は選択順に 1 件ずつ', async () => {
+        const e = setup();
+        const { deps, calls } = makeDeps();
+        const { d, seen } = batchDeps(deps);
+        const { sender, messages } = makeSender();
+        try {
+            const snap = snapshot(linkedfdSources(e));
+            const target = noteMd(e, 'target.md', '# Target\n');
+            const r = await e.mh.folderViewMoveIntoMdBatch(e.m, e.id, ['r.pdf', 'main.md', 'photo.png'], target, d, sender);
+            expect(r.outcome.succeeded).toBe(3);
+            expectIntact(snap, 'fv 複数 → note md');
+            expect(calls.trash, 'trash が呼ばれた').toEqual([]);
+            const ins = messages.filter((x) => /^insert/.test(x.type)).map((x) => x.type);
+            expect(ins, '挿入指示が選択順でない').toEqual(['insertFileLink', 'insertSubpageLink', 'insertImageHtml']);
+            // 通知抑止: fv の一覧再送はループ後に 1 回（root の親 1 つ）
+            expect(messages.filter((x) => x.type === 'folderViewListResult').length).toBe(1);
+            expect(seen.outcome, '全件成功なのに集計通知が出た').toEqual([]);
+        } finally { e.cleanup(); }
+    });
+
+    test('W7 handleNotesMessage 経由で move の字面が来ても、境界をまたぐなら元を消さない（D2）', async () => {
+        const e = setup();
+        const { deps, calls } = makeDeps();
+        const { d } = batchDeps(deps);
+        const { sender } = makeSender();
+        try {
+            const snap = snapshot(linkedfdSources(e));
+            const target = noteMd(e, 'target.md', '# Target\n');
+            const platform: any = {
+                folderViewMoveIntoMdBatch: (id: string, rels: string[], t: string, s: any) => e.mh.folderViewMoveIntoMdBatch(e.m, id, rels, t, d, s),
+            };
+            await e.mh.handleNotesMessage({ type: 'folderViewMoveIntoMdBatch', id: e.id, relPaths: ['main.md', 'r.pdf'], targetMdPath: target, mode: 'move', dropEffect: 'move' }, e.m, sender, platform);
+            expectIntact(snap, 'handleNotesMessage 経由の batch');
+            expect(calls.trash).toEqual([]);
+            expect(fs.existsSync(path.join(e.noteDir, 'files', 'r.pdf')), 'note 側に複製が無い（batch が届いていない）').toBe(true);
+        } finally { e.cleanup(); }
+    });
+
+    test('W7 AC-3 同じ linkedfd の中の md 宛て: 移動のまま（元は消える）', async () => {
+        const e = setup();
+        const { deps } = makeDeps();
+        const { d } = batchDeps(deps);
+        const { sender } = makeSender();
+        try {
+            const target = path.join(e.root, 'sub', 't.md');
+            fs.writeFileSync(target, '# T\n', 'utf8');
+            const r = await e.mh.folderViewMoveIntoMdBatch(e.m, e.id, ['r.pdf', 'photo.png'], target, d, sender);
+            expect(r.outcome.succeeded).toBe(2);
+            expect(fs.existsSync(path.join(e.root, 'r.pdf')), 'linkedfd 内の移動が複製になった').toBe(false);
+            expect(fs.existsSync(path.join(e.root, 'photo.png')), 'linkedfd 内の移動が複製になった').toBe(false);
+            expect(fs.existsSync(path.join(e.root, 'sub', 'files', 'r.pdf'))).toBe(true);
+        } finally { e.cleanup(); }
+    });
+
+    test('W7 動かせない項目（自分自身・不在）は飛ばして残りを動かし、集計通知は 1 回', async () => {
+        const e = setup();
+        const { deps, calls } = makeDeps();
+        const { d, seen } = batchDeps(deps);
+        const { sender } = makeSender();
+        try {
+            const target = path.join(e.root, 'main.md');   // 自分自身 = no-op
+            const r = await e.mh.folderViewMoveIntoMdBatch(e.m, e.id, ['main.md', 'nope.pdf', 'r.pdf'], target, d, sender);
+            expect(r.outcome.succeeded).toBe(1);
+            expect(r.outcome.skipped).toBe(2);
+            expect(seen.outcome.length, '集計通知が 1 回でない').toBe(1);
+            expect(calls.errors, 'per-item のエラー通知が出た（集計 1 回に寄せる）').toEqual([]);
+            expect(fs.existsSync(path.join(e.root, 'files', 'r.pdf'))).toBe(true);
+        } finally { e.cleanup(); }
+    });
+
+    test('W7 件数ゲート: 201 件で確認が 1 回出て、断ると 1 件も動かない（tree の md 行も同じ batch を通る）', async () => {
+        const e = setup();
+        const { deps } = makeDeps();
+        const { d, seen } = batchDeps(deps, { confirm: false });
+        const { sender, messages } = makeSender();
+        try {
+            const rels = Array.from({ length: 201 }, (_, i) => (i === 0 ? 'r.pdf' : `x${i}.pdf`));
+            const mdId = e.m.registerMarkdownFile('# Item\n', 'Item', null, 0);
+            const target = e.m.getMdFilePath(mdId);
+            const before = fs.readFileSync(target, 'utf8');
+            const r = await e.mh.folderViewMoveIntoMdBatch(e.m, e.id, rels, target, d, sender, { writeToDisk: true });
+            expect(seen.confirm).toEqual([201]);
+            expect(r.verdict).not.toBe('ok');
+            expect(fs.readFileSync(target, 'utf8'), '断ったのに md に追記された').toBe(before);
+            expect(messages.filter((x) => /^insert/.test(x.type))).toEqual([]);
+        } finally { e.cleanup(); }
+    });
+
+    test('W7 provider: tree の md 行（folderViewMoveIntoMdItem）も md 本文（folderViewMoveIntoMdBatch）も batch を通す（source pin）', () => {
+        const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'notesEditorProvider.ts'), 'utf8');
+        for (const name of ['folderViewMoveIntoMdItem', 'folderViewMoveIntoMdBatch']) {
+            const at = src.indexOf(name + ': async (');
+            expect(at, `${name} が provider に無い`).toBeGreaterThan(-1);
+            const win = src.slice(at, at + 900);
+            const end = win.indexOf('\n            },');
+            const body = end > 0 ? win.slice(0, end) : win;
+            expect(body.includes('folderViewMoveIntoMdBatch(fileManager'), `${name} が batch を通っていない（件数ゲートが無い）`).toBe(true);
+            expect(/for\s*\(/.test(body), `${name} が for で単一経路を回している（ゲート迂回）`).toBe(false);
+        }
+    });
+
+    test('W7 複数の md（subpage）を md 本文へ: 挿入指示に asBlock が付く（1 行 1 リンク）/ 1 件は従来どおり inline', async () => {
+        const e = setup();
+        const { deps } = makeDeps();
+        const { d } = batchDeps(deps);
+        const { sender, messages } = makeSender();
+        try {
+            const target = noteMd(e, 'target.md', '# Target\n');
+            const r = await e.mh.folderViewMoveIntoMdBatch(e.m, e.id, ['main.md', 'subp.md', 'r.pdf'], target, d, sender);
+            expect(r.outcome.succeeded).toBe(3);
+            const subs = messages.filter((x) => x.type === 'insertSubpageLink');
+            expect(subs.length).toBe(2);
+            expect(subs.map((x) => x.asBlock), '複数の subpage が caret の位置へ inline に連結される（1 行に 2 リンク）').toEqual([true, true]);
+            messages.length = 0;
+            await e.mh.folderViewMoveIntoMdBatch(e.m, e.id, ['subp.md'], target, d, sender);
+            const one = messages.filter((x) => x.type === 'insertSubpageLink');
+            expect(one.length).toBe(1);
+            expect(one[0].asBlock, '1 件なのに block にした（単一の挙動が変わった）').toBeFalsy();
+        } finally { e.cleanup(); }
+    });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// W13: tree の md → main pane の md（linkMdAsSubpageForNotesMdCore）も sidepanel 宛てと同じ境界判定
+// ═════════════════════════════════════════════════════════════════════
+
+test.describe('W13 tree の md → main pane の md（linkMdAsSubpageForNotesMdCore）', () => {
+    /** note の中に linkedfd を置き（main pane が note の中として扱う配置）、tree に md 項目を 1 つ持たせる。 */
+    function setupNested() {
+        const { NotesFileManager } = requireWithVscodeStub('../../src/shared/notes-file-manager');
+        const nep = requireWithVscodeStub('../../src/notesEditorProvider');
+        const noteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lcopy-w13-'));
+        const linked = path.join(noteDir, 'linked');
+        fs.mkdirSync(linked, { recursive: true });
+        fs.writeFileSync(path.join(linked, 'lfd.md'), '# Lfd\n', 'utf8');
+        fs.writeFileSync(path.join(noteDir, 'host.md'), '# Host\n', 'utf8');
+        const m = new NotesFileManager(noteDir);
+        m.loadStructure();
+        m.registerFolderLink(linked);
+        const mdId = m.registerMarkdownFile('# Item\n', 'Item', null, 0);
+        const itemPath = m.getMdFilePath(mdId);
+        const cleanup = () => { try { fs.rmSync(noteDir, { recursive: true, force: true }); } catch { /* ignore */ } };
+        return { nep, m, noteDir, linked, mdId, itemPath, cleanup };
+    }
+
+    test('W13 linkedfd の md を main pane で開いているとき: tree の md 項目と実体は残る（複製）', () => {
+        const e = setupNested();
+        const { sender, messages } = makeSender();
+        try {
+            e.m.openFile(path.join(e.linked, 'lfd.md'));
+            const before = sha(e.itemPath);
+            e.nep.linkMdAsSubpageForNotesMdCore(e.m, sender, e.itemPath, e.mdId);
+            const ins = messages.find((x) => x.type === 'insertSubpageLink');
+            expect(ins, 'リンク挿入指示が無い').toBeTruthy();
+            expect(e.m.getStructure().items[e.mdId], 'linkedfd の md へ送ったのに tree の項目が外れた（移動になっている）').toBeTruthy();
+            expect(fs.existsSync(e.itemPath) && sha(e.itemPath)).toBe(before);
+            // 複製 = linkedfd の中に md の実体ができ、リンクはそれを指す（Fractal の md を指して共有しない）
+            expect(String(ins.markdownPath), 'linkedfd の md が Fractal の md を相対リンクで指した（実体の共有 = 複製になっていない）').not.toMatch(/\.\./);
+            const copied = path.resolve(e.linked, decodeURIComponent(String(ins.markdownPath)));
+            expect(copied.startsWith(e.linked + path.sep), 'リンク先が linkedfd の外').toBe(true);
+            expect(fs.existsSync(copied), 'linkedfd の中に複製が無い').toBe(true);
+        } finally { e.cleanup(); }
+    });
+
+    test('W13 sidepanel 宛て（linkMdAsSubpageForSidePanelCore）: note の中の linkedfd の md へも複製（相対リンクで共有しない）', () => {
+        const e = setupNested();
+        const { sender, messages } = makeSender();
+        try {
+            const mh = requireWithVscodeStub('../../src/shared/notes-message-handler');
+            const lfd = path.join(e.linked, 'lfd.md');
+            expect(mh.linkMdAsSubpageForSidePanelCore(e.m, sender, e.itemPath, e.mdId, lfd)).toBe(true);
+            const ins = messages.find((x) => x.type === 'insertSubpageLink');
+            expect(ins).toBeTruthy();
+            expect(String(ins.markdownPath), 'linkedfd の md が Fractal の md を相対リンクで指した').not.toMatch(/\.\./);
+            expect(fs.existsSync(path.resolve(e.linked, decodeURIComponent(String(ins.markdownPath)))), 'linkedfd の中に複製が無い').toBe(true);
+            expect(e.m.getStructure().items[e.mdId], '境界をまたいだのに tree の項目が外れた').toBeTruthy();
+            // note の md 宛ては従来どおりリンク + 移動
+            messages.length = 0;
+            expect(mh.linkMdAsSubpageForSidePanelCore(e.m, sender, e.itemPath, e.mdId, path.join(e.noteDir, 'host.md'))).toBe(true);
+            expect(messages.find((x) => x.type === 'insertSubpageLink').markdownPath).toBe(path.basename(e.itemPath));
+            expect(e.m.getStructure().items[e.mdId], 'Fractal 内で tree の項目が残った').toBeFalsy();
+        } finally { e.cleanup(); }
+    });
+
+    test('W13 AC-3 note の md を main pane で開いているとき: tree の md 項目は外れる（移動のまま）', () => {
+        const e = setupNested();
+        const { sender, messages } = makeSender();
+        try {
+            e.m.openFile(path.join(e.noteDir, 'host.md'));
+            e.nep.linkMdAsSubpageForNotesMdCore(e.m, sender, e.itemPath, e.mdId);
+            expect(messages.find((x) => x.type === 'insertSubpageLink')).toBeTruthy();
+            expect(e.m.getStructure().items[e.mdId], 'Fractal 内で tree の項目が残った（過剰適用）').toBeFalsy();
+        } finally { e.cleanup(); }
+    });
+});
+
+// ═════════════════════════════════════════════════════════════════════
 // webview（D3）: fv への drag のカーソルは fv 内の entry 以外 copy
 // ═════════════════════════════════════════════════════════════════════
 

@@ -246,7 +246,8 @@ test.describe('editor.js 検知 (E2E)', () => {
         const idx = src.indexOf('window.notesMarkdownHostBridge = Object.assign');
         expect(idx).toBeGreaterThan(-1);
         const block = src.slice(idx, src.indexOf('window.notesHostBridge =', idx));
-        expect(block).toContain('pasteOutlinerNodesWithAssets: function(plainText, nodes)');
+        // W9: 第 4 引数 isCut（outliner の cut を host へ伝える）が足された。第 3 引数（宛先）は自分で畳むので使わない
+        expect(block).toContain('pasteOutlinerNodesWithAssets: function(plainText, nodes, _sidePanelFilePath, isCut)');
         expect(block).toContain("sidePanelFilePath: window.notesMarkdownHostBridge.filePath || ''");
         // message-handler 側: sidePanelFilePath 空でも silent no-op にならず fallback を返す
         // eslint-disable-next-line @typescript-eslint/no-var-requires

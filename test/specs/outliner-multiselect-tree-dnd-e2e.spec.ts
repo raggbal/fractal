@@ -47,8 +47,12 @@ const TREE_NO_ASSETS = {
 };
 
 const STRUCTURE = {
-    version: 1, rootIds: ['o1', 'o2', 'm1', 'm2', 'fl1', 'f1'],
+    version: 1, rootIds: ['o1', 'o2', 'm1', 'm2', 'fl1', 'f1', 'dir1', 'dir2'],
     items: {
+        // W5: 仮想フォルダ（dir1 = 閉じて子 1 件 / dir2 = 開いて空 = 子の隙間に落とせる）
+        dir1: { type: 'folder', id: 'dir1', title: 'folder1', childIds: ['f2'], collapsed: true },
+        dir2: { type: 'folder', id: 'dir2', title: 'folder2', childIds: [], collapsed: false },
+        f2: { type: 'file', id: 'f2', title: 'file2', ext: 'file', filename: 'b.pdf' },
         o1: { type: 'file', id: 'o1', title: 'out1', ext: 'out', filePath: '/n/o1.out' },
         o2: { type: 'file', id: 'o2', title: 'out2', ext: 'out', filePath: '/n/o2.out' },
         m1: { type: 'file', id: 'm1', title: 'md1', ext: 'md', filePath: '/n/m1.md' },
@@ -64,6 +68,7 @@ const FILES = [
     { filePath: '/n/m2.md', title: 'md2', id: 'm2', kind: 'md' },
     { filePath: '', title: 'Docs', id: 'fl1', kind: 'folder', broken: false },
     { filePath: '', title: 'file1', id: 'f1', kind: 'file' },
+    { filePath: '', title: 'file2', id: 'f2', kind: 'file' },
 ];
 
 /**
@@ -192,4 +197,47 @@ test('TC-MSD-06 添付持ち node を掴んだ場合も同じ 4 面が動く（�
     expect(types(await dropRaw(page, bare, '[data-item-id="m2"]', 0.1)), '偽の moveItem を送らない').toEqual([]);
     // subtree だけの drag でも .out item への move は従来どおり効く
     expect(types(await dropRaw(page, bare, '[data-item-id="o2"]', 0.5))).toEqual(['notesMoveOutNodeSubtreeIntoOut']);
+});
+
+/**
+ * W5: 仮想フォルダ行の「フォルダの中」帯（0.25-0.60）は、linkedfd のエントリだけでなく**全ての外部 payload**で効く。
+ * 以前は outliner の添付 / file アイコンも md のリンクもフォルダの**兄弟**に入っていた。
+ * フォルダの子の隙間（開いた空フォルダ）には file アイコンを落とせなかった（dragover が preventDefault しない）。
+ */
+const FOLDER_HEADER = (id: string) => `.file-panel-folder[data-item-id="${id}"] > .file-panel-folder-header`;
+
+test('TC-W5-01 outliner の複数選択（添付 payload）を閉じたフォルダ行の中央帯へ → フォルダの中の末尾', async ({ page }) => {
+    const raw = await capturePayload(page, 'n1');
+    await openTree(page);
+    const m = await dropRaw(page, raw, FOLDER_HEADER('dir1'), 0.45);
+    expect(types(m)).toEqual(['notesRegisterNodeAssets']);
+    expect(m[0].parentId, 'フォルダの兄弟に入った（中央帯の分岐が無い）').toBe('dir1');
+    expect(m[0].index, 'フォルダ内の末尾（子 1 件の後ろ）').toBe(1);
+    // 上帯は従来どおり兄弟（root の dir1 の前）
+    const up = await dropRaw(page, raw, FOLDER_HEADER('dir1'), 0.1);
+    expect(up[0].parentId).toBeNull();
+    expect(up[0].index).toBe(STRUCTURE.rootIds.indexOf('dir1'));
+});
+
+test('TC-W5-02 outliner の file アイコン（out-node-file）→ フォルダ行の中央帯 / 開いた空フォルダの子の隙間 = フォルダの中', async ({ page }) => {
+    await openTree(page);
+    const raw = { 'application/x-fractal-out-node-file': JSON.stringify({ outFileKey: OUT_KEY, nodeId: 'n3' }) };
+    const m = await dropRaw(page, raw, FOLDER_HEADER('dir1'), 0.45);
+    expect(types(m)).toEqual(['notesRegisterFileFromOutNode']);
+    expect(m[0].parentId).toBe('dir1');
+    expect(m[0].index).toBe(1);
+    // 子の隙間（以前は dragover が preventDefault せず drop が発火しなかった）
+    const gapPrevented = await page.evaluate(() => {
+        const ch = document.querySelector('.file-panel-folder[data-item-id="dir2"] > .file-panel-folder-children') as HTMLElement;
+        const dt = new DataTransfer();
+        dt.setData('application/x-fractal-out-node-file', JSON.stringify({ outFileKey: '/n/o1.out', nodeId: 'n3' }));
+        const ev = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt });
+        ch.dispatchEvent(ev);
+        return ev.defaultPrevented;
+    });
+    expect(gapPrevented, '子の隙間が file アイコンの drag を受けない').toBe(true);
+    const g = await dropRaw(page, raw, '.file-panel-folder[data-item-id="dir2"] > .file-panel-folder-children', 0.5);
+    expect(types(g)).toEqual(['notesRegisterFileFromOutNode']);
+    expect(g[0].parentId).toBe('dir2');
+    expect(g[0].index).toBe(0);
 });

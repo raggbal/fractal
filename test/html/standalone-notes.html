@@ -8671,12 +8671,14 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         // outliner node リスト paste の添付複製 (sprint 20260727-124904 / ADRL-0001)。
         // nodes は検知用。真実 (ソース dir 込み) は host の OutlinerClipboardStore が
         // plainText キーで持つ (NFR-NP-03)。結果は pasteWithAssetCopyResult で返る。
-        pasteOutlinerNodesWithAssets: function(plainText, nodes, sidePanelFilePath) {
+        // W9: isCut = outliner の cut 由来か（host が Store の isCut と突き合わせて移動 / 複製を決める）
+        pasteOutlinerNodesWithAssets: function(plainText, nodes, sidePanelFilePath, isCut) {
             postFn({
                 type: 'pasteOutlinerNodesWithAssets',
                 plainText: plainText,
                 nodes: nodes,
                 sidePanelFilePath: sidePanelFilePath,
+                isCut: !!isCut,
                 // FR-PDB-01 (sprint 20260818-183407): 結果 (pasteWithAssetCopyResult) の宛先札。
                 // 無しだと md ペイン無条件処理 + outliner→sidepanel 転送の両方が挿入する二重貼付
                 // (下の pasteWithAssetCopy と同型・host は echo back するだけ)。
@@ -8806,6 +8808,23 @@ window.__createSidePanelBridgeMethods = function(postFn) {
 
     // outliner.js 用ブリッジ
     window.outlinerHostBridge = Object.assign(shared, {
+        // W3: md リンクの複数ドラッグ → md editor（本番 notes-host-bridge.js の両ブロックのミラー。
+        // notesMarkdownHostBridge はこのブリッジを Object.assign で引き継ぐ）
+        attachMdLinksToMdBatch: function(payload, sidePanelFilePath) {
+            window.__testApi.notesMessages.push({ type: 'attachMdLinksToMdBatch', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        // FR-TF-19 / W8: outliner の page / file アイコンの単一 drag → md editor（本番 notes-host-bridge.js のミラー。
+        // 複数選択との経路の分かれ目をテストで観測するため）
+        attachOutNodeFileToMd: function(payload, sidePanelFilePath) {
+            window.__testApi.notesMessages.push({ type: 'attachOutNodeFileToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        importOutPageNodeToMd: function(payload, sidePanelFilePath) {
+            window.__testApi.notesMessages.push({ type: 'importOutPageNodeToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        // W8: outliner の複数選択 / bullet → md editor（本番 notes-host-bridge.js の両ブロックのミラー）
+        attachOutNodeAssetsToMd: function(payload, sidePanelFilePath) {
+            window.__testApi.notesMessages.push({ type: 'attachOutNodeAssetsToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
         // TASK-17: ツリー md → sidepanel md D&D（SidePanelHostBridge の _mainHost = このブリッジ）
         linkMdAsSubpageForSidePanel: function(filePath, mdFileId, sidePanelFilePath) {
             window.__testApi.notesMessages.push({ type: 'linkMdAsSubpage', filePath: filePath, mdFileId: mdFileId, sidePanelFilePath: sidePanelFilePath });
@@ -9079,6 +9098,25 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         folderViewMoveIntoMdItem: function(folderLinkId, relPaths, targetMdId) {
             window.__testApi.notesMessages.push({ type: 'folderViewMoveIntoMdItem', folderLinkId: folderLinkId, relPaths: relPaths, targetMdId: targetMdId });
         },
+        // W7: linkedfd の複数選択 → md 本文（本番 notes-host-bridge.js のミラー）
+        folderViewMoveIntoMdBatch: function(id, relPaths, targetMdPath, mode) {
+            var msg = { type: 'folderViewMoveIntoMdBatch', id: id, relPaths: relPaths, targetMdPath: targetMdPath };
+            if (mode === 'copy') { msg.mode = 'copy'; }
+            window.__testApi.notesMessages.push(msg);
+        },
+        // W10/W11/W12: clipboard の貼り付け（本番 notes-host-bridge.js のミラー）
+        pasteTreeClip: function(clip, target) {
+            window.__testApi.notesMessages.push({ type: 'pasteTreeClip', clip: clip, target: target });
+        },
+        pasteMdClip: function(mdText, sourceContext, isCut, target) {
+            window.__testApi.notesMessages.push({ type: 'pasteMdClip', mdText: mdText, sourceContext: sourceContext, isCut: !!isCut, target: target });
+        },
+        pasteOutlinerClipToTree: function(plainText, isCut, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'pasteOutlinerClipToTree', plainText: plainText, isCut: !!isCut, parentId: parentId || null, index: index || 0 });
+        },
+        folderViewCopyAcrossLinks: function(srcLinkId, relPaths, dstLinkId, dstDirRelPath) {
+            window.__testApi.notesMessages.push({ type: 'folderViewCopyAcrossLinks', srcLinkId: srcLinkId, relPaths: relPaths, dstLinkId: dstLinkId, dstDirRelPath: dstDirRelPath || '' });
+        },
         sendOutNodesToFolderLinkFromDrop: function(payload, folderLinkId, dstDirRelPath) {
             window.__testApi.notesMessages.push({ type: 'sendOutNodesToFolderLinkFromDrop', payload: payload, folderLinkId: folderLinkId, dstDirRelPath: dstDirRelPath });
         },
@@ -9119,6 +9157,22 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
         notesLinkMdLinkIntoMdItem: function(payload, kind, targetMdId) {
             window.__testApi.notesMessages.push({ type: 'notesLinkMdLinkIntoMdItem', payload: payload, kind: kind, targetMdId: targetMdId });
+        },
+        // W3: md リンクの複数ドラッグ（本番 notes-host-bridge.js のミラー。どれも配列 1 回）
+        importMdLinksIntoOutBatch: function(payload, outFileId, targetNodeId, position) {
+            window.__testApi.notesMessages.push({ type: 'importMdLinksIntoOutBatch', payload: payload, outFileId: outFileId, targetNodeId: targetNodeId || null, position: position || null });
+        },
+        notesRegisterFromMdLinksBatch: function(payload, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'notesRegisterFromMdLinksBatch', payload: payload, parentId: parentId, index: index });
+        },
+        linkMdLinksIntoMdItemBatch: function(payload, targetMdId) {
+            window.__testApi.notesMessages.push({ type: 'linkMdLinksIntoMdItemBatch', payload: payload, targetMdId: targetMdId });
+        },
+        importMdLinksIntoOutItemBatch: function(payload, targetOutId) {
+            window.__testApi.notesMessages.push({ type: 'importMdLinksIntoOutItemBatch', payload: payload, targetOutId: targetOutId });
+        },
+        folderViewMoveFromMdBatch: function(id, dstDirRelPath, payload) {
+            window.__testApi.notesMessages.push({ type: 'folderViewMoveFromMdBatch', id: id, dstDirRelPath: dstDirRelPath || '', payload: payload });
         },
         openDailyNotes: function() {
             window.__testApi.notesMessages.push({ type: 'openDailyNotes' });
@@ -10115,9 +10169,10 @@ if (typeof window !== 'undefined') {
      * @param {object[]} mdItems     tree-md payload の items（`{ id, filePath?, seq? }`）
      * @param {object[]} fileItems   tree-file payload の items（`{ id, seq? }`）
      * @param {object[]} [folderItems] tree-folder payload の items（`{ id, seq? }`。FR-FDP-01 / TASK-03 で追加）
-     * @returns {{kind:'md'|'file'|'folder', id:string, filePath:string|null}[]} seq 昇順（同値は md → file → folder → 配列順）
+     * @param {object[]} [outItems] `.out` の items（`{ id, filePath?, seq? }`。W10: ツリーの clipboard だけが使う。D&D は載せない）
+     * @returns {{kind:'md'|'file'|'folder'|'out', id:string, filePath:string|null}[]} seq 昇順（同値は md → file → folder → out → 配列順）
      */
-    function mergeTreeItemsBySeq(mdItems, fileItems, folderItems) {
+    function mergeTreeItemsBySeq(mdItems, fileItems, folderItems, outItems) {
         var buf = [];
         var push = function (list, kind) {
             for (var i = 0; i < (list || []).length; i++) {
@@ -10133,16 +10188,82 @@ if (typeof window !== 'undefined') {
         push(mdItems, 'md');
         push(fileItems, 'file');
         push(folderItems, 'folder');   // FR-FDP-01（TASK-03）: 3 種目。未指定なら push が空扱いで従来と同一
+        push(outItems, 'out');         // W10: 4 種目（ツリーの clipboard 専用）。未指定なら従来と同一
         buf.sort(function (a, b) { return a.seq !== b.seq ? a.seq - b.seq : a.ord - b.ord; });
         var out = [];
         for (var j = 0; j < buf.length; j++) { out.push({ kind: buf[j].kind, id: buf[j].id, filePath: buf[j].filePath }); }
         return out;
     }
 
+    /**
+     * W10/W11: clipboard の payload は `text/html` の先頭タグの data 属性に encodeURIComponent(JSON) で埋める
+     * （OS clipboard に custom MIME を載せられないため。outliner の `data-outliner-clipboard` と同じ方式）。
+     * 受け手 4 面（md / outliner / ツリー / linkedfd）が同じ読み方をするための共有ヘルパ。
+     *
+     * @param {string} html  clipboard の text/html
+     * @param {string} attr  属性名（`data-fractal-tree-clip` 等）
+     * @returns {object|null} 壊れていれば null（受け手は「payload 無し」として扱う）
+     */
+    function readHtmlClipMeta(html, attr) {
+        if (!html || !attr || html.indexOf(attr + '=') === -1) { return null; }
+        var m = html.match(new RegExp(attr + '="([^"]*)"'));
+        if (!m) { return null; }
+        try { return JSON.parse(decodeURIComponent(m[1])); } catch (e) { return null; }
+    }
+
+    /** readHtmlClipMeta の対。`<div attr="…">行<br>行</div>`（行は外部アプリ向けの表示用に escape して並べる） */
+    function buildHtmlClip(attr, meta, lines) {
+        var esc = function (s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        };
+        return '<div ' + attr + '="' + encodeURIComponent(JSON.stringify(meta)) + '">'
+            + (lines || []).map(esc).join('<br>') + '</div>';
+    }
+
+    /**
+     * W1/W4: md の範囲選択ドラッグ（📎 = x-fractal-md-filelink / subpage = x-fractal-md-subpage）を
+     * **選択順の 1 本の配列**に戻す（mergeTreeItemsBySeq の md リンク版）。
+     *
+     * 送り手（editor.js の dragstart）は種類ごとの MIME に `{ v:1, sourceMdPath, items:[{href,title?,seq}] }` を積む。
+     * 受け手が MIME ごとに別々の batch を送ると件数ゲートが種類ごとに割れ、並びも種類順になるので、
+     * `seq`（選択の中の文書順）で結合して **受け手 1 つにつき bridge 1 回**の材料にする。
+     * 単一（旧形式 `{ href, sourceMdPath }`）は 1 件として読む（extractBatchItems と同じ後方互換）。
+     *
+     * @param {object|null} filePayload    x-fractal-md-filelink の payload
+     * @param {object|null} subpagePayload x-fractal-md-subpage の payload
+     * @returns {{sourceMdPath:string, items:{kind:'file'|'subpage', href:string, title?:string}[]}}
+     *          items は seq 昇順（同値は file → subpage → 配列順）。href の無い item は落とす
+     */
+    function mergeMdLinksBySeq(filePayload, subpagePayload) {
+        var buf = [];
+        var push = function (payload, kind) {
+            var list = extractBatchItems(payload);
+            for (var i = 0; i < list.length; i++) {
+                var it = list[i];
+                if (!it || !it.href) { continue; }
+                var o = { kind: kind, href: String(it.href) };
+                if (typeof it.title === 'string') { o.title = it.title; }
+                buf.push({ item: o, seq: (typeof it.seq === 'number') ? it.seq : Number.MAX_SAFE_INTEGER, ord: buf.length });
+            }
+        };
+        push(filePayload, 'file');
+        push(subpagePayload, 'subpage');
+        buf.sort(function (a, b) { return a.seq !== b.seq ? a.seq - b.seq : a.ord - b.ord; });
+        var out = [];
+        for (var j = 0; j < buf.length; j++) { out.push(buf[j].item); }
+        var src = (filePayload && filePayload.sourceMdPath) || (subpagePayload && subpagePayload.sourceMdPath) || '';
+        return { sourceMdPath: String(src), items: out };
+    }
+
     window.__batchPayload = {
         extractBatchItems: extractBatchItems,
         extractBatchIds: extractBatchIds,
         mergeTreeItemsBySeq: mergeTreeItemsBySeq,
+        mergeMdLinksBySeq: mergeMdLinksBySeq,
+        readHtmlClipMeta: readHtmlClipMeta,
+        buildHtmlClip: buildHtmlClip,
+        /** W10: ツリーの clipboard の属性名（送り手 = notes-file-panel.js / 受け手 = 4 面） */
+        TREE_CLIP_ATTR: 'data-fractal-tree-clip',
     };
 })();
 
@@ -11099,6 +11220,20 @@ class SidePanelHostBridge {
             this._mainHost.linkMdSubpageToMd(payload, this.filePath);
         }
     }
+    // W8: outliner の複数選択 / bullet → sidepanel md（配列 1 回。宛先 = this.filePath）
+    attachOutNodeAssetsToMd(payload) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.attachOutNodeAssetsToMd === 'function') {
+            this._mainHost.attachOutNodeAssetsToMd(payload, this.filePath);
+        }
+    }
+    // W3/W4: md リンクの複数ドラッグ → sidepanel md（配列 1 回。宛先 = this.filePath）
+    attachMdLinksToMdBatch(payload) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.attachMdLinksToMdBatch === 'function') {
+            this._mainHost.attachMdLinksToMdBatch(payload, this.filePath);
+        }
+    }
     // MD-45/46/47: drawio
     saveDrawioAndInsert(dataUrl, fileName) {
         if (this._onImageRequest) this._onImageRequest();
@@ -11158,9 +11293,9 @@ class SidePanelHostBridge {
     // outliner node paste の添付複製 (sprint 20260727-124904): 宛先 = sidepanel の md (this.filePath)。
     // SidePanelHostBridge は共有 factory 非経由の手書きクラスなので個別追加が必要
     // (designer_failures 2026-07-20)。
-    pasteOutlinerNodesWithAssets(plainText, nodes) {
+    pasteOutlinerNodesWithAssets(plainText, nodes, _sidePanelFilePath, isCut) {
         if (typeof this._mainHost.pasteOutlinerNodesWithAssets === 'function') {
-            this._mainHost.pasteOutlinerNodesWithAssets(plainText, nodes, this.filePath);
+            this._mainHost.pasteOutlinerNodesWithAssets(plainText, nodes, this.filePath, !!isCut);
         }
     }
     // md export bundle (FR-EX-01): sidepanel で開いている md (this.filePath) を root にする
@@ -29746,6 +29881,53 @@ class EditorInstance {
     }
 
     // Handle messages from host (VSCode / Electron / test)
+    // B-2 / FR-MSEL-04 / INV-3（TASK-09）: リンクを**段落に包んで** caret の位置へ入れる（1 行 1 リンク）。
+    // insertFileLink の本体を切り出した（W3: 複数 subpage の asBlock 挿入も同じ形を使う）。
+    function insertLinkAsParagraphAtCaret(link) {
+            editor.focus();
+            const sel = window.getSelection();
+            // Selection が editor 外なら editor 末尾に append (insertImageHtml と同じ防御)
+            const fileLinkSelInEditor = !!(sel && sel.rangeCount && (
+                editor.contains(sel.getRangeAt(0).startContainer) ||
+                sel.getRangeAt(0).startContainer === editor
+            ));
+            if (sel && sel.rangeCount && fileLinkSelInEditor) {
+                // 旧実装は link を裸で insertNode し caret をリンク直後へ畳んでいたため、
+                // N 件を連続して挿入すると **改行なしで 1 行に連結**された（入力 N → 出力 1 行）。
+                // 姉妹 2 関数（insertImageHtml / insertSubpageLink）は fallback で `<p>` wrap しており、
+                // その形に揃える（挿入経路でも段落を作って caret を次の段落先頭へ置く）。
+                const range = sel.getRangeAt(0);
+                range.deleteContents();
+                const flP = document.createElement('p');
+                flP.appendChild(link);
+                // 🔴 段落の**兄弟**として置く（`range.insertNode` だけだと既存の空段落の
+                //    **中に入れ子**になり `<p><p>…</p></p>` という不正な DOM ができる — 実測）。
+                //    caret のブロック祖先を探し、空ならそれを置換 / 中身があればその直後に挿入する。
+                var flBlock = range.startContainer;
+                while (flBlock && flBlock !== editor && !(flBlock.nodeType === 1 && /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|PRE)$/.test(flBlock.nodeName))) {
+                    flBlock = flBlock.parentNode;
+                }
+                if (flBlock && flBlock !== editor && flBlock.parentNode) {
+                    var flEmpty = !flBlock.textContent.trim() && !flBlock.querySelector('img, a');
+                    if (flEmpty) { flBlock.parentNode.replaceChild(flP, flBlock); }
+                    else { flBlock.parentNode.insertBefore(flP, flBlock.nextSibling); }
+                } else {
+                    editor.appendChild(flP);
+                }
+
+                // caret は挿入した段落の**後ろ**へ（次の挿入が同じ行に入らない）
+                range.setStartAfter(flP);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } else {
+                // B-2（TASK-09）: 裸 append をやめ姉妹 2 関数と同じ段落 wrap にする
+                const flTailP = document.createElement('p');
+                flTailP.appendChild(link);
+                editor.appendChild(flTailP);
+            }
+    }
+
     host.onMessage(function(message) {
         // FR-XP-01 (sprint 20260808-000219): この instance が sidepanel 内かの判定。
         // host の型で判定しない（Notes の sidepanel bridge は outliner.js 側の別実装で
@@ -30251,49 +30433,7 @@ class EditorInstance {
                 if (insGlyph !== '📎') { link.dataset.fileIcon = insGlyph; }
             }
 
-            editor.focus();
-            const sel = window.getSelection();
-            // Selection が editor 外なら editor 末尾に append (insertImageHtml と同じ防御)
-            const fileLinkSelInEditor = !!(sel && sel.rangeCount && (
-                editor.contains(sel.getRangeAt(0).startContainer) ||
-                sel.getRangeAt(0).startContainer === editor
-            ));
-            if (sel && sel.rangeCount && fileLinkSelInEditor) {
-                // B-2 / FR-MSEL-04 / INV-3（TASK-09）: **段落に包んでから挿入する**。
-                // 旧実装は link を裸で insertNode し caret をリンク直後へ畳んでいたため、
-                // N 件を連続して挿入すると **改行なしで 1 行に連結**された（入力 N → 出力 1 行）。
-                // 姉妹 2 関数（insertImageHtml / insertSubpageLink）は fallback で `<p>` wrap しており、
-                // その形に揃える（挿入経路でも段落を作って caret を次の段落先頭へ置く）。
-                const range = sel.getRangeAt(0);
-                range.deleteContents();
-                const flP = document.createElement('p');
-                flP.appendChild(link);
-                // 🔴 段落の**兄弟**として置く（`range.insertNode` だけだと既存の空段落の
-                //    **中に入れ子**になり `<p><p>…</p></p>` という不正な DOM ができる — 実測）。
-                //    caret のブロック祖先を探し、空ならそれを置換 / 中身があればその直後に挿入する。
-                var flBlock = range.startContainer;
-                while (flBlock && flBlock !== editor && !(flBlock.nodeType === 1 && /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|PRE)$/.test(flBlock.nodeName))) {
-                    flBlock = flBlock.parentNode;
-                }
-                if (flBlock && flBlock !== editor && flBlock.parentNode) {
-                    var flEmpty = !flBlock.textContent.trim() && !flBlock.querySelector('img, a');
-                    if (flEmpty) { flBlock.parentNode.replaceChild(flP, flBlock); }
-                    else { flBlock.parentNode.insertBefore(flP, flBlock.nextSibling); }
-                } else {
-                    editor.appendChild(flP);
-                }
-
-                // caret は挿入した段落の**後ろ**へ（次の挿入が同じ行に入らない）
-                range.setStartAfter(flP);
-                range.collapse(true);
-                sel.removeAllRanges();
-                sel.addRange(range);
-            } else {
-                // B-2（TASK-09）: 裸 append をやめ姉妹 2 関数と同じ段落 wrap にする
-                const flTailP = document.createElement('p');
-                flTailP.appendChild(link);
-                editor.appendChild(flTailP);
-            }
+            insertLinkAsParagraphAtCaret(link);
             syncMarkdown();
             logger.log('File link element inserted');
         } else if (message.type === 'removeSubpageLink') {
@@ -30354,7 +30494,8 @@ class EditorInstance {
                     sidePanelHostBridge._sendMessage({
                         type: 'insertSubpageLink',
                         markdownPath: message.markdownPath,
-                        title: message.title
+                        title: message.title,
+                        asBlock: !!message.asBlock   // W3: 複数リンクの batch は 1 行 1 リンク
                     });
                 }
                 return;
@@ -30366,6 +30507,14 @@ class EditorInstance {
             spA.dataset.subpage = 'true';
             spA.draggable = true; // TASK-19
             spA.className = 'link-internal-md link-subpage';
+
+            // W3: 複数リンクの batch（host が asBlock を付ける）は 📎 と同じく段落に包んで 1 行 1 リンク
+            //（inline のままだと N 件が 1 行に連結される）。単一は従来どおり caret の位置へ inline
+            if (message.asBlock) {
+                insertLinkAsParagraphAtCaret(spA);
+                syncMarkdown();
+                return;
+            }
 
             editor.focus();
             const spSel = window.getSelection();
@@ -31713,21 +31862,134 @@ class EditorInstance {
     // TASK-05 再オープン (2026-08-14): 自 md 内 D&D 移動用の one-shot drag state。
     // dragstart で drag 中アンカーの DOM 参照を保持し、drop（自 md 宛）が DOM 移動に使う。
     // dragend で必ず clear（stale 参照を次セッションへ漏らさない — one-shot state 規約）。
-    var _draggingMdAnchor = null;
+    // W2: 範囲選択の中のリンクを掴んだときは選択中のリンク全部（文書順）を持つので配列にした
+    var _draggingMdAnchors = null;
+
+    // W1: 範囲選択（非 collapsed）の中の 📎 / subpage リンクを掴んだら、選択中のリンクを**全部**運ぶ。
+    // 掴んだリンクが選択の外 / 選択中のリンクが 1 本だけなら null（= 従来の単一ドラッグ）。
+    // 間の文字は運ばない（リンクだけ。文字は元の場所に残る）。
+    var MD_DRAG_LINK_SELECTOR = 'a[data-subpage="true"], a[data-is-file-attachment="true"]';
+    function mdDragTargetElement(e) {
+        var n = e && e.target;
+        if (n && n.nodeType === 3) { n = n.parentElement; }
+        return (n && n.closest) ? n : null;
+    }
+    function collectSelectedMdLinks(editorEl, grabbed) {
+        var sel = window.getSelection ? window.getSelection() : null;
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { return null; }
+        var all = editorEl.querySelectorAll(MD_DRAG_LINK_SELECTOR);
+        var picked = [];
+        for (var i = 0; i < all.length; i++) {
+            var lr = document.createRange();
+            lr.selectNodeContents(all[i]);
+            for (var ri = 0; ri < sel.rangeCount; ri++) {
+                var r = sel.getRangeAt(ri);
+                // 範囲がリンクの中身と 1 文字でも重なれば選択中（端が触れているだけは数えない）
+                if (r.compareBoundaryPoints(Range.START_TO_END, lr) > 0 && r.compareBoundaryPoints(Range.END_TO_START, lr) < 0) {
+                    picked.push(all[i]);
+                    break;
+                }
+            }
+        }
+        if (picked.length < 2 || picked.indexOf(grabbed) === -1) { return null; }
+        return picked;
+    }
+    // W1: 選択中のリンクを種類ごとの既存 MIME に `{ v:1, sourceMdPath, items:[{href,title?,seq}] }` で積む。
+    // seq = 選択の中の文書順（受け手が mergeMdLinksBySeq で 1 本に戻す）。最上位の href / title は旧い受け手向けの
+    // 後方互換（items を読まない受け手でも掴んだ 1 件は今までどおり動く）。
+    function setMultiMdLinkDragData(dt, anchors, grabbed, srcMdPath) {
+        var files = [], subs = [];
+        for (var i = 0; i < anchors.length; i++) {
+            var a = anchors[i];
+            var href = a.dataset.markdownPath || a.getAttribute('href') || '';
+            if (!href) { continue; }
+            if (a.dataset.subpage === 'true') {
+                subs.push({ href: href, title: (a.textContent || '').trim(), seq: i, el: a });
+            } else {
+                files.push({ href: href, seq: i, el: a });
+            }
+        }
+        var pack = function(list) {
+            var head = list[0];
+            for (var j = 0; j < list.length; j++) { if (list[j].el === grabbed) { head = list[j]; break; } }
+            var items = list.map(function(x) { var o = { href: x.href, seq: x.seq }; if (x.title !== undefined) { o.title = x.title; } return o; });
+            var p = { v: 1, href: head.href, sourceMdPath: srcMdPath, items: items };
+            if (head.title !== undefined) { p.title = head.title; }
+            return JSON.stringify(p);
+        };
+        if (files.length > 0) { dt.setData('application/x-fractal-md-filelink', pack(files)); }
+        if (subs.length > 0) { dt.setData('application/x-fractal-md-subpage', pack(subs)); }
+        dt.effectAllowed = 'copyMove';
+    }
+
+    // 自 md 内 D&D（TASK-05 再オープン）: アンカー 1 本を drop の caret 位置へ inline で移す。戻り値 = 移したアンカー
+    function moveMdAnchorToCaret(anchor, dropRange) {
+        dropRange.insertNode(anchor);
+        return anchor;
+    }
+    // W2: 複数のアンカーを drop 位置へ **1 行 1 リンク**（選択順）で移す。drop 先がリストの項目なら li、
+    // それ以外は p を作って drop 先ブロックの前（caret がブロックの頭）/ 後ろに並べる。戻り値 = 最後に作った行
+    function moveMdAnchorsAsLines(anchors, dropRange, editorEl) {
+        var block = dropRange.startContainer;
+        while (block && block !== editorEl && !(block.nodeType === 1 && /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|PRE)$/.test(block.nodeName))) {
+            block = block.parentNode;
+        }
+        if (!block || block === editorEl || !block.parentNode) { block = null; }
+        var tag = (block && block.nodeName === 'LI') ? 'li' : 'p';
+        var lines = anchors.map(function(a) { var el = document.createElement(tag); el.appendChild(a); return el; });
+        var frag = document.createDocumentFragment();
+        lines.forEach(function(el) { frag.appendChild(el); });
+        if (!block) {
+            dropRange.insertNode(frag);
+        } else {
+            // caret より前に文字も要素も無い = ブロックの頭に落とした → ブロックの前へ。それ以外は後ろへ
+            var head = document.createRange();
+            head.setStart(block, 0);
+            head.setEnd(dropRange.startContainer, dropRange.startOffset);
+            var atHead = !head.toString().trim() && !head.cloneContents().querySelector('img, a, input');
+            block.parentNode.insertBefore(frag, atHead ? block : block.nextSibling);
+        }
+        return lines[lines.length - 1];
+    }
+    // 自 md 内 D&D の後始末: 移動元ブロックが真の殻（text/img/input/nested list 無し）になったら除去し、
+    // 空になった祖先リストも除去する
+    function removeEmptyMdShellBlock(srcBlock, editorEl) {
+        if (!srcBlock || !srcBlock.isConnected || (srcBlock.textContent || '').trim() ||
+            srcBlock.querySelector('img, input, table, pre, ul, ol, a')) { return; }
+        var parent = srcBlock.parentNode;
+        srcBlock.remove();
+        while (parent && parent !== editorEl && (parent.tagName === 'UL' || parent.tagName === 'OL') && parent.children.length === 0) {
+            var next = parent.parentNode;
+            parent.remove();
+            parent = next;
+        }
+    }
 
     // TASK-19 (sprint 20260804-145603): md editor 内の subpage リンクを Notes ツリーへ D&D。
     // a[data-subpage="true"] のみ（通常 Link は対象外）。payload には解決用の基準
     //（この editor の md 絶対パス）と相対 href を積み、host が実体を解決する。
     // 受け側 = notes-file-panel.js（application/x-fractal-md-subpage）。
     if (isMainInstance) document.addEventListener('dragstart', function(e) {
-        var a = e.target && e.target.closest ? e.target.closest('a[data-subpage="true"]') : null;
+        // W1: 選択範囲ごとのドラッグでは target が Text になることがある（closest が無い）→ 親要素で見る
+        var dsEl = mdDragTargetElement(e);
+        var a = dsEl ? dsEl.closest('a[data-subpage="true"]') : null;
         if (!a) { return; }
-        var t = findTargetEditor(e.target);
+        var t = findTargetEditor(a);
         if (!t) { return; }
         var srcMdPath = (t.instance.host && t.instance.host.filePath) ||
             (t.instance.options && t.instance.options.filePath) || '';
         var href = a.dataset.markdownPath || a.getAttribute('href') || '';
         if (!href || !e.dataTransfer) { return; }
+        // W1: 範囲選択の中のリンクを掴んだら選択中のリンクを全部積む（📎 が混ざれば filelink MIME にも）
+        var multiSp = collectSelectedMdLinks(t.editorEl, a);
+        if (multiSp) {
+            try { setMultiMdLinkDragData(e.dataTransfer, multiSp, a, srcMdPath); } catch (err) { /* ignore */ }
+            for (var mi = 0; mi < multiSp.length; mi++) {
+                if (multiSp[mi].dataset.isFileAttachment === 'true') { multiSp[mi].classList.add('dragging-file-attachment'); }
+            }
+            _draggingMdAnchors = multiSp;
+            return;
+        }
         try {
             e.dataTransfer.setData('application/x-fractal-md-subpage', JSON.stringify({
                 href: href,
@@ -31736,7 +31998,7 @@ class EditorInstance {
             }));
             e.dataTransfer.effectAllowed = 'copyMove';
         } catch (err) { /* ignore */ }
-        _draggingMdAnchor = a;
+        _draggingMdAnchors = [a];
     });
 
     // FR-TF-06b (sprint 20260809-031217, §4g :105): md editor 内の 📎 file 添付リンクを Notes ツリーへ D&D。
@@ -31744,14 +32006,25 @@ class EditorInstance {
     // payload = { href（相対）, sourceMdPath（この md の絶対パス） }。受け側 = notes-file-panel.js
     //（application/x-fractal-md-filelink）。host が href を resolveFilesDirForMd 基準で解決する。
     if (isMainInstance) document.addEventListener('dragstart', function(e) {
-        var fa = e.target && e.target.closest ? e.target.closest('a[data-is-file-attachment="true"]') : null;
+        var fdsEl = mdDragTargetElement(e);
+        var fa = fdsEl ? fdsEl.closest('a[data-is-file-attachment="true"]') : null;
         if (!fa) { return; }
-        var ft = findTargetEditor(e.target);
+        var ft = findTargetEditor(fa);
         if (!ft) { return; }
         var fSrcMdPath = (ft.instance.host && ft.instance.host.filePath) ||
             (ft.instance.options && ft.instance.options.filePath) || '';
         var fHref = fa.dataset.markdownPath || fa.getAttribute('href') || '';
         if (!fHref || !e.dataTransfer) { return; }
+        // W1: 範囲選択の中のリンクを掴んだら選択中のリンクを全部積む（subpage が混ざれば subpage MIME にも）
+        var multiFl = collectSelectedMdLinks(ft.editorEl, fa);
+        if (multiFl) {
+            try { setMultiMdLinkDragData(e.dataTransfer, multiFl, fa, fSrcMdPath); } catch (err) { /* ignore */ }
+            for (var mfi = 0; mfi < multiFl.length; mfi++) {
+                if (multiFl[mfi].dataset.isFileAttachment === 'true') { multiFl[mfi].classList.add('dragging-file-attachment'); }
+            }
+            _draggingMdAnchors = multiFl;
+            return;
+        }
         try {
             e.dataTransfer.setData('application/x-fractal-md-filelink', JSON.stringify({
                 href: fHref,
@@ -31761,7 +32034,7 @@ class EditorInstance {
         } catch (err) { /* ignore */ }
         // §4h: one-shot drag-session state。dragend で必ず clear（下記 dragend listener）。
         fa.classList.add('dragging-file-attachment');
-        _draggingMdAnchor = fa;
+        _draggingMdAnchors = [fa];
     });
 
     // §4h: file 添付リンク D&D の one-shot state（dragging-file-attachment）を dragend で必ず clear。
@@ -31771,7 +32044,7 @@ class EditorInstance {
         for (var dfi = 0; dfi < draggingFileAnchors.length; dfi++) {
             draggingFileAnchors[dfi].classList.remove('dragging-file-attachment');
         }
-        _draggingMdAnchor = null; // one-shot: drop 成否に関わらず必ず reset
+        _draggingMdAnchors = null; // one-shot: drop 成否に関わらず必ず reset
     });
 
     if (isMainInstance) document.addEventListener('dragenter', function(e) {
@@ -31879,15 +32152,27 @@ class EditorInstance {
                 var fvNotesBridge = (typeof window !== 'undefined') ? window.notesHostBridge : null;
                 var fvTargetMdPath = (t.instance.host && t.instance.host.filePath) ||
                     (t.instance.options && t.instance.options.filePath) || '';
-                if (fvEntryPayload && fvEntryPayload.folderLinkId && fvEntryPayload.relPath !== undefined && fvNotesBridge) {
-                    if (fvEntryPayload.isDir) {
-                        // フォルダは md 本文へ落とせない（不受理の明示裁定 — dnd-wiring §1）
-                        if (typeof fvNotesBridge.notifyError === 'function') {
-                            var fvMsgs = (typeof window !== 'undefined' && window.__outlinerMessages) || {};
-                            fvNotesBridge.notifyError(fvMsgs.folderViewNoFolderDrop || 'Folders cannot be dropped here.');
-                        }
-                    } else if (fvTargetMdPath && typeof fvNotesBridge.folderViewMoveIntoMd === 'function') {
-                        fvNotesBridge.folderViewMoveIntoMd(fvEntryPayload.folderLinkId, fvEntryPayload.relPath, fvTargetMdPath);
+                // W7: 複数選択の payload（{v:1, folderLinkId, items:[{relPath,isDir}]}）も読む（旧実装は最上位の
+                // relPath が無いと無音で何もしなかった）。単一（旧形式）は extractBatchItems が 1 件として読む
+                var fvItems = (fvEntryPayload && window.__batchPayload && typeof window.__batchPayload.extractBatchItems === 'function')
+                    ? window.__batchPayload.extractBatchItems(fvEntryPayload) : (fvEntryPayload ? [fvEntryPayload] : []);
+                var fvLinkId = fvEntryPayload ? (fvEntryPayload.folderLinkId || (fvItems[0] && fvItems[0].folderLinkId)) : '';
+                if (fvLinkId && fvNotesBridge) {
+                    var fvRelFiles = fvItems.filter(function(it) { return it && it.relPath !== undefined && !it.isDir; })
+                        .map(function(it) { return it.relPath; });
+                    var fvDirN = fvItems.filter(function(it) { return it && it.isDir; }).length;
+                    if (fvDirN > 0 && typeof fvNotesBridge.notifyError === 'function') {
+                        // フォルダは md 本文へ落とせない（不受理の明示裁定 — dnd-wiring §1）。複数でも通知は 1 回
+                        var fvMsgs = (typeof window !== 'undefined' && window.__outlinerMessages) || {};
+                        fvNotesBridge.notifyError(fvDirN > 1
+                            ? String(fvMsgs.batchDndFoldersSkipped || '{count} folder(s) skipped — use Send to Outliner for folders.').replace('{count}', String(fvDirN))
+                            : (fvMsgs.folderViewNoFolderDrop || 'Folders cannot be dropped here.'));
+                    }
+                    if (fvTargetMdPath && fvRelFiles.length === 1 && typeof fvNotesBridge.folderViewMoveIntoMd === 'function') {
+                        fvNotesBridge.folderViewMoveIntoMd(fvLinkId, fvRelFiles[0], fvTargetMdPath);
+                    } else if (fvTargetMdPath && fvRelFiles.length > 1 && typeof fvNotesBridge.folderViewMoveIntoMdBatch === 'function') {
+                        // 🔴 複数は配列 bridge を 1 回（N 回ループすると host の件数ゲートを迂回する）。並びは選択順のまま
+                        fvNotesBridge.folderViewMoveIntoMdBatch(fvLinkId, fvRelFiles, fvTargetMdPath);
                     }
                 }
                 return; // folder view entry drop はここで完結（添付/画像経路へ落とさない）
@@ -31976,6 +32261,25 @@ class EditorInstance {
         // main/sidepanel は targetHost 解決（findTargetEditor）で対称 — sidepanel は SidePanelHostBridge が
         // 第 2 引数 filePath を積んで委譲する。cross-note の解決は host 側（FR-TF-18 §4l）。
         try {
+            // W8: outliner の複数選択（bullet / page / file アイコンのどこを掴んでも）と bullet 単体は
+            // 添付 payload（x-fractal-out-node-assets）を最優先で読み、選択中の page / file を全部 1 回で送る
+            //（host が添付 1 件ずつ 1 行 1 リンクを caret 位置へ挿入させる）。旧実装は掴んだ icon の 1 件だけで、
+            // bullet を落とすと何も起きなかった。複数選択でない icon drag（items なし + icon MIME あり）は下の単一経路
+            var onaRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-out-node-assets') : '';
+            if (onaRaw) {
+                var onaPayload = null;
+                try { onaPayload = JSON.parse(onaRaw); } catch (err) { onaPayload = null; }
+                var onaTypes = Array.from((e.dataTransfer && e.dataTransfer.types) || []);
+                var onaIcon = onaTypes.indexOf('application/x-fractal-out-node-file') >= 0 ||
+                    onaTypes.indexOf('application/x-fractal-out-node-page') >= 0;
+                var onaMulti = !!(onaPayload && Array.isArray(onaPayload.items) && onaPayload.items.length > 0);
+                if (onaPayload && onaPayload.v === 1 && onaPayload.outFileKey && onaPayload.nodeId && (onaMulti || !onaIcon)) {
+                    if (typeof targetHost.attachOutNodeAssetsToMd === 'function') {
+                        targetHost.attachOutNodeAssetsToMd(onaPayload);
+                    }
+                    return;
+                }
+            }
             var onfRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-out-node-file') : '';
             if (onfRaw) {
                 var onfPayload = null;
@@ -32004,36 +32308,42 @@ class EditorInstance {
             // TASK-05 再オープン (2026-08-14): 同一 editor 内 drop = DOM 移動（段落⇄リスト等の
             // 置き場所を問わない）。従来は self-drop no-op でリンクを md 内で動かせなかった。
             // dragstart で保持した実アンカー参照を drop 位置へ移す（md/実体は不変・並びだけ変わる）。
-            if ((mflRaw || mspRaw) && _draggingMdAnchor && t.editorEl.contains(_draggingMdAnchor)) {
-                var mvA = _draggingMdAnchor;
-                _draggingMdAnchor = null; // one-shot 消費
-                if (dropRange && !mvA.contains(dropRange.startContainer)) {
+            // W2: 範囲選択から運んだときは選択中のリンク全部を選択順に動かす（間の文字は元の場所に残る）
+            var dragAnchors = (_draggingMdAnchors || []).filter(function(x) { return x && t.editorEl.contains(x); });
+            if ((mflRaw || mspRaw) && dragAnchors.length > 0) {
+                _draggingMdAnchors = null; // one-shot 消費
+                var dropInsideDragged = !!dropRange && dragAnchors.some(function(x) { return x.contains(dropRange.startContainer); });
+                if (dropRange && !dropInsideDragged) {
                     // 移動元ブロック（li/p）を記録 — 移動後に殻なら掃除
-                    var mvSrcBlock = mvA.parentElement ? mvA.parentElement.closest('li, p') : null;
-                    dropRange.insertNode(mvA);
-                    // caret をアンカー後ろへ
+                    var mvSrcBlocks = dragAnchors.map(function(x) { return x.parentElement ? x.parentElement.closest('li, p') : null; });
+                    var mvLast = dragAnchors.length === 1
+                        ? moveMdAnchorToCaret(dragAnchors[0], dropRange)
+                        : moveMdAnchorsAsLines(dragAnchors, dropRange, t.editorEl);
+                    // caret を（最後に動かした）アンカー / 行の後ろへ
                     var mvR = document.createRange();
-                    mvR.setStartAfter(mvA);
+                    mvR.setStartAfter(mvLast);
                     mvR.collapse(true);
                     var mvSel = window.getSelection();
                     mvSel.removeAllRanges();
                     mvSel.addRange(mvR);
-                    // 移動元が真の殻（text/img/input/nested list 無し）になったら除去
-                    if (mvSrcBlock && mvSrcBlock.isConnected && !mvSrcBlock.contains(mvA) &&
-                        !(mvSrcBlock.textContent || '').trim() &&
-                        !mvSrcBlock.querySelector('img, input, table, pre, ul, ol, a')) {
-                        var mvParent = mvSrcBlock.parentNode;
-                        mvSrcBlock.remove();
-                        // 空になった祖先リストも除去
-                        while (mvParent && mvParent !== t.editorEl &&
-                               (mvParent.tagName === 'UL' || mvParent.tagName === 'OL') &&
-                               mvParent.children.length === 0) {
-                            var mvNext = mvParent.parentNode;
-                            mvParent.remove();
-                            mvParent = mvNext;
-                        }
-                    }
+                    for (var mvi = 0; mvi < mvSrcBlocks.length; mvi++) { removeEmptyMdShellBlock(mvSrcBlocks[mvi], t.editorEl); }
                     t.instance.syncMarkdownPublic();
+                }
+                return;
+            }
+            // W4: 範囲選択から運んだ複数リンク（種類が混ざってもよい）は seq 順に 1 本にして bridge を 1 回。
+            // 1 件だけなら従来の単一 bridge（下）
+            var mdLinkBatch = null;
+            if ((mflRaw || mspRaw) && window.__batchPayload && typeof window.__batchPayload.mergeMdLinksBySeq === 'function') {
+                var mflAll = null, mspAll = null;
+                try { mflAll = mflRaw ? JSON.parse(mflRaw) : null; } catch (err) { mflAll = null; }
+                try { mspAll = mspRaw ? JSON.parse(mspRaw) : null; } catch (err) { mspAll = null; }
+                mdLinkBatch = window.__batchPayload.mergeMdLinksBySeq(mflAll, mspAll);
+            }
+            if (mdLinkBatch && mdLinkBatch.items.length > 1) {
+                if (mdLinkBatch.sourceMdPath && mdLinkBatch.sourceMdPath !== selfMdPath &&
+                    typeof targetHost.attachMdLinksToMdBatch === 'function') {
+                    targetHost.attachMdLinksToMdBatch(mdLinkBatch);
                 }
                 return;
             }
@@ -33224,6 +33534,34 @@ class EditorInstance {
         logger.log('Internal MD:', internalMd ? 'yes' : 'no');
         logger.log('HTML length:', html ? html.length : 0);
 
+        // W11: linkedfd / ツリーの clipboard → この md（note md と sidepanel md の両方 = この handler 1 本）。
+        // 1 回の貼り付け = notes bridge 1 回（件数ゲート・集計通知・移動 / 複製の判定は host）。挿入は host の
+        // insertSubpageLink / insertFileLink が今の caret に入れる（D&D と同じ受信経路）。Notes 以外（bridge 無し）は素通り
+        var clipBridge = (typeof window !== 'undefined') ? window.notesHostBridge : null;
+        var clipBp = (typeof window !== 'undefined') ? window.__batchPayload : null;
+        if (html && clipBridge && clipBp && typeof clipBp.readHtmlClipMeta === 'function') {
+            var clipInSidePanel = !!(container && container.closest && container.closest('.side-panel'));
+            var clipMdPath = (host && host.filePath) || (self.options && self.options.filePath) || '';
+            // linkedfd の cmd+c（常に複製。同じ linkedfd の md へ貼っても元を消さない = mode 'copy'）
+            var fvClip = clipBp.readHtmlClipMeta(html, 'data-fractal-fv-clip');
+            if (fvClip && fvClip.folderLinkId && Array.isArray(fvClip.relPaths) && fvClip.relPaths.length > 0 && clipMdPath) {
+                // フォルダは md 本文に置けない（D&D と同じ不受理）。clipboard に isDir は無いので host が 1 件ずつ数える
+                if (typeof clipBridge.folderViewMoveIntoMdBatch === 'function') {
+                    clipBridge.folderViewMoveIntoMdBatch(fvClip.folderLinkId, fvClip.relPaths, clipMdPath, 'copy');
+                }
+                return;
+            }
+            // ツリーの cmd+c（複製）/ cmd+x（移動）
+            var treeClip = clipBp.readHtmlClipMeta(html, clipBp.TREE_CLIP_ATTR);
+            if (treeClip && Array.isArray(treeClip.items) && treeClip.items.length > 0) {
+                if (typeof clipBridge.pasteTreeClip === 'function') {
+                    clipBridge.pasteTreeClip({ items: treeClip.items, isCut: !!treeClip.isCut },
+                        { kind: 'md', sidePanelFilePath: clipInSidePanel ? clipMdPath : null });
+                }
+                return;
+            }
+        }
+
         // outliner ノード paste (FR-NP-01 / sprint 20260727-124904): text/html の
         // data-outliner-clipboard メタに添付 (page md / ファイル / 画像) を持つ node があれば
         // 添付複製経路へ (host が OutlinerClipboardStore からソース dir を解決し、複製 +
@@ -33260,7 +33598,10 @@ class EditorInstance {
                             logger.warn('outliner-paste selection snapshot failed:', selErr);
                             self._pendingPasteSelection = null;
                         }
-                        host.pasteOutlinerNodesWithAssets(text || '', nodes);
+                        // W9: cut を host へ伝える（同じ note の中なら複製せず実体を移す。真実は host の Store と突き合わせる）
+                        // 第 3 引数は宛先（sidepanel の bridge / notes の md bridge が自分で畳む。standalone は省略 = 自 document）。
+                        // 3 種の host（共有 factory・SidePanelHostBridge・notes の md bridge）とも isCut は第 4 引数で受ける
+                        host.pasteOutlinerNodesWithAssets(text || '', nodes, undefined, !!(meta && meta.isCut));
                         return; // pasteWithAssetCopyResult を待つ (既存受信が挿入)
                     }
                 }
@@ -37783,6 +38124,15 @@ var Outliner = (function() {
 
     // --- 内部クリップボード（ページメタデータ保持用） ---
     var internalClipboard = null;  // { plainText, isCut, nodes: [{text, level, isPage, pageId}] }
+    // W9 / W11: md・ツリーへの移動で host の Store の cut が消費された cut の copyId（host の outlinerCutConsumed で入る）。
+    // OS clipboard の cut メタは書き換えられないので、同じ copyId の貼り付けはここを見て複製に倒す
+    var consumedCutCopyId = null;
+    /** 選んだ clipboard 源の cut を、host で消費済みなら外す（outliner へ戻って貼っても同じ page / 添付を 2 か所が持たない） */
+    function clipCutAfterConsumed(sel, crossMeta) {
+        if (!sel || !sel.isCut) { return false; }
+        if (sel.source === 'cross' && consumedCutCopyId && crossMeta && crossMeta.copyId === consumedCutCopyId) { return false; }
+        return true;
+    }
 
     // --- ドラッグ&ドロップ ---
     var dragState = null;       // { nodeId, nodeEl } or null
@@ -38957,6 +39307,29 @@ var Outliner = (function() {
         notesBridgeMixed.notesImportTreeItemsBatch(items, outFileIdMixed, targetNodeId || null, position || null);
     }
 
+    /**
+     * W11: ツリーの clipboard（`data-fractal-tree-clip`）を outliner へ貼る（D&D の handleTreeItemsMixedDrop と同じ宛先解決）。
+     * 開いている .out 自身（kind 'md' でなく .out の id）が入っていても host が理由付きで数える。
+     * @returns 処理した（= preventDefault 済み）か
+     */
+    function handleTreeClipPaste(e, nodeId) {
+        var bp = window.__batchPayload;
+        var notesBridgeClip = window.notesHostBridge;
+        if (!e.clipboardData || !bp || typeof bp.readHtmlClipMeta !== 'function' || !notesBridgeClip
+            || typeof notesBridgeClip.pasteTreeClip !== 'function') { return false; }
+        var html = '';
+        try { html = e.clipboardData.getData('text/html') || ''; } catch (err) { return false; }
+        var meta = bp.readHtmlClipMeta(html, bp.TREE_CLIP_ATTR);
+        if (!meta || !Array.isArray(meta.items) || meta.items.length === 0) { return false; }
+        var outFileIdClip = (typeof notesFilePanel !== 'undefined' && notesFilePanel.getCurrentOutFileId)
+            ? notesFilePanel.getCurrentOutFileId() : null;
+        if (!outFileIdClip) { return false; }
+        e.preventDefault();
+        notesBridgeClip.pasteTreeClip({ items: meta.items, isCut: !!meta.isCut },
+            { kind: 'outliner', outFileId: outFileIdClip, targetNodeId: nodeId, position: 'after' });
+        return true;
+    }
+
     /** FR-TF-20 (§4n 2026-08-10 再オープン⑤): md editor 内の 📎 file リンク / subpage リンクの
      *  drag を outliner でも受ける（従来は tree panel のみ受理 = マトリクス未実装セル）。
      *  drop 位置は tree-md/file と同じ before/after/child 解決に合流。cross-note は host §4l。 */
@@ -38968,7 +39341,29 @@ var Outliner = (function() {
     function isMdSubpageDragEvent(e) {
         return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf(MD_SUBPAGE_MIME) >= 0);
     }
+    // W4: md の範囲選択から運んだ複数リンク（📎 / subpage 混在可）は seq 順に 1 本にして
+    // importMdLinksIntoOutBatch を 1 回（host が 1 本の dropFilesResult にまとめる = 選択順に並ぶ）。
+    // 1 件だけなら false（= 従来の単一経路）。mindmap 面も ctx 経由で同じ handler を通る
+    function handleMdLinksBatchDrop(e, targetNodeId, position) {
+        if (!window.__batchPayload || typeof window.__batchPayload.mergeMdLinksBySeq !== 'function') return false;
+        var rawF = '', rawS = '';
+        try { rawF = e.dataTransfer.getData(MD_FILELINK_MIME) || ''; } catch (err) { /* ignore */ }
+        try { rawS = e.dataTransfer.getData(MD_SUBPAGE_MIME) || ''; } catch (err) { /* ignore */ }
+        var pF = null, pS = null;
+        try { pF = rawF ? JSON.parse(rawF) : null; } catch (err) { pF = null; }
+        try { pS = rawS ? JSON.parse(rawS) : null; } catch (err) { pS = null; }
+        var batch = window.__batchPayload.mergeMdLinksBySeq(pF, pS);
+        if (batch.items.length < 2) return false;
+        var bridgeB = window.notesHostBridge;
+        var outFileIdB = (typeof notesFilePanel !== 'undefined' && notesFilePanel.getCurrentOutFileId)
+            ? notesFilePanel.getCurrentOutFileId() : null;
+        if (bridgeB && bridgeB.importMdLinksIntoOutBatch && outFileIdB && batch.sourceMdPath) {
+            bridgeB.importMdLinksIntoOutBatch(batch, outFileIdB, targetNodeId || null, position || null);
+        }
+        return true;
+    }
     function handleMdFileLinkDrop(e, targetNodeId, position) {
+        if (handleMdLinksBatchDrop(e, targetNodeId, position)) return;
         var raw = '';
         try { raw = e.dataTransfer.getData(MD_FILELINK_MIME) || ''; } catch (err) { /* ignore */ }
         if (!raw) return;
@@ -38982,6 +39377,7 @@ var Outliner = (function() {
         bridgeFL.importMdFileLinkIntoOut(payload, outFileIdFL, targetNodeId || null, position || null);
     }
     function handleMdSubpageDrop(e, targetNodeId, position) {
+        if (handleMdLinksBatchDrop(e, targetNodeId, position)) return;
         var raw = '';
         try { raw = e.dataTransfer.getData(MD_SUBPAGE_MIME) || ''; } catch (err) { /* ignore */ }
         if (!raw) return;
@@ -39531,13 +39927,15 @@ var Outliner = (function() {
                         }
                         var plainText = lines.join('\n');
                         var copyId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-                        writeClipboardWithHtml(plainText, nodes, !!isCut, copyId);
+                        // W9: どの経路の copy / cut にも nodeIds を載せる（linkedfd の cmd+v が読む）
+                        writeClipboardWithHtml(plainText, nodes, !!isCut, copyId, [nodeId]);
                         internalClipboard = {
                             plainText: plainText,
                             isCut: !!isCut,
                             nodes: nodes,
                             sourceOutFileKey: currentOutFileKey,
-                            copyId: copyId
+                            copyId: copyId,
+                            nodeIds: [nodeId]
                         };
                         host.saveOutlinerClipboard(plainText, !!isCut, nodes);
                         return true;
@@ -39569,7 +39967,7 @@ var Outliner = (function() {
                         var kids = target && target.children ? target.children : [];
                         var afterId = kids.length ? kids[kids.length - 1] : null;
                         pasteNodesFromText(clipText, targetNodeId, afterId,
-                            sel.nodes, sel.isCut, sel.sourceOutFileKey || null, false);
+                            sel.nodes, clipCutAfterConsumed(sel, crossMeta), sel.sourceOutFileKey || null, false);
                         scheduleSyncToHost();
                         renderTree();
                         return true;
@@ -42474,6 +42872,9 @@ var Outliner = (function() {
                     return;
                 }
             }
+            // W11: ツリーの cmd+c（複製）/ cmd+x（移動）→ 対象 node の直後（'after' = 上の linkedfd と同じ理由で固定）。
+            // 1 回の貼り付け = notes bridge 1 回（host が Duplicate / 移動を決め、1 本の dropFilesResult で選択順に並べる）
+            if (handleTreeClipPaste(e, nodeId)) { return; }
         }
 
         var clipText = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
@@ -42497,7 +42898,7 @@ var Outliner = (function() {
         // 早期 return は外部プレーンテキスト貼り付けを殺すので、external sentinel にフォールバック。
         if (!sel) { sel = { source: 'external', nodes: null, isCut: false, sourceOutFileKey: null }; }
         var clipNodes = sel.nodes;   // null → 下流のプレーンテキスト行分割経路へ
-        var isCutPaste = sel.isCut;
+        var isCutPaste = clipCutAfterConsumed(sel, crossMeta);
         var clipSourceKey = sel.sourceOutFileKey || null;
 
         // FR-XP-02 (sprint 20260808-000219): md エディタ範囲選択 copy 由来の paste。
@@ -43566,13 +43967,15 @@ var Outliner = (function() {
                                 filePath: node.filePath || null
                             }];
                             var copyIdCS = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-                            writeClipboardWithHtml(singleText, singleNodesData, false, copyIdCS);
+                            // W9: カーソルを置いただけの単一 copy にも nodeIds を載せる（無いと linkedfd の cmd+v が何もしない）
+                            writeClipboardWithHtml(singleText, singleNodesData, false, copyIdCS, [nodeId]);
                             internalClipboard = {
                                 plainText: singleText,
                                 isCut: false,
                                 nodes: singleNodesData,
                                 sourceOutFileKey: currentOutFileKey,
-                                copyId: copyIdCS
+                                copyId: copyIdCS,
+                                nodeIds: [nodeId]
                             };
                             host.saveOutlinerClipboard(singleText, false, singleNodesData);
                         }
@@ -43585,13 +43988,17 @@ var Outliner = (function() {
                         var cutText = getSelectedText();
                         var cutNodesData = getSelectedNodesData();
                         var copyIdX = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-                        writeClipboardWithHtml(cutText, cutNodesData, true, copyIdX);
+                        // W9: cut にも nodeIds を載せる（copy と同じ selectionExportRoots。削除の前に取る）。
+                        // node は cut で .out から消えるので、host は disk ではなく OutlinerClipboardStore の nodes から書き出す
+                        var cutNodeIdsX = selectionExportRoots();
+                        writeClipboardWithHtml(cutText, cutNodesData, true, copyIdX, cutNodeIdsX);
                         internalClipboard = {
                             plainText: cutText,
                             isCut: true,
                             nodes: cutNodesData,
                             sourceOutFileKey: currentOutFileKey,
-                            copyId: copyIdX
+                            copyId: copyIdX,
+                            nodeIds: cutNodeIdsX
                         };
                         host.saveOutlinerClipboard(cutText, true, cutNodesData);
                         deleteSelectedNodes();
@@ -43611,16 +44018,19 @@ var Outliner = (function() {
                                 filePath: node.filePath || null
                             }];
                             var copyIdXS = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-                            writeClipboardWithHtml(cutSingleText, cutSingleNodesData, true, copyIdXS);
+                            writeClipboardWithHtml(cutSingleText, cutSingleNodesData, true, copyIdXS, [nodeId]);
                             internalClipboard = {
                                 plainText: cutSingleText,
                                 isCut: true,
                                 nodes: cutSingleNodesData,
                                 sourceOutFileKey: currentOutFileKey,
-                                copyId: copyIdXS
+                                copyId: copyIdXS,
+                                nodeIds: [nodeId]
                             };
                             host.saveOutlinerClipboard(cutSingleText, true, cutSingleNodesData);
                             saveSnapshot();
+                            // W9: 添付（page / 画像 / ファイル）を外したらアイコンを描き直す（残すと元に添付が見えたまま）
+                            var hadAssetXS = !!(node.isPage || node.filePath || (node.images && node.images.length > 0));
                             // カット: ページ属性とテキストを除去（ノード自体は残す）
                             if (node.isPage) {
                                 node.isPage = false;
@@ -43629,9 +44039,17 @@ var Outliner = (function() {
                             if (node.images && node.images.length > 0) {
                                 node.images = [];
                             }
+                            // W9: 添付ファイルも外す。残すと元 node に 📎 が残り、paste 先と同じ実体を 2 か所が指す（実質複製）
+                            if (node.filePath) {
+                                node.filePath = null;
+                            }
                             model.updateText(nodeId, '');
                             textEl.innerHTML = '';
                             scheduleSyncToHost();
+                            if (hadAssetXS) {
+                                renderTree();
+                                focusNode(nodeId);
+                            }
                         }
                     }
                     break;
@@ -45336,12 +45754,7 @@ var Outliner = (function() {
         var out = [];
         if (!node || !isNotesMode()) { return out; }
         try {
-            var subtreeObj = { outFileKey: currentOutFileKey, nodeId: node.id };
-            if (selectedNodeIds.size > 1 && selectedNodeIds.has(node.id)) {
-                var subtreeRoots = selectionExportRoots();
-                if (subtreeRoots.length > 1) { subtreeObj.nodeIds = subtreeRoots; }
-            }
-            out.push({ mime: 'application/x-fractal-out-node-subtree', data: JSON.stringify(subtreeObj) });
+            out.push({ mime: 'application/x-fractal-out-node-subtree', data: JSON.stringify(buildNodeSubtreePayload(node)) });
         } catch (err) { /* ignore */ }
         try {
             var assetsPayload = buildNodeAssetsPayload(node);
@@ -45362,14 +45775,39 @@ var Outliner = (function() {
     }
     window.__outlinerIsNodeMultiSelected = isNodeMultiSelected;
 
-    /** icon drag（page / file）用: 複数選択中なら添付 payload も併載する（単一は従来の page/file MIME のみ）。 */
+    /**
+     * subtree 移動用 payload（`application/x-fractal-out-node-subtree`）。複数選択中に選択内の node を掴んだら
+     * `nodeIds` に選択の根（`selectionExportRoots()`）を載せる。bullet / mindmap の node box / icon drag が共有する。
+     */
+    function buildNodeSubtreePayload(node) {
+        var subtreeObj = { outFileKey: currentOutFileKey, nodeId: node.id };
+        if (selectedNodeIds.size > 1 && selectedNodeIds.has(node.id)) {
+            var subtreeRoots = selectionExportRoots();
+            if (subtreeRoots.length > 1) { subtreeObj.nodeIds = subtreeRoots; }
+        }
+        return subtreeObj;
+    }
+
+    /**
+     * icon drag（page / file）用: 複数選択中なら添付 payload も併載する（単一は従来の page/file MIME のみ）。
+     * W8: 選択の根（`nodeIds`）を載せた subtree payload も併載する。ツリーの `.out` 行・linkedfd 行 / linkedfd view は
+     * subtree の `nodeIds` を最優先で読むので、bullet を掴んだときと同じ集合（選択の根 + 子孫）が動く
+     *（旧: icon だと添付のある node だけが動き、bullet と動く集合が違った）。根が 1 つなら従来どおり載せない。
+     * outliner の page / file アイコンと mindmap の icon が**同じ関数**を使う（送り手の面差を作らない）。
+     */
     function setMultiSelectAssetsPayload(e, node) {
-        if (!(selectedNodeIds.size > 1 && selectedNodeIds.has(node.id))) { return; }
+        if (!node || !(selectedNodeIds.size > 1 && selectedNodeIds.has(node.id))) { return; }
         try {
             var payload = buildNodeAssetsPayload(node);
             if (payload) { e.dataTransfer.setData('application/x-fractal-out-node-assets', JSON.stringify(payload)); }
         } catch (err) { /* ignore */ }
+        try {
+            var sub = buildNodeSubtreePayload(node);
+            if (sub.nodeIds) { e.dataTransfer.setData('application/x-fractal-out-node-subtree', JSON.stringify(sub)); }
+        } catch (err2) { /* ignore */ }
     }
+    // もう 1 つの送り手（mindmap-render.js の page / file icon）が使うため公開する
+    window.__outlinerSetMultiSelectAssetsPayload = setMultiSelectAssetsPayload;
 
     function buildExportTree(rootNodeId) {
         function build(id) {
@@ -47968,6 +48406,17 @@ var Outliner = (function() {
                     break;
                 }
 
+                case 'outlinerCutConsumed': {
+                    // W9 / W11: この outliner の cut が md・ツリーへ移動として貼られた（host の Store で消費済み）。
+                    // 以降の outliner への貼り付けは複製にする（cut のまま復元すると同じ page / 添付を 2 か所が持つ）
+                    if (internalClipboard && internalClipboard.isCut &&
+                        (typeof msg.plainText !== 'string' || internalClipboard.plainText === msg.plainText)) {
+                        internalClipboard.isCut = false;
+                        consumedCutCopyId = internalClipboard.copyId || null;
+                    }
+                    break;
+                }
+
                 case 'pasteMdIntoOutlinerResult': {
                     // FR-XP-02 (sprint 20260808-000219): host が md 行→node 変換 + asset 複製を
                     // 一括実行した確定 node 配列（単一 postback。placeholder 上書き不要）。
@@ -48493,7 +48942,8 @@ var Outliner = (function() {
                         sidePanelHostBridge._sendMessage({
                             type: 'insertSubpageLink',
                             markdownPath: msg.markdownPath,
-                            title: msg.title
+                            title: msg.title,
+                            asBlock: !!msg.asBlock   // W3: 複数リンクの batch は 1 行 1 リンク（editor.js の中継と同じ）
                         });
                     }
                     break;
@@ -49419,6 +49869,9 @@ var notesFilePanel = (function() {
     var dragSourceFileExt = null; // 'md' | 'out' | null  (file の場合のみ)
     // FR-MSEL-04 R3（TASK-45）: 複数選択 drag から除外した .out の件数。dragstart で set / dragend で通知して clear（one-shot 対配線）
     var dragExcludedOut = 0;
+    // W13: 複数選択 drag から外れるフォルダ（folder link・仮想フォルダ）の件数。.out と同じ対配線
+    //（dragstart で set / dragend で通知して clear）。ツリー内の受け手は自分でフォルダを扱うのでそこで clear する
+    var dragExcludedFolder = 0;
     var dropIndicator = null;
     // bug-fix 2026-08-05: renderTree の全再構築が click 合成を殺すのを補う pointerup 保険の状態
     var _pointerDownItemId = null;
@@ -49931,6 +50384,177 @@ var notesFilePanel = (function() {
         if (e.key === 'ArrowDown') { e.preventDefault(); moveNavFocus(1); return; }
         if (e.key === 'ArrowUp') { e.preventDefault(); moveNavFocus(-1); return; }
         if (e.key === 'Enter') { e.preventDefault(); activateNavFocus(); return; }
+        // W10: cmd+c（複製）/ cmd+x（移動）。ツリーはテキスト選択を毎回捨てる（dropTextSelection）ので
+        // ブラウザの copy / cut イベントは来ない → keydown で OS clipboard に書く（linkedfd の writeFvClipboard と同じ理由）。
+        // `metaKey || ctrlKey` の両受け（Linux / CI の Chromium は Control に束ねる）。選択 0 件なら何もしない（clipboard を上書きしない）
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'x')) {
+            if (treeSelection.length === 0) { return; }
+            e.preventDefault();
+            writeTreeClipboard(e.key === 'x');
+            return;
+        }
+    }
+
+    /**
+     * W10: ツリーの選択を clipboard に書く（cmd+c / cmd+x）。
+     * - text/plain = 選択した項目のパス（外部アプリへの degrade）
+     * - text/html  = `<div data-fractal-tree-clip="…">` に `{ v:1, items:[{kind,id,filePath?,seq}], isCut, copyId }`
+     *   （kind = 'md' | 'file' | 'out' | 'folder'(folder link)。並びは選択順 = 描画順。実体は載せず id だけ = host が台帳から解決）
+     * 🔴 cut はここでは何も消さない（Finder と同じく、貼った先で host が移動する）。移動か複製かの最終判定は host
+     *    （linkedfd へ貼るものは常に複製）。
+     */
+    function writeTreeClipboard(isCut) {
+        var byExt = treeSelectionByExt();
+        var items = window.__batchPayload.mergeTreeItemsBySeq(byExt.md, byExt.file, byExt.folder, byExt.out)
+            .map(function (it, i) { return { kind: it.kind, id: it.id, filePath: it.filePath || null, seq: i }; });
+        if (items.length === 0) { return false; }
+        var copyId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        var meta = { v: 1, items: items, isCut: !!isCut, copyId: copyId };
+        var lines = [];
+        for (var i = 0; i < items.length; i++) {
+            var el2 = listEl ? listEl.querySelector('[data-item-id="' + CSS.escape(items[i].id) + '"]') : null;
+            lines.push((el2 && el2.dataset.filePath) || items[i].id);
+        }
+        var plain = lines.join('\n');
+        var html = window.__batchPayload.buildHtmlClip(window.__batchPayload.TREE_CLIP_ATTR, meta, lines);
+        var fallback = function () { try { navigator.clipboard.writeText(plain); } catch (e2) { /* ignore */ } };
+        try {
+            navigator.clipboard.write([
+                new ClipboardItem({
+                    'text/plain': new Blob([plain], { type: 'text/plain' }),
+                    'text/html': new Blob([html], { type: 'text/html' }),
+                }),
+            ]).catch(function (err) {
+                console.warn('[Notes] tree clipboard.write failed, falling back to plain text:', err);
+                fallback();
+            });
+        } catch (err) { fallback(); }
+        return true;
+    }
+
+    /** W11: ツリーにフォーカスがあるか（linkedfd の paste 受け口がツリー宛ての paste を横取りしないための判定にも使う） */
+    function treeHasFocus() {
+        var ae = document.activeElement;
+        return !!(listEl && ae && (ae === listEl || listEl.contains(ae)));
+    }
+
+    /**
+     * W11: ツリーの cmd+v の貼り付け先（フォーカス行で決める）。
+     * - フォーカス無し = root の末尾 / 仮想フォルダの行 = そのフォルダの末尾
+     * - linkedfd の行 = その linkedfd の root（`{ linkId }`。clipboard の元にその行が入っていれば下の「後ろ」）
+     * - それ以外の行 = その行のすぐ後ろ（兄弟）。Finder と同じく、選んだ行の中ではなく隣に置く
+     * index は親の childIds 上の位置（host は anchor で覚えるので移動元を抜く前の位置でよい）。
+     * @param inClip その行が clipboard の元に入っているか（入っていれば linkedfd 行でも「後ろ」= その場複製）
+     */
+    function treePasteTarget(inClip) {
+        var navId = treeFocusId;
+        if (!navId) { return { parentId: null, index: getChildIdsOfParent(null).length }; }
+        var d = navRowDescriptor(navId);
+        if (!d) { return { parentId: null, index: getChildIdsOfParent(null).length }; }
+        if (d.kind === 'folder') { return { parentId: d.id, index: getChildIdsOfParent(d.id).length }; }
+        if (d.f && isFolderLinkRow(d.f) && !d.f.broken && !(inClip && inClip(d.id))) { return { linkId: d.id }; }
+        var parentId = findParentIdOf(d.id);
+        var sibs = getChildIdsOfParent(parentId);
+        var at = sibs.indexOf(d.id);
+        return { parentId: parentId, index: at >= 0 ? at + 1 : sibs.length };
+    }
+
+    /**
+     * W11: ツリーの cmd+v 受け口（4 種の clipboard を受ける）。
+     * 🔴 document レベルで受ける: ツリーはテキスト選択を持たないので Chromium は paste を document.body に配る
+     *    （linkedfd の onDocumentPaste と同じ理由 = ADRL-0118）。ツリーにフォーカスがあるときだけ動き、
+     *    linkedfd 側はツリーにフォーカスがある間は受けない（誤配送を作らない）。
+     * 🔴 fractal の payload が無ければ何もしない（preventDefault もしない）。getData は同期で読み切る。
+     * 1 回の貼り付け = bridge 1 回（件数ゲート・集計通知・移動 / 複製の判定は host）。
+     */
+    function onTreeDocumentPaste(e) {
+        if (!treeHasFocus()) { return; }
+        var t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) { return; }
+        if (e.defaultPrevented || !e.clipboardData || !bridge) { return; }
+        var html = '', plain = '', md = '', ctxRaw = '', mdCut = false;
+        try {
+            html = e.clipboardData.getData('text/html') || '';
+            plain = e.clipboardData.getData('text/plain') || '';
+            md = e.clipboardData.getData('text/x-any-md') || '';
+            ctxRaw = e.clipboardData.getData('text/x-any-md-context') || '';
+            mdCut = e.clipboardData.getData('text/x-any-md-iscut') === '1';
+        } catch (err) { return; }
+        var bp = window.__batchPayload;
+        if (!bp || typeof bp.readHtmlClipMeta !== 'function') { return; }
+
+        // ── ツリーの clipboard（W10）──
+        var tmeta = bp.readHtmlClipMeta(html, bp.TREE_CLIP_ATTR);
+        if (tmeta && Array.isArray(tmeta.items) && tmeta.items.length > 0) {
+            e.preventDefault();
+            var tTarget = treePasteTarget(function (id) {
+                return tmeta.items.some(function (it) { return it && it.id === id; });
+            });
+            if (tTarget.linkId) {
+                // linkedfd へは常に複製（tree → linkedfd の D&D と同じ host 入口。.out・フォルダは host が理由付きで数える）
+                if (typeof bridge.folderViewMoveInBatch === 'function') {
+                    bridge.folderViewMoveInBatch(tTarget.linkId, '', tmeta.items.map(function (it) {
+                        return { srcKind: it.kind, srcItemId: it.id };
+                    }));
+                }
+            } else if (typeof bridge.pasteTreeClip === 'function') {
+                bridge.pasteTreeClip({ items: tmeta.items, isCut: !!tmeta.isCut },
+                    { kind: 'tree', parentId: tTarget.parentId, index: tTarget.index });
+            }
+            return;
+        }
+        var target = treePasteTarget(null);
+
+        // ── linkedfd の clipboard（cmd+c だけ = 常に複製）──
+        var fmeta = bp.readHtmlClipMeta(html, 'data-fractal-fv-clip');
+        if (fmeta && fmeta.folderLinkId && Array.isArray(fmeta.relPaths) && fmeta.relPaths.length > 0) {
+            e.preventDefault();
+            if (target.linkId) {
+                if (target.linkId === fmeta.folderLinkId) {
+                    if (typeof bridge.folderViewMoveBatch === 'function') { bridge.folderViewMoveBatch(target.linkId, fmeta.relPaths, '', 'copy'); }
+                } else if (typeof bridge.folderViewCopyAcrossLinks === 'function') {
+                    // W12: 別の linkedfd へ = 常に複製
+                    bridge.folderViewCopyAcrossLinks(fmeta.folderLinkId, fmeta.relPaths, target.linkId, '');
+                }
+                return;
+            }
+            // linkedfd → ツリー（D&D と同じ dispatch。host が note へ複製して登録する）
+            dispatchFolderViewEntryDrop({
+                v: 1, folderLinkId: fmeta.folderLinkId,
+                items: fmeta.relPaths.map(function (r) { return { folderLinkId: fmeta.folderLinkId, relPath: r }; }),
+            }, target.parentId, target.index);
+            return;
+        }
+
+        // ── outliner の clipboard ──
+        var ometa = bp.readHtmlClipMeta(html, 'data-outliner-clipboard');
+        if (ometa && Array.isArray(ometa.nodes)) {
+            if (target.linkId) {
+                if (!Array.isArray(ometa.nodeIds) || ometa.nodeIds.length === 0 || !ometa.sourceOutFileKey) { return; }
+                e.preventDefault();
+                var mv = { outFileKey: ometa.sourceOutFileKey, nodeId: ometa.nodeIds[0] };
+                if (ometa.nodeIds.length > 1) { mv.nodeIds = ometa.nodeIds; }
+                if (ometa.isCut) { mv.clip = { isCut: true, plainText: plain }; }   // W9: cut は host が Store の nodes から書き出す
+                if (typeof bridge.sendOutNodesToFolderLinkFromDrop === 'function') { bridge.sendOutNodesToFolderLinkFromDrop(mv, target.linkId, ''); }
+                return;
+            }
+            e.preventDefault();
+            if (typeof bridge.pasteOutlinerClipToTree === 'function') {
+                bridge.pasteOutlinerClipToTree(plain, !!ometa.isCut, target.parentId, target.index);
+            }
+            return;
+        }
+
+        // ── md の範囲選択の clipboard（選択の中の 📎 / subpage リンクを全部）──
+        if (md && ctxRaw) {
+            var ctx = null;
+            try { ctx = JSON.parse(ctxRaw); } catch (err) { ctx = null; }
+            if (!ctx || typeof bridge.pasteMdClip !== 'function') { return; }
+            e.preventDefault();
+            bridge.pasteMdClip(md, ctx, mdCut, target.linkId
+                ? { kind: 'fv', folderLinkId: target.linkId, dstDirRelPath: '' }
+                : { kind: 'tree', parentId: target.parentId, index: target.index });
+        }
     }
 
     function openFolderView(folderLinkId, title) {
@@ -50705,6 +51329,33 @@ var notesFilePanel = (function() {
         } catch (err) { return null; }
     }
 
+    // W4: md の範囲選択から運んだ複数リンク（📎 / subpage 混在可）を選択順の 1 本にして返す
+    //（受け手 1 つにつき bridge 1 回の材料）。1 件だけ / どちらの MIME も無いときは null = 従来の単一経路。
+    // getData は drop 時にしか読めないので drop handler からだけ呼ぶ
+    function readMdLinksBatch(e) {
+        if (!isMdSubpageDrag(e) && !isMdFileLinkDrag(e)) return null;
+        // batch-payload.js が無い面（単体で組んだハーネス等）は従来の単一経路のまま
+        if (!window.__batchPayload || typeof window.__batchPayload.mergeMdLinksBySeq !== 'function') return null;
+        var pF = null, pS = null;
+        try { pF = JSON.parse(e.dataTransfer.getData(MD_FILELINK_MIME) || 'null'); } catch (err) { pF = null; }
+        try { pS = JSON.parse(e.dataTransfer.getData(MD_SUBPAGE_MIME) || 'null'); } catch (err) { pS = null; }
+        var batch = window.__batchPayload.mergeMdLinksBySeq(pF, pS);
+        return (batch.items.length > 1 && batch.sourceMdPath) ? batch : null;
+    }
+    // W4: 複数リンクをツリーへ登録（root / 余白 / folder 行 / 行の前後）。複数でなければ false（呼び出し側が単一経路へ）。
+    // 挿入位置は insFn で遅延評価する（resolveGapInsert は lastDropLine を消費するので、単一経路に落ちるときは呼ばない）
+    function dispatchMdLinksRegisterBatch(e, insFn) {
+        var batch = readMdLinksBatch(e);
+        if (!batch) return false;
+        var ins = insFn();
+        clearAllDragOver();
+        removeDropIndicator();
+        if (typeof bridge.notesRegisterFromMdLinksBatch === 'function') {
+            bridge.notesRegisterFromMdLinksBatch(batch, ins.parentId, ins.index);
+        }
+        return true;
+    }
+
     // 外部 drop / subpage / out-node-file / md-filelink の drop 位置 → 兄弟挿入 {parentId, index} 解決。
     function computeSiblingInsert(targetEl, e) {
         var rect = targetEl.getBoundingClientRect();
@@ -50714,6 +51365,23 @@ var notesFilePanel = (function() {
         var idx = sib.indexOf(targetEl.dataset.itemId);
         if (idx === -1) idx = sib.length;
         return { parentId: parentId, index: ratio < 0.5 ? idx : idx + 1 };
+    }
+
+    /**
+     * W5: 外部 payload（md の subpage / 📎、outliner の file / 添付、linkedfd のエントリ、外部ファイル）の
+     * item 上 drop 位置。仮想フォルダ行の中央帯（0.25-0.60 — dragover の「フォルダの中」表示と同じ帯）=
+     * フォルダ内末尾、それ以外 = 兄弟挿入（computeSiblingInsert）。全ての外部 payload がこの 1 つを通る。
+     */
+    function computeExternalDropInsert(targetEl, e) {
+        if (targetEl.dataset.itemType === 'folder' || targetEl.classList.contains('file-panel-folder-header')) {
+            var rect = targetEl.getBoundingClientRect();
+            var ratio = rect.height ? (e.clientY - rect.top) / rect.height : 0;
+            if (ratio >= 0.25 && ratio <= 0.60) {
+                var folderId = targetEl.dataset.folderId || targetEl.dataset.itemId;
+                return { parentId: folderId, index: getChildIdsOfParent(folderId).length };
+            }
+        }
+        return computeSiblingInsert(targetEl, e);
     }
 
     function readOutNodePagePayload(e) {
@@ -51084,7 +51752,9 @@ var notesFilePanel = (function() {
         if (ids.length === 1) { bridge.moveItem(ids[0], parentId, indexSingle); return; }
         // FR-MSEL-04 R3 との差: ツリー内移動では `.out` も**実際に動く**（除外していない）ので、
         // dragend の「N outline file(s) skipped」通知を出してはならない（set = dragstart と対の clear）。
+        // フォルダも同じく実際に動くので、フォルダの通知も出さない（W13）
         dragExcludedOut = 0;
+        dragExcludedFolder = 0;
         if (typeof bridge.moveItems === 'function') {
             bridge.moveItems(ids, parentId, indexRaw);
             return;
@@ -51107,6 +51777,9 @@ var notesFilePanel = (function() {
      *（N 回ループすると host の件数ゲートを迂回する — reviewer iteration 1 SEC-1）。
      */
     function dispatchTreeItemsOnTreeItem(targetExt, targetId, items) {
+        // W13: ここへ渡す items にはフォルダも入り、host が「扱えない」を集計して通知する。
+        // dragend の「フォルダを外した」通知と二重にしない
+        dragExcludedFolder = 0;
         if (!items || items.length === 0) { return; }
         var single = items.length === 1 ? items[0] : null;
         if (targetExt === 'out') {
@@ -51192,7 +51865,20 @@ var notesFilePanel = (function() {
                 }
                 return true;
             }
-            return false;   // linkedfd 行 / 上下帯は従来（FR-FLV-20 の tree 登録）
+            // W12: linkedfd の行の中央帯 = その linkedfd の root へ。別の linkedfd からは常に複製（境界をまたぐ）、
+            // 同じ linkedfd からは root への移動（linkedfd の中の D&D と同じ）。旧実装は note ツリーの兄弟として複製していた
+            if (ext === 'folder' && center && fvLink) {
+                clearAllDragOver(); removeDropIndicator();
+                var relLink = fvItems.filter(function (it) { return it && it.relPath !== undefined; }).map(function (it) { return it.relPath; });
+                if (relLink.length === 0) { return true; }
+                if (fvLink === targetId) {
+                    if (typeof bridge.folderViewMoveBatch === 'function') { bridge.folderViewMoveBatch(targetId, relLink, '', 'move'); }
+                } else if (typeof bridge.folderViewCopyAcrossLinks === 'function') {
+                    bridge.folderViewCopyAcrossLinks(fvLink, relLink, targetId, '');
+                }
+                return true;
+            }
+            return false;   // linkedfd 行の上下帯は従来（FR-FLV-20 の tree 登録）
         }
         if (nodeRef && nodeRef.outFileKey && nodeRef.nodeId) {
             // ── 2026-09-05 R25: outliner node → tree の linkedfd 行（全域）= 「linkedfd に送る」（root へ export） ──
@@ -51225,6 +51911,22 @@ var notesFilePanel = (function() {
                 return true;
             }
             return false;
+        }
+        // W4: 範囲選択から運んだ複数リンクは種類が混ざっても seq 順に 1 本にして bridge を 1 回
+        var mdBatch = readMdLinksBatch(e);
+        if (mdBatch && ext === 'folder') {
+            clearAllDragOver(); removeDropIndicator();
+            if (typeof bridge.folderViewMoveFromMdBatch === 'function') { bridge.folderViewMoveFromMdBatch(targetId, '', mdBatch); }
+            return true;
+        }
+        if (mdBatch && ext !== 'folder' && center) {
+            clearAllDragOver(); removeDropIndicator();
+            if (ext === 'out') {
+                if (typeof bridge.importMdLinksIntoOutItemBatch === 'function') { bridge.importMdLinksIntoOutItemBatch(mdBatch, targetId); }
+            } else if (typeof bridge.linkMdLinksIntoMdItemBatch === 'function') {
+                bridge.linkMdLinksIntoMdItemBatch(mdBatch, targetId);
+            }
+            return true;
         }
         var spP = isMdSubpageDrag(e) ? readMdSubpagePayload(e) : null;
         var flP = (!spP && isMdFileLinkDrag(e)) ? readMdFileLinkPayload(e) : null;
@@ -51280,6 +51982,9 @@ var notesFilePanel = (function() {
             // drop 意味論が無い）。除外件数は dragend で drop 成立時にだけ 1 回通知する（フォルダの
             // `excludedDirs` = 受け手集計とは経路が違う: 受け手が 3 面に分かれるため送り手側で数える）。
             dragExcludedOut = multiSel ? multiSel.out.length : 0;
+            // W13: folder link・仮想フォルダもどの MIME にも積まない（md / outliner / linkedfd に落とす意味論が無い）。
+            // 黙って外さず、drop が成立したら dragend で 1 回通知する（.out と同じ）
+            dragExcludedFolder = multiSel ? multiSel.folder.length : 0;
 
             if (multiSel && multiSel.md.length > 0) {
                 try {
@@ -51318,12 +52023,22 @@ var notesFilePanel = (function() {
             target.style.opacity = '';
             // FR-MSEL-04 R3（TASK-45）: 複数選択から除外した .out があり、drop が成立した（dropEffect !== 'none'）
             // ときだけ 1 回通知する。キャンセル（'none'）では通知しない（dragstart 時点では成否が分からない）。
-            if (dragExcludedOut > 0 && e && e.dataTransfer && e.dataTransfer.dropEffect !== 'none'
+            // W13: 外したフォルダ（folder link・仮想フォルダ）も同じ条件で数え、.out と合わせて**1 回の通知**にまとめる
+            if ((dragExcludedOut > 0 || dragExcludedFolder > 0) && e && e.dataTransfer && e.dataTransfer.dropEffect !== 'none'
                 && bridge && typeof bridge.notifyError === 'function') {
-                var tplOut = i18n.batchDndOutSkipped || '{count} outline file(s) skipped — .out items cannot be dropped here.';
-                bridge.notifyError(String(tplOut).replace('{count}', String(dragExcludedOut)));
+                var skippedParts = [];
+                if (dragExcludedOut > 0) {
+                    var tplOut = i18n.batchDndOutSkipped || '{count} outline file(s) skipped — .out items cannot be dropped here.';
+                    skippedParts.push(String(tplOut).replace('{count}', String(dragExcludedOut)));
+                }
+                if (dragExcludedFolder > 0) {
+                    var tplFolder = i18n.batchDndTreeFoldersSkipped || '{count} folder(s) skipped — folders and folder links cannot be dropped here.';
+                    skippedParts.push(String(tplFolder).replace('{count}', String(dragExcludedFolder)));
+                }
+                bridge.notifyError(skippedParts.join(' '));
             }
             dragExcludedOut = 0;   // one-shot clear（set = dragstart と対）
+            dragExcludedFolder = 0;   // one-shot clear（set = dragstart と対）
             dragItemId = null;
             dragItemType = null;
             dragSourceFileExt = null;
@@ -51410,7 +52125,8 @@ var notesFilePanel = (function() {
                 var mdLinkOrigin = fromMdSubpage || fromMdFileLink;
                 if ((extOv === 'out' && (nodeOrigin || (mdLinkOrigin && centerOv) || fromFolderView))
                     || (extOv === 'md' && centerOv && (nodeOrigin || mdLinkOrigin || fromFolderView))
-                    || (extOv === 'folder' && (nodeOrigin || mdLinkOrigin))) {   // 2026-09-05 R24..R26
+                    || (extOv === 'folder' && (nodeOrigin || mdLinkOrigin))   // 2026-09-05 R24..R26
+                    || (extOv === 'folder' && centerOv && fromFolderView)) {   // W12: linkedfd → 別の linkedfd の root
                     target.classList.add('file-panel-drag-over-md-into-out');
                     return;
                 }
@@ -51483,7 +52199,7 @@ var notesFilePanel = (function() {
             }
             // FR-NDA-02: 添付 payload が最優先（subtree より先。他 payload の不在を条件にしない）
             if (!dragItemId && tryDispatchNodeAssetsDrop(e, function() {
-                return computeSiblingInsert(el.closest('[data-item-id]') || el, e);
+                return computeExternalDropInsert(el.closest('[data-item-id]') || el, e);   // W5: フォルダ行の中央帯 = 中へ
             })) {
                 e.preventDefault();
                 return;
@@ -51506,33 +52222,23 @@ var notesFilePanel = (function() {
             if (folderViewPayload && !dragItemId) {
                 clearAllDragOver();
                 removeDropIndicator();
-                var targetFV = el.closest('[data-item-id]') || el;
-                var rectFV = targetFV.getBoundingClientRect();
-                var ratioFV = rectFV.height ? (e.clientY - rectFV.top) / rectFV.height : 0;
-                var insFV;
                 // フォルダ中央帯（0.25-0.60 — Feature B と同帯）= フォルダ内末尾。上下帯 = 兄弟挿入
-                if ((targetFV.dataset.itemType === 'folder' || targetFV.classList.contains('file-panel-folder-header'))
-                    && ratioFV >= 0.25 && ratioFV <= 0.60) {
-                    var fvFolderId = targetFV.dataset.folderId || targetFV.dataset.itemId;
-                    insFV = { parentId: fvFolderId, index: getChildIdsOfParent(fvFolderId).length };
-                } else {
-                    insFV = computeSiblingInsert(targetFV, e);
-                }
+                var insFV = computeExternalDropInsert(el.closest('[data-item-id]') || el, e);
                 dispatchFolderViewEntryDrop(folderViewPayload, insFV.parentId, insFV.index);
+                return;
+            }
+            // W4: md の範囲選択から運んだ複数リンク（📎 / subpage 混在）→ 選択順に登録（bridge 1 回）
+            if ((mdSubpagePayload || mdFileLinkPayload) && !dragItemId &&
+                dispatchMdLinksRegisterBatch(e, function() { return computeExternalDropInsert(el.closest('[data-item-id]') || el, e); })) {
                 return;
             }
             if (mdSubpagePayload && !dragItemId) {
                 clearAllDragOver();
                 removeDropIndicator();
-                var targetSp = el.closest('[data-item-id]') || el;
-                var rectSp = targetSp.getBoundingClientRect();
-                var ratioSp = (e.clientY - rectSp.top) / rectSp.height;
-                var parentSp = targetSp.dataset.parentId || null;
-                var sibSp = getChildIdsOfParent(parentSp);
-                var idxSp = sibSp.indexOf(targetSp.dataset.itemId);
-                if (idxSp === -1) idxSp = sibSp.length;
+                // W5: フォルダ行の中央帯 = フォルダの中（以前は常に兄弟に入っていた）
+                var insSp = computeExternalDropInsert(el.closest('[data-item-id]') || el, e);
                 if (typeof bridge.notesRegisterSubpageFromMd === 'function') {
-                    bridge.notesRegisterSubpageFromMd(mdSubpagePayload, parentSp, ratioSp < 0.5 ? idxSp : idxSp + 1);
+                    bridge.notesRegisterSubpageFromMd(mdSubpagePayload, insSp.parentId, insSp.index);
                 }
                 return;
             }
@@ -51540,7 +52246,7 @@ var notesFilePanel = (function() {
             if (outNodeFilePayload && !dragItemId) {
                 clearAllDragOver();
                 removeDropIndicator();
-                var insOF = computeSiblingInsert(el.closest('[data-item-id]') || el, e);
+                var insOF = computeExternalDropInsert(el.closest('[data-item-id]') || el, e);   // W5
                 if (typeof bridge.notesRegisterFileFromOutNode === 'function') {
                     bridge.notesRegisterFileFromOutNode(outNodeFilePayload, insOF.parentId, insOF.index);
                 }
@@ -51551,7 +52257,7 @@ var notesFilePanel = (function() {
             if (mdFileLinkPayload && !dragItemId) {
                 clearAllDragOver();
                 removeDropIndicator();
-                var insFL = computeSiblingInsert(el.closest('[data-item-id]') || el, e);
+                var insFL = computeExternalDropInsert(el.closest('[data-item-id]') || el, e);   // W5
                 if (typeof bridge.notesRegisterFileFromMdLink === 'function') {
                     bridge.notesRegisterFileFromMdLink(mdFileLinkPayload, insFL.parentId, insFL.index);
                 }
@@ -51562,14 +52268,8 @@ var notesFilePanel = (function() {
             if (!dragItemId && !outPayload && !subtreePayload && !mdSubpagePayload && !outNodeFilePayload && !mdFileLinkPayload && isExternalFilesDrag(e)) {
                 clearAllDragOver();
                 removeDropIndicator();
-                var targetEx = el.closest('[data-item-id]') || el;
-                var rectEx = targetEx.getBoundingClientRect();
-                var ratioEx = (e.clientY - rectEx.top) / rectEx.height;
-                var parentEx = targetEx.dataset.parentId || null;
-                var sibEx = getChildIdsOfParent(parentEx);
-                var idxEx = sibEx.indexOf(targetEx.dataset.itemId);
-                if (idxEx === -1) idxEx = sibEx.length;
-                registerExternalDroppedFiles(e, parentEx, ratioEx < 0.5 ? idxEx : idxEx + 1);
+                var insEx = computeExternalDropInsert(el.closest('[data-item-id]') || el, e);   // W5
+                registerExternalDroppedFiles(e, insEx.parentId, insEx.index);
                 return;
             }
             // FR-TF-17: VS Code Explorer uri-list → item の前/後に登録（Files 分岐の後 = Files 優先の
@@ -51577,14 +52277,8 @@ var notesFilePanel = (function() {
             if (!dragItemId && !outPayload && !subtreePayload && !mdSubpagePayload && !outNodeFilePayload && !mdFileLinkPayload && isVscodeUriListDrag(e)) {
                 clearAllDragOver();
                 removeDropIndicator();
-                var targetUl = el.closest('[data-item-id]') || el;
-                var rectUl = targetUl.getBoundingClientRect();
-                var ratioUl = (e.clientY - rectUl.top) / rectUl.height;
-                var parentUl = targetUl.dataset.parentId || null;
-                var sibUl = getChildIdsOfParent(parentUl);
-                var idxUl = sibUl.indexOf(targetUl.dataset.itemId);
-                if (idxUl === -1) idxUl = sibUl.length;
-                registerVscodeUriDrop(e, parentUl, ratioUl < 0.5 ? idxUl : idxUl + 1);
+                var insUl = computeExternalDropInsert(el.closest('[data-item-id]') || el, e);   // W5
+                registerVscodeUriDrop(e, insUl.parentId, insUl.index);
                 return;
             }
             // 2026-09-05（裁定 R32）: subtree payload をここで通してもこの先に担う分岐は無い
@@ -51777,12 +52471,15 @@ var notesFilePanel = (function() {
             // FR-TF-17: Explorer uri-list も同列で受理（files が空のため OR が必須）
             // FR-NDA-02: node 添付 payload も受理（3 面同型）
             var fromNodeAssetsC = isOutNodeAssetsDrag(e);
-            var fromExternal = !dragItemId && !fromOutliner && !fromFolderView && !fromNodeAssetsC && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
-            if (!dragItemId && !fromOutliner && !fromFolderView && !fromNodeAssetsC && !fromExternal) return;
+            // W5: outliner の file アイコン・md の subpage / 📎 もフォルダの隙間（= フォルダの中）へ落とせるようにする
+            //（item 行・listEl の余白と同じ受け口。以前はここだけ preventDefault せず drop が発火しなかった）
+            var fromMdLinkOrFileC = isOutNodeFileDrag(e) || isMdSubpageDrag(e) || isMdFileLinkDrag(e);
+            var fromExternal = !dragItemId && !fromOutliner && !fromFolderView && !fromNodeAssetsC && !fromMdLinkOrFileC && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
+            if (!dragItemId && !fromOutliner && !fromFolderView && !fromNodeAssetsC && !fromMdLinkOrFileC && !fromExternal) return;
             // 子要素がハンドルしない空エリアのみ
             if (e.target === childrenEl || e.target.className === 'file-panel-folder-children') {
                 e.preventDefault();
-                e.dataTransfer.dropEffect = (fromOutliner || fromFolderView || fromNodeAssetsC || fromExternal) ? 'copy' : 'move';
+                e.dataTransfer.dropEffect = (fromOutliner || fromFolderView || fromNodeAssetsC || fromMdLinkOrFileC || fromExternal) ? 'copy' : 'move';
                 clearAllDragOver();
                 // 改善1: 子を持つフォルダの隙間では「children 全域ハイライト → 末尾追加」を廃止
                 // (っっd+w が丸ごと選択される分かりづらい挙動)。直近の線を復元して線基準にする。
@@ -51809,7 +52506,26 @@ var notesFilePanel = (function() {
                 return;
             }
             var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
+            // W5: item 行と同じ優先順（page → subpage → out-node-file → md 📎）。挿入位置はそのフォルダ内の線 / 末尾
+            var mdSubpagePayloadC = !outPayload && isMdSubpageDrag(e) ? readMdSubpagePayload(e) : null;
+            var outNodeFilePayloadC = (!outPayload && !mdSubpagePayloadC) && isOutNodeFileDrag(e) ? readOutNodeFilePayload(e) : null;
+            var mdFileLinkPayloadC = (!outPayload && !mdSubpagePayloadC && !outNodeFilePayloadC) && isMdFileLinkDrag(e) ? readMdFileLinkPayload(e) : null;
             e.preventDefault();
+            if (!dragItemId && (mdSubpagePayloadC || outNodeFilePayloadC || mdFileLinkPayloadC)) {
+                var gLkC = resolveGapInsert(folderId, getChildIdsOfParent(folderId).length, folderId);
+                // W4: md の複数リンク → このフォルダの中へ選択順に（bridge 1 回）
+                if (!outNodeFilePayloadC && dispatchMdLinksRegisterBatch(e, function() { return gLkC; })) { return; }
+                clearAllDragOver();
+                removeDropIndicator();
+                if (mdSubpagePayloadC && typeof bridge.notesRegisterSubpageFromMd === 'function') {
+                    bridge.notesRegisterSubpageFromMd(mdSubpagePayloadC, gLkC.parentId, gLkC.index);
+                } else if (outNodeFilePayloadC && typeof bridge.notesRegisterFileFromOutNode === 'function') {
+                    bridge.notesRegisterFileFromOutNode(outNodeFilePayloadC, gLkC.parentId, gLkC.index);
+                } else if (mdFileLinkPayloadC && typeof bridge.notesRegisterFileFromMdLink === 'function') {
+                    bridge.notesRegisterFileFromMdLink(mdFileLinkPayloadC, gLkC.parentId, gLkC.index);
+                }
+                return;
+            }
             // FR-FLV-20 (W2 受信): フォルダビューのエントリ → フォルダ内末尾に移動登録
             if (!dragItemId && !outPayload && isFolderViewEntryDrag(e)) {
                 clearAllDragOver();
@@ -52946,6 +53662,13 @@ var notesFilePanel = (function() {
             listEl.__navWired = true;
             listEl.addEventListener('keydown', onNavKeyDown);
         }
+        // W11: ツリーの cmd+v。**プロセス内で 1 回だけ**登録する（document の listener は destroy で外れないので、
+        // open ごとに張ると「N 回貼られる」= linkedfd の __fvClipboardBound と同じ規律）
+        if (!window.__treeClipboardBound) {
+            window.__treeClipboardBound = true;
+            document.addEventListener('paste', function (e) { onTreeDocumentPaste(e); });
+        }
+        window.__notesTreeHasFocus = treeHasFocus;
 
         // FR-TF-16: drag 中 hover 抑止の set/clear 配線（受け側完結ライフサイクル）。
         // capture で拾う: 個別 handler（setupDropTarget 等）が preventDefault/return しても
@@ -53144,6 +53867,11 @@ var notesFilePanel = (function() {
                 var mdFileLinkPayloadR = (!outPayload && !mdSubpagePayloadR && !outNodeFilePayloadR) && isMdFileLinkDrag(e) ? readMdFileLinkPayload(e) : null;
                 e.preventDefault();
                 var rootIdsF = structure ? structure.rootIds : [];
+                // W4: md の複数リンク → 線の位置（無ければ末尾）へ選択順に（bridge 1 回）
+                if (!dragItemId && !outPayload && (mdSubpagePayloadR || mdFileLinkPayloadR) &&
+                    dispatchMdLinksRegisterBatch(e, function() { return resolveGapInsert(null, rootIdsF.length); })) {
+                    return;
+                }
                 // FR-FLV-20 (W2 受信): フォルダビューのエントリ → ルート末尾に移動登録
                 if (!dragItemId && !outPayload && !mdSubpagePayloadR && !outNodeFilePayloadR && !mdFileLinkPayloadR && isFolderViewEntryDrag(e)) {
                     clearAllDragOver();
@@ -62941,6 +63669,16 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         }
         if (mdIds.length > 0) { dispatchTreeItemsIn(b, dst, 'md', mdIds); return; }
         if (fileIds.length > 0) { dispatchTreeItemsIn(b, dst, 'file', fileIds); return; }
+        // W4: md の範囲選択から運んだ複数リンク（📎 / subpage 混在可）は seq 順に 1 本にして
+        // folderViewMoveFromMdBatch を 1 回（1 件ごとの移動 / 複製は host が決める）。1 件は下の単一経路
+        var mdBatch = (window.__batchPayload && typeof window.__batchPayload.mergeMdLinksBySeq === 'function')
+            ? window.__batchPayload.mergeMdLinksBySeq(readJson(e, MD_FILELINK_MIME), readJson(e, MD_SUBPAGE_MIME)) : { items: [] };
+        if (mdBatch.items.length > 1 && mdBatch.sourceMdPath) {
+            if (typeof b.folderViewMoveFromMdBatch === 'function') {
+                b.folderViewMoveFromMdBatch(currentLinkId, dst, mdBatch);
+            }
+            return;
+        }
         // W6: md アンカー既存 2 MIME → #16 folderViewMoveFromMd
         var mfl = readJson(e, MD_FILELINK_MIME);
         if (mfl && mfl.href) {
@@ -63694,11 +64432,20 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         //    （ADRL-0118 が案 A の却下理由に挙げた stale payload 誤爆と同種）。その時は後者を足す。
         if (!disp || typeof disp.isFolderViewShown !== 'function' || !disp.isFolderViewShown()) { return; }
         if (e.defaultPrevented) { return; }                          // ④
+        // ⑤ W11: ツリーにフォーカスがある paste はツリーのもの（ツリー側の document listener が受ける）。
+        //    旧実装は linkedfd が出ているだけで拾い、ツリーで押した cmd+v が linkedfd に貼られていた（誤配送）
+        if (typeof window.__notesTreeHasFocus === 'function' && window.__notesTreeHasFocus()) { return; }
         if (!e.clipboardData) { return; }
 
         var html = '';
-        try { html = e.clipboardData.getData('text/html') || ''; } catch (err) { return; }
-        if (!html) { return; }
+        var mdClip = '', mdCtxRaw = '', mdCut = false;
+        try {
+            html = e.clipboardData.getData('text/html') || '';
+            mdClip = e.clipboardData.getData('text/x-any-md') || '';
+            mdCtxRaw = e.clipboardData.getData('text/x-any-md-context') || '';
+            mdCut = e.clipboardData.getData('text/x-any-md-iscut') === '1';
+        } catch (err) { return; }
+        if (!html && !mdClip) { return; }
 
         // 🔴 selectedRel が null（選択 0 件 = 余白相当）のとき findEntry を呼ばない
         //    （parentRelOf(null) が例外になり、handler ごと落ちて **無反応**になる。実測で検出）
@@ -63715,6 +64462,13 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 e.preventDefault();
                 var mv = { outFileKey: ometa.sourceOutFileKey, nodeId: ometa.nodeIds[0] };
                 if (ometa.nodeIds.length > 1) { mv.nodeIds = ometa.nodeIds; }
+                // W9: cut の印。cut の node は .out から消えているので、host は Store の nodes から書き出す
+                //（Store と text/plain が一致するときだけ。移動か複製かは host が決める = linkedfd へは常に複製）
+                if (ometa.isCut) {
+                    var oPlain = '';
+                    try { oPlain = e.clipboardData.getData('text/plain') || ''; } catch (err) { oPlain = ''; }
+                    mv.clip = { isCut: true, plainText: oPlain };
+                }
                 // HM-8: 既存 host 入口（D&D / 「linkedfd に送る」と共有）。clipboard 専用 handler は作らない
                 if (typeof b.sendOutNodesToFolderLinkFromDrop === 'function') {
                     b.sendOutNodesToFolderLinkFromDrop(mv, currentLinkId, dst);
@@ -63728,6 +64482,14 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         if (fm) {
             var fmeta = null;
             try { fmeta = JSON.parse(decodeURIComponent(fm[1])); } catch (err) { fmeta = null; }
+            // W12: 別の linkedfd でコピーしたもの = その linkedfd からこの linkedfd へ**複製**（旧実装は無音で無視していた）
+            if (fmeta && fmeta.folderLinkId && fmeta.folderLinkId !== currentLinkId && Array.isArray(fmeta.relPaths) && fmeta.relPaths.length > 0) {
+                e.preventDefault();
+                if (typeof b.folderViewCopyAcrossLinks === 'function') {
+                    b.folderViewCopyAcrossLinks(fmeta.folderLinkId, fmeta.relPaths, currentLinkId, dst);
+                }
+                return;
+            }
             if (fmeta && fmeta.folderLinkId === currentLinkId && Array.isArray(fmeta.relPaths)) {
                 // FR-FDP-06 / ADRL-0124（TASK-11）: **フォルダも複製する**。
                 // ADRL-0120 の受容事項「フォルダの再帰複製経路が既存に無い」は
@@ -63751,6 +64513,26 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 // 🔴 fvMovePreflight は**通さない**（NFR-REL-1）。H は「同じ階層への複製」が正常系で、
                 //    D&D 用の全体拒否ガード（既に同じ親 → reject）を掛けると原理的に動かなくなる。
                 dispatchFvMove(files, hDst, 'copy');
+                return;
+            }
+        }
+        var bp = window.__batchPayload;
+        // ── W11: ツリーの clipboard（cmd+c / cmd+x どちらも linkedfd へは複製 = tree → linkedfd の D&D と同じ host 入口）──
+        var tmeta = (bp && typeof bp.readHtmlClipMeta === 'function') ? bp.readHtmlClipMeta(html, bp.TREE_CLIP_ATTR) : null;
+        if (tmeta && Array.isArray(tmeta.items) && tmeta.items.length > 0) {
+            e.preventDefault();
+            if (typeof b.folderViewMoveInBatch === 'function') {
+                b.folderViewMoveInBatch(currentLinkId, dst, tmeta.items.map(function (it) { return { srcKind: it.kind, srcItemId: it.id }; }));
+            }
+            return;
+        }
+        // ── W11: md の範囲選択の clipboard（選択の中の 📎 / subpage リンクを全部。移動か複製かは host）──
+        if (mdClip && mdCtxRaw) {
+            var mdCtx = null;
+            try { mdCtx = JSON.parse(mdCtxRaw); } catch (err) { mdCtx = null; }
+            if (mdCtx && typeof b.pasteMdClip === 'function') {
+                e.preventDefault();
+                b.pasteMdClip(mdClip, mdCtx, mdCut, { kind: 'fv', folderLinkId: currentLinkId, dstDirRelPath: dst });
                 return;
             }
         }
@@ -64949,11 +65731,12 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         },
         // FR-PDB-01 (sprint 20260818-183407): 本番 notes-host-bridge.js の
         // pasteOutlinerNodesWithAssets override をミラー（自 filePath 畳み + destination='main-md'）。
-        pasteOutlinerNodesWithAssets: function(plainText, nodes) {
+        pasteOutlinerNodesWithAssets: function(plainText, nodes, _sidePanelFilePath, isCut) {
             window.__testApi.messages.push({
                 type: 'pasteOutlinerNodesWithAssets',
                 plainText: plainText,
                 nodes: nodes,
+                isCut: !!isCut,
                 sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
                 destination: 'main-md',
             });

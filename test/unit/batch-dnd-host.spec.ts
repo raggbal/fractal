@@ -638,13 +638,24 @@ test.describe('TC-MSEL-32 種別混在の結合 batch は合計で 1 回ゲー�
     test('(b) provider: 結合 handler 2 本が runPlatformBatch を 1 回・kind 分岐・返り値 return（source pin）', () => {
         const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'notesEditorProvider.ts'), 'utf8');
         for (const h of [
-            { name: 'notesImportTreeItemsBatch', callees: ['platform.notesImportMdIntoOut', 'platform.notesImportTreeFileAtPosition'] },
-            { name: 'attachTreeItemsToMdBatch', callees: ['linkMdAsSubpageForSidePanelCore', 'treeFileAttachToMdEditor'] },
+            { name: 'notesImportTreeItemsBatch', helper: 'treeItemToOutliner', callees: ['platform.notesImportMdIntoOut', 'platform.notesImportTreeFileAtPosition'] },
+            // 🔄 期待更新（multi-file-dnd-clipboard-matrix レビュー指摘）: md の 1 件分は treeMdItemToMdEditor
+            // （台帳から実体を引き、複数なら asBlock を付けてから linkMdAsSubpageForSidePanelCore を呼ぶ）を通す
+            { name: 'attachTreeItemsToMdBatch', helper: 'treeItemToMdEditor', callees: ['treeMdItemToMdEditor', 'treeFileAttachToMdEditor'] },
         ]) {
             const at = src.indexOf(h.name + ':');
             expect(at, `${h.name} が provider に無い`).toBeGreaterThan(-1);
-            const win = src.slice(at, at + 1200);
-            expect((win.match(/runPlatformBatch\(/g) || []).length, `${h.name} が runPlatformBatch を 1 回でない（分割呼び = ゲートが割れる）`).toBe(1);
+            const batchWin = src.slice(at, at + 1200);
+            expect((batchWin.match(/runPlatformBatch\(/g) || []).length, `${h.name} が runPlatformBatch を 1 回でない（分割呼び = ゲートが割れる）`).toBe(1);
+            // 🔄 期待更新（W10 / multi-file-dnd-clipboard-matrix）: 1 件分の kind 分岐を名前付きの関数
+            // （treeItemToMdEditor / treeItemToOutliner）へ出し、D&D の batch とツリーの clipboard（pasteTreeClip）が
+            // **同じ関数**を回すようにした（分岐を 2 か所に書かない）。batch はその関数の返り値を runPlatformBatch へ返し、
+            // 分岐・委譲先・返り値の番人はその関数の本体で見る。
+            expect(new RegExp(`runPlatformBatch\\(items, (async )?\\(it\\) => (await )?${h.helper}\\(`).test(batchWin),
+                `${h.name} が 1 件分の関数（${h.helper}）の返り値を返していない`).toBe(true);
+            const hAt = src.indexOf(`const ${h.helper} = `);
+            expect(hAt, `${h.helper} が provider に無い`).toBeGreaterThan(-1);
+            const win = src.slice(hAt, hAt + 1200);
             // 🔄 期待更新（sprint 20260910-053026 / TASK-14 / ADRL-0125 = test_update・ユーザー裁定 2026-09-15）:
             // 三項式 `it.kind === 'md' ? … : …` から **網羅 switch**（`case 'md':` + `default: assertNeverKind`）へ
             // 変えた（新しい kind の分岐漏れをコンパイル時に落とすため）。
@@ -652,7 +663,7 @@ test.describe('TC-MSEL-32 種別混在の結合 batch は合計で 1 回ゲー�
             expect(/kind === 'md'|case 'md':/.test(win), `${h.name} が kind で分岐していない`).toBe(true);
             for (const c of h.callees) { expect(win.includes(c), `${h.name} が ${c} を呼んでいない`).toBe(true); }
             // 委譲先の返り値を捨てていない（TASK-38 契約）: 三項式 / return / => の直後に呼ぶ
-            expect(/(\?\s*(await\s+)?|:\s*(await\s+)?|=>\s*(await\s+)?|return\s+(await\s+)?)(platform\.notesImportMdIntoOut|platform\.notesImportTreeFileAtPosition|linkMdAsSubpageForSidePanelCore|treeFileAttachToMdEditor)(\?\.)?\(/.test(win),
+            expect(/(\?\s*(await\s+)?|:\s*(await\s+)?|=>\s*(await\s+)?|return\s+(await\s+)?)(platform\.notesImportMdIntoOut|platform\.notesImportTreeFileAtPosition|linkMdAsSubpageForSidePanelCore|treeMdItemToMdEditor|treeFileAttachToMdEditor)(\?\.)?\(/.test(win),
                 `${h.name} が委譲先の返り値を捨てている`).toBe(true);
         }
     });

@@ -135,6 +135,7 @@ export const webviewMessages = {
   sendToOutlinerNoOutlines: '이 노트에 아웃라인(.out)이 없습니다. 먼저 만들어 주세요.',
   batchDndFoldersSkipped: '폴더 {count}개를 건너뛰었습니다 — 폴더는 Outliner로 보내기를 사용하세요.',
   batchDndOutSkipped: '아웃라인(.out) {count}개를 건너뛰었습니다 — .out은 여기에 드롭할 수 없습니다.',
+  batchDndTreeFoldersSkipped: '폴더 {count}개를 건너뛰었습니다 — 폴더와 폴더 링크는 여기에 드롭할 수 없습니다.',
   closeOutline: '개요 닫기',
   openOutline: '개요 열기',
   openInTextEditor: '텍스트 편집기에서 열기',

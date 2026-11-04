@@ -617,6 +617,16 @@
         }
         if (mdIds.length > 0) { dispatchTreeItemsIn(b, dst, 'md', mdIds); return; }
         if (fileIds.length > 0) { dispatchTreeItemsIn(b, dst, 'file', fileIds); return; }
+        // W4: md の範囲選択から運んだ複数リンク（📎 / subpage 混在可）は seq 順に 1 本にして
+        // folderViewMoveFromMdBatch を 1 回（1 件ごとの移動 / 複製は host が決める）。1 件は下の単一経路
+        var mdBatch = (window.__batchPayload && typeof window.__batchPayload.mergeMdLinksBySeq === 'function')
+            ? window.__batchPayload.mergeMdLinksBySeq(readJson(e, MD_FILELINK_MIME), readJson(e, MD_SUBPAGE_MIME)) : { items: [] };
+        if (mdBatch.items.length > 1 && mdBatch.sourceMdPath) {
+            if (typeof b.folderViewMoveFromMdBatch === 'function') {
+                b.folderViewMoveFromMdBatch(currentLinkId, dst, mdBatch);
+            }
+            return;
+        }
         // W6: md アンカー既存 2 MIME → #16 folderViewMoveFromMd
         var mfl = readJson(e, MD_FILELINK_MIME);
         if (mfl && mfl.href) {
@@ -1370,11 +1380,20 @@
         //    （ADRL-0118 が案 A の却下理由に挙げた stale payload 誤爆と同種）。その時は後者を足す。
         if (!disp || typeof disp.isFolderViewShown !== 'function' || !disp.isFolderViewShown()) { return; }
         if (e.defaultPrevented) { return; }                          // ④
+        // ⑤ W11: ツリーにフォーカスがある paste はツリーのもの（ツリー側の document listener が受ける）。
+        //    旧実装は linkedfd が出ているだけで拾い、ツリーで押した cmd+v が linkedfd に貼られていた（誤配送）
+        if (typeof window.__notesTreeHasFocus === 'function' && window.__notesTreeHasFocus()) { return; }
         if (!e.clipboardData) { return; }
 
         var html = '';
-        try { html = e.clipboardData.getData('text/html') || ''; } catch (err) { return; }
-        if (!html) { return; }
+        var mdClip = '', mdCtxRaw = '', mdCut = false;
+        try {
+            html = e.clipboardData.getData('text/html') || '';
+            mdClip = e.clipboardData.getData('text/x-any-md') || '';
+            mdCtxRaw = e.clipboardData.getData('text/x-any-md-context') || '';
+            mdCut = e.clipboardData.getData('text/x-any-md-iscut') === '1';
+        } catch (err) { return; }
+        if (!html && !mdClip) { return; }
 
         // 🔴 selectedRel が null（選択 0 件 = 余白相当）のとき findEntry を呼ばない
         //    （parentRelOf(null) が例外になり、handler ごと落ちて **無反応**になる。実測で検出）
@@ -1391,6 +1410,13 @@
                 e.preventDefault();
                 var mv = { outFileKey: ometa.sourceOutFileKey, nodeId: ometa.nodeIds[0] };
                 if (ometa.nodeIds.length > 1) { mv.nodeIds = ometa.nodeIds; }
+                // W9: cut の印。cut の node は .out から消えているので、host は Store の nodes から書き出す
+                //（Store と text/plain が一致するときだけ。移動か複製かは host が決める = linkedfd へは常に複製）
+                if (ometa.isCut) {
+                    var oPlain = '';
+                    try { oPlain = e.clipboardData.getData('text/plain') || ''; } catch (err) { oPlain = ''; }
+                    mv.clip = { isCut: true, plainText: oPlain };
+                }
                 // HM-8: 既存 host 入口（D&D / 「linkedfd に送る」と共有）。clipboard 専用 handler は作らない
                 if (typeof b.sendOutNodesToFolderLinkFromDrop === 'function') {
                     b.sendOutNodesToFolderLinkFromDrop(mv, currentLinkId, dst);
@@ -1404,6 +1430,14 @@
         if (fm) {
             var fmeta = null;
             try { fmeta = JSON.parse(decodeURIComponent(fm[1])); } catch (err) { fmeta = null; }
+            // W12: 別の linkedfd でコピーしたもの = その linkedfd からこの linkedfd へ**複製**（旧実装は無音で無視していた）
+            if (fmeta && fmeta.folderLinkId && fmeta.folderLinkId !== currentLinkId && Array.isArray(fmeta.relPaths) && fmeta.relPaths.length > 0) {
+                e.preventDefault();
+                if (typeof b.folderViewCopyAcrossLinks === 'function') {
+                    b.folderViewCopyAcrossLinks(fmeta.folderLinkId, fmeta.relPaths, currentLinkId, dst);
+                }
+                return;
+            }
             if (fmeta && fmeta.folderLinkId === currentLinkId && Array.isArray(fmeta.relPaths)) {
                 // FR-FDP-06 / ADRL-0124（TASK-11）: **フォルダも複製する**。
                 // ADRL-0120 の受容事項「フォルダの再帰複製経路が既存に無い」は
@@ -1427,6 +1461,26 @@
                 // 🔴 fvMovePreflight は**通さない**（NFR-REL-1）。H は「同じ階層への複製」が正常系で、
                 //    D&D 用の全体拒否ガード（既に同じ親 → reject）を掛けると原理的に動かなくなる。
                 dispatchFvMove(files, hDst, 'copy');
+                return;
+            }
+        }
+        var bp = window.__batchPayload;
+        // ── W11: ツリーの clipboard（cmd+c / cmd+x どちらも linkedfd へは複製 = tree → linkedfd の D&D と同じ host 入口）──
+        var tmeta = (bp && typeof bp.readHtmlClipMeta === 'function') ? bp.readHtmlClipMeta(html, bp.TREE_CLIP_ATTR) : null;
+        if (tmeta && Array.isArray(tmeta.items) && tmeta.items.length > 0) {
+            e.preventDefault();
+            if (typeof b.folderViewMoveInBatch === 'function') {
+                b.folderViewMoveInBatch(currentLinkId, dst, tmeta.items.map(function (it) { return { srcKind: it.kind, srcItemId: it.id }; }));
+            }
+            return;
+        }
+        // ── W11: md の範囲選択の clipboard（選択の中の 📎 / subpage リンクを全部。移動か複製かは host）──
+        if (mdClip && mdCtxRaw) {
+            var mdCtx = null;
+            try { mdCtx = JSON.parse(mdCtxRaw); } catch (err) { mdCtx = null; }
+            if (mdCtx && typeof b.pasteMdClip === 'function') {
+                e.preventDefault();
+                b.pasteMdClip(mdClip, mdCtx, mdCut, { kind: 'fv', folderLinkId: currentLinkId, dstDirRelPath: dst });
                 return;
             }
         }
