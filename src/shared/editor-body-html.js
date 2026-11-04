@@ -100,6 +100,9 @@ function generateEditorBodyHtml(messages, platform, options) {
                         <button data-action="translate" class="toolbar-translate-fixed" title="Translate"></button>
                         <button data-action="exportPdf" title="Export to PDF"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg></button>
                         <button data-action="exportBundle" title="Export bundle"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+                        <!-- Reveal in Finder: OS のファイラで md を選択表示。宛先 md の path を webview が知っている
+                             Notes の md ペインだけで editor.js が表示する（standalone md editor は path を持たないので隠したまま） -->
+                        <button data-action="revealInFinder" class="toolbar-reveal-in-finder" title="${m('notesRevealInFinder') || 'Reveal in Finder'}" style="display:none"></button>
                         <button data-action="copyPath" title="${m('copyPath')}"></button>
                         <button data-action="copyInAppLink" class="toolbar-copy-inapp-link" title="${m('copyInAppLink') || 'Copy In-App Link'}" style="display:none"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/></svg></button>
                         ${openInNewTabBtn}
@@ -197,10 +200,11 @@ function generateSidePanelHtml(messages) {
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         </button>
                         <button class="side-panel-header-btn" data-action="source" title="Source mode"></button>
+                        <button class="side-panel-header-btn" data-action="revealInFinder" title="${msg.notesRevealInFinder || 'Reveal in Finder'}"></button>
                     </div>
-                    <button class="side-panel-copy-path" id="sidePanelCopyPath" title="Copy file path">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                    </button>
+                    <!-- アイコンは md toolbar の Copy Path と同じ LUCIDE_ICONS.copyPath を editor.js / outliner.js が入れる
+                         （ここに SVG を複製しない。「コピーした」✓ からの戻し先もそれ） -->
+                    <button class="side-panel-copy-path" id="sidePanelCopyPath" title="Copy file path"></button>
                     <button class="side-panel-copy-inapp-link" id="sidePanelCopyInAppLink" title="${msg.copyInAppLink || 'Copy In-App Link'}" style="display:none">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
                     </button>

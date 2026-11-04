@@ -292,6 +292,10 @@ const testNotesHostBridge = `
         openTreeFileInTab: function(id) {
             window.__testApi.notesMessages.push({ type: 'openTreeFileInTab', id: id });
         },
+        // FR-TF-10 + md/.out item: ツリー右クリック Reveal in Finder（本番 notes-host-bridge.js のミラー。payload は id のみ）
+        revealTreeFileInOS: function(id) {
+            window.__testApi.notesMessages.push({ type: 'revealTreeFileInOS', id: id });
+        },
         createFile: function(title, parentId) {
             window.__testApi.notesMessages.push({ type: 'createFile', title: title, parentId: parentId });
         },

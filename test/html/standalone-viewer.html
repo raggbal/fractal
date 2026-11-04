@@ -5,7 +5,7 @@
 <!-- 本番 fileViewerContent.ts の CSP を忠実に再現（cspSource → 'self'）。blob iframe はこの CSP を
      policy container 継承する — ユーザー script 抑止の実体（script-src nonce）・外部送信遮断
      （connect-src）・外部 URL への iframe 遷移抑止（frame-src — TC-FV-03）が全てここに依存する -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'nonce-PghUvVMOJqeBnxCa9b6yfQ==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; font-src 'self' blob: data:; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'nonce-5UjujFAN5I117TYToeKp2w==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; font-src 'self' blob: data:; form-action 'none'">
 <title>Standalone File Viewer Test</title>
 <style>
 /* Copyright 2014 Mozilla Foundation
@@ -7147,14 +7147,14 @@ html, body { margin: 0; height: 100%; }
 </head>
 <body>
 <div id="viewer-root"></div>
-<script nonce="PghUvVMOJqeBnxCa9b6yfQ==">
+<script nonce="5UjujFAN5I117TYToeKp2w==">
 // TASK-13（不変条件7）: 本番 fileViewerContent.ts と同じ "null" origin capture 遮断を
 // bootstrap 最初期（全 message listener 登録より前）に再現 — TC-FV-47/48 の検証対象
 window.addEventListener('message', function (e) {
     if (e.origin === 'null') { e.stopImmediatePropagation(); }
 }, true);
 </script>
-<script type="module" nonce="PghUvVMOJqeBnxCa9b6yfQ==">
+<script type="module" nonce="5UjujFAN5I117TYToeKp2w==">
 // テストハーネス: vscode webview API のスタブ + postMessage 記録
 // （ハーネス bootstrap 自身も nonce 必須 — script-src に 'self'/'unsafe-inline' だけでは inline module が動かない）
 window.__postedMessages = [];
@@ -7182,7 +7182,7 @@ window.__viewerConfig = {
         viewerStatic: './drawio-viewer/viewer-static.min.js',
         stencils: './drawio-viewer/stencils.min.js',
     },
-    nonce: 'PghUvVMOJqeBnxCa9b6yfQ==',
+    nonce: '5UjujFAN5I117TYToeKp2w==',
 };
 /**
  * file-viewer.js — file viewer webview 本体（PDF レンダ + HTML sandbox 表示 + 読み込み失敗 UI）
@@ -7387,6 +7387,8 @@ window.__viewerConfig = {
      *     md sidepanel テンプレ SVG（:186-:217）
      *   - openInStandalone/allowScripts = editor-utils.js の LUCIDE_ICONS
      *     （openInTextEditor = VS Code ロゴ / code = `</>`）
+     *   - copyPath/copyCheck/revealInFinder = editor-utils.js の LUCIDE_ICONS（copyPath / copied / revealInFinder。
+     *     md toolbar の Copy Path・Reveal in Finder と同じグリフ — sidepanel テンプレは SVG を持たなくなった）
      *   - openExternal のみ md analog 不在の新規最小（lucide screen-share — openTab ↗ との識別性）
      * 自己完結コピーの理由: standalone 面は editor-utils.js を読み込まない + NFR-FV-02
      * （md グローバル window.__editorUtils への参照禁止）。表示サイズは CSS（svg 14×14）が正規化する。
@@ -7394,8 +7396,9 @@ window.__viewerConfig = {
     const VIEWER_ICONS = {
         expand: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
         export: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
-        copyPath: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
-        copyCheck: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+        copyPath: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+        copyCheck: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+        revealInFinder: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.7 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v4.1"/><path d="m21 21-1.9-1.9"/><circle cx="17" cy="17" r="3"/></svg>',
         copyInAppLink: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
         openInNewTab: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
         openInStandalone: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>',
@@ -7578,6 +7581,16 @@ window.__viewerConfig = {
         }
         addAction(bar, 'viewer-export-file', VIEWER_ICONS.export, label('viewerExportFile', 'Export'),
             () => ({ type: 'viewerExportFile', fileUri, filePath: filePath || null }));
+        // Reveal in Finder（md toolbar と同じ位置 = Copy Path の左）。host 経路は md リンク右クリックの
+        // Reveal in Finder と同じ revealLinkTarget（新しい message は作らない）: href = 自分の絶対パス・
+        // 基準 md = 自分。kind 'md' は host の clamp root の選択（notes = note フォルダ / outliner = .out の dir）。
+        // standalone 面は host（fileViewerProvider）が document.uri を使うので filePath 不要。
+        // filePath の無い非 standalone 面は宛先が無いので出さない（copy-inapp-link と同じ条件）
+        if (filePath || standalone) {
+            addAction(bar, 'viewer-reveal-in-finder', VIEWER_ICONS.revealInFinder,
+                label('notesRevealInFinder', 'Reveal in Finder'),
+                () => ({ type: 'revealLinkTarget', href: filePath || null, kind: 'md', sidePanelFilePath: filePath || null }));
+        }
         const copyBtn = addAction(bar, 'viewer-copy-path', VIEWER_ICONS.copyPath,
             label('viewerCopyPath', 'Copy Path'),
             () => ({ type: 'viewerCopyPath', fileUri, filePath: filePath || null }));

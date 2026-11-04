@@ -2909,8 +2909,11 @@ export class NotesEditorProvider {
                 treeFileRegisterFromMdLink(fileManager, senderRef, payload, parentId, index);
             },
             // FR-TF-10 menu（§7）: Reveal in Finder
+            // tree の md / .out item も同じ経路（id → 実体パスは host が structure から引く。webview の path は使わない）。
+            // folder link は専用の revealFolderLink があり、getFilePathById も '' を返すのでここでは扱わない
             revealTreeFileInOS: async (id: string, _senderRef: NotesSender) => {
-                const p = fileManager.getTreeFilePath(id);
+                const treeItem = fileManager.getStructure().items[id];
+                const p = (treeItem && treeItem.type === 'file') ? (fileManager.getFilePathById(id) || null) : null;
                 if (!p || !fs.existsSync(p)) {
                     vscode.window.showErrorMessage(t('fileNotFound'));
                     return;

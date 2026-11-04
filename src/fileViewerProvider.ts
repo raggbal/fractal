@@ -20,7 +20,7 @@ import * as path from 'path';
 import { isViewerTarget, VIEWER_SIZE_LIMIT } from './shared/viewer-target';
 import { getFileViewerHtml } from './fileViewerContent';
 import { buildInAppFileLinkFromFolders } from './shared/viewer-inapp-link';
-import { getWebviewMessages } from './i18n/messages';
+import { getWebviewMessages, t } from './i18n/messages';
 
 class FileViewerDocument implements vscode.CustomDocument {
     constructor(public readonly uri: vscode.Uri) {}
@@ -86,6 +86,16 @@ export class FileViewerProvider implements vscode.CustomReadonlyEditorProvider<F
                 // そもそも送られない。design §10 の受け口マトリクスどおり）。
                 case 'viewerCopyPath':
                     await vscode.env.clipboard.writeText(fsPath);
+                    break;
+
+                // Reveal in Finder（viewer toolbar）。notes / outliner 面と同じ message（revealLinkTarget）を受けるが、
+                // standalone 面は payload の path を使わず自分の document（fsPath）だけを選択表示する
+                case 'revealLinkTarget':
+                    if (!fs.existsSync(fsPath)) {
+                        vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                        break;
+                    }
+                    await vscode.commands.executeCommand('revealFileInOS', document.uri);
                     break;
 
                 case 'viewerCopyInAppLink': {

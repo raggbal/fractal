@@ -1836,17 +1836,20 @@ body {
 .side-panel-header > .side-panel-overflow-btn {
     flex-shrink: 0;
 }
+/* 色は Fractal のテーマ（tokens.css の --fr-*）に従う — ファイルツリーの右クリックメニュー
+   （.file-panel-context-menu）と同じ値。以前は --vscode-menu-* を見ていたため、VS Code 側が暗い
+   テーマのとき・変数が無い面（fallback #252526）では、Fractal が light でも黒いメニューになっていた */
 .side-panel-overflow-menu {
     position: fixed;
-    background: var(--vscode-menu-background, #252526);
-    border: 1px solid var(--vscode-menu-border, #454545);
-    border-radius: 5px;
-    padding: 4px 0;
+    background: var(--fr-color-bg-elevated, #fff);
+    border: 1px solid var(--fr-color-border, #ddd);
+    border-radius: var(--fr-radius-lg, 10px);
+    padding: 4px;
     min-width: 144px;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    box-shadow: var(--fr-shadow-2, 0 4px 11px rgba(0,0,0,0.15));
     z-index: 1000;
     font-size: 12px;
-    color: var(--vscode-menu-foreground, #cccccc);
+    color: var(--fr-color-text-primary, inherit);
 }
 .side-panel-overflow-item {
     display: flex;
@@ -1856,6 +1859,7 @@ body {
     padding: 5px 18px 5px 11px;
     background: none;
     border: none;
+    border-radius: var(--fr-radius-sm, 6px);
     color: inherit;
     font-size: 12px;
     cursor: pointer;
@@ -1863,8 +1867,7 @@ body {
     text-align: left;
 }
 .side-panel-overflow-item:hover:not(:disabled) {
-    background: var(--vscode-menu-selectionBackground, #094771);
-    color: var(--vscode-menu-selectionForeground, #ffffff);
+    background: var(--fr-color-bg-app, rgba(128,128,128,0.15));
 }
 .side-panel-overflow-item:disabled {
     opacity: 0.4;

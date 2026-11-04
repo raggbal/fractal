@@ -1073,6 +1073,12 @@ var notesFilePanel = (function() {
             closeContextMenu();
             if (bridge && bridge.openFileInTab) { bridge.openFileInTab(file.filePath); }
         });
+        // md / .out item の Reveal in Finder。file item（上の FR-TF-10 分岐）と同じ id ベースの bridge
+        // （revealTreeFileInOS — 実体パスは host が structure から引く）。位置も file item と同じ Open in new tab の直後
+        addContextItem(contextMenu, i18n.notesRevealInFinder || 'Reveal in Finder', function() {
+            closeContextMenu();
+            if (bridge && bridge.revealTreeFileInOS) { bridge.revealTreeFileInOS(file.id || fileId); }
+        });
         addContextItem(contextMenu, i18n.notesNewOutline || 'New Outline here', function() {
             closeContextMenu();
             promptNewFile(fileParentId, fileId);

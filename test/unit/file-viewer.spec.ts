@@ -667,7 +667,12 @@ test.describe('file-viewer: ツールバーのアイコン化（FR-FV-12）', ()
         // md sidepanel テンプレ正典（editor-body-html.js）と完全一致（verbatim 複製の pin —
         // counterfactual: グリフを独自形に書き換えると RED = 新規発明の防止・generator_failures 2026-08-14）
         expect(viewerIcon('export')).toBe(templateIcon('data-action="exportBundle"'));
-        expect(viewerIcon('copyPath')).toBe(templateIcon('id="sidePanelCopyPath"'));
+        // 【許可: test_update】sidepanel の copy-path は SVG をテンプレに持たなくなり（✓ が残るバグの修正で
+        // md toolbar と同じ LUCIDE_ICONS.copyPath を JS が入れる）、正典は LUCIDE_ICONS へ移った
+        expect(viewerIcon('copyPath')).toBe(lucideIcon('copyPath'));
+        expect(viewerIcon('copyCheck')).toBe(lucideIcon('copied'));
+        // Reveal in Finder（md toolbar / sidepanel header と同じグリフ）
+        expect(viewerIcon('revealInFinder')).toBe(lucideIcon('revealInFinder'));
         expect(viewerIcon('copyInAppLink')).toBe(templateIcon('id="sidePanelCopyInAppLink"'));
         expect(viewerIcon('openInNewTab')).toBe(templateIcon('id="sidePanelOpenTab"'));
         expect(viewerIcon('expand')).toBe(templateIcon('id="sidePanelExpand"'));
@@ -708,6 +713,7 @@ test.describe('file-viewer: ツールバーのアイコン化（FR-FV-12）', ()
             'viewer-open-external',        // OS で開く = アクション群左端
             'viewer-open-in-standalone',
             'viewer-export-file',
+            'viewer-reveal-in-finder',     // 【許可: test_update】Reveal in Finder（md toolbar と同じく Copy Path の左）
             'viewer-copy-path',
             'viewer-copy-inapp-link',
             'viewer-open-in-new-tab',      // 最右端（sidepanel 面では × の直前）
@@ -746,6 +752,7 @@ test.describe('file-viewer: ツールバーのアイコン化（FR-FV-12）', ()
             // 【許可: test_update】再オープン①（FR-VZP-06・v3）: ⟲ リセット追加
             'viewer-zoom-out', 'viewer-zoom-in', 'viewer-zoom-reset', 'viewer-find-toggle',
             'viewer-open-external', 'viewer-open-in-standalone', 'viewer-export-file',
+            'viewer-reveal-in-finder',
             'viewer-copy-path', 'viewer-copy-inapp-link', 'viewer-open-in-new-tab',
         ]);
         const zoomInfo = await page.evaluate(() => {

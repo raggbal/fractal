@@ -565,7 +565,8 @@ class EditorInstance {
         math: i18n.mathBlock, hr: i18n.horizontalRule, link: i18n.insertLink,
         image: i18n.insertImage, table: i18n.insertTable, source: i18n.toggleSourceMode,
         openInTextEditor: i18n.openInTextEditor, openOutline: i18n.openOutline,
-        imageDir: i18n.setImageDir, copyPath: i18n.copyPath
+        imageDir: i18n.setImageDir, copyPath: i18n.copyPath,
+        revealInFinder: i18n.notesRevealInFinder
     };
     if (toolbar) {
         toolbar.querySelectorAll('button[data-action]').forEach(function(btn) {
@@ -585,6 +586,14 @@ class EditorInstance {
         if (notesLayoutForInAppReveal && /\.md$/i.test(mdFpForReveal)) {
             copyInAppLinkBtn.style.display = '';
         }
+    }
+
+    // Reveal in Finder（md toolbar）: 宛先 md の path を知っている instance（= Notes の md ペイン。
+    // options.filePath あり）だけ表示する。standalone md editor は webview が path を持たないので隠したまま
+    var revealInFinderBtn = container.querySelector('[data-action="revealInFinder"]');
+    if (revealInFinderBtn && self.options.filePath && !self.options.isSidePanel
+        && typeof host.revealLinkTarget === 'function') {
+        revealInFinderBtn.style.display = '';
     }
 
     // FR-B06: 「アプリ内リンクをコピー」クリック時のハンドラ。
@@ -15933,6 +15942,13 @@ class EditorInstance {
             case 'copyInAppLink':
                 copyInAppLinkForMainMd();
                 break;
+            case 'revealInFinder':
+                // md リンク右クリックの Reveal in Finder と同じ host 経路（revealLinkTarget）に、
+                // 自分自身の絶対 path を href として渡す（host 側の clamp もそのまま効く）
+                if (self.options.filePath && typeof host.revealLinkTarget === 'function') {
+                    host.revealLinkTarget(self.options.filePath, 'md', self.options.filePath);
+                }
+                break;
             case 'openInNewTab':
                 if (typeof host.openInNewTab === 'function') {
                     host.openInNewTab();
@@ -19855,6 +19871,14 @@ class EditorInstance {
         var exportPdfBtn = freshButton('exportPdf');
         var exportBtn = freshButton('exportBundle');
         var sourceBtn = freshButton('source');
+        var revealBtn = freshButton('revealInFinder');
+
+        // Reveal in Finder: md リンク右クリックと同じ host 経路（revealLinkTarget）で sidepanel の md 自身を選択表示
+        if (revealBtn) revealBtn.addEventListener('click', function() {
+            if (sidePanelFilePath && typeof host.revealLinkTarget === 'function') {
+                host.revealLinkTarget(sidePanelFilePath, 'md', sidePanelFilePath);
+            }
+        });
 
         // FR-PDF-08 / design §8.2: sidepanel の PDF export は targetHint 'sidepanel-md' で送る。
         // exportBundle と同型（setupSidePanelHeaderButtons で main host closure を直接使う）だが、
@@ -20071,15 +20095,21 @@ class EditorInstance {
     }
 
     // Side panel copy path button
+    // アイコンは md toolbar の Copy Path と同じ LUCIDE_ICONS.copyPath（テンプレには SVG を持たない）。
+    // ✓ 表示からの戻し先は「押した時点の innerHTML」ではなくこの正典アイコン — 2 秒以内に 2 回押すと
+    // 2 回目が ✓ を「元の見た目」として覚えてしまい、✓ のまま戻らなくなっていた
     var sidePanelCopyPathBtn = container.querySelector('.side-panel-copy-path');
     if (sidePanelCopyPathBtn) {
+        sidePanelCopyPathBtn.innerHTML = LUCIDE_ICONS.copyPath;
+        var sidePanelCopyPathTimer = null;
         sidePanelCopyPathBtn.addEventListener('click', function() {
             if (!sidePanelFilePath) return;
             navigator.clipboard.writeText(sidePanelFilePath).then(function() {
-                var originalHTML = sidePanelCopyPathBtn.innerHTML;
-                sidePanelCopyPathBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-                setTimeout(function() {
-                    sidePanelCopyPathBtn.innerHTML = originalHTML;
+                sidePanelCopyPathBtn.innerHTML = LUCIDE_ICONS.copied;
+                if (sidePanelCopyPathTimer) clearTimeout(sidePanelCopyPathTimer);
+                sidePanelCopyPathTimer = setTimeout(function() {
+                    sidePanelCopyPathTimer = null;
+                    sidePanelCopyPathBtn.innerHTML = LUCIDE_ICONS.copyPath;
                 }, 2000);
             }).catch(function(err) {
                 console.error('Failed to copy path:', err);

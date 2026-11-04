@@ -9112,15 +9112,22 @@ var Outliner = (function() {
         }
 
         // Copy path
+        // アイコンは md toolbar の Copy Path と同じ LUCIDE_ICONS.copyPath（テンプレには SVG を持たない）。
+        // ✓ 表示からの戻し先は「押した時点の innerHTML」ではなくこの正典アイコン — 2 秒以内に 2 回押すと
+        // 2 回目が ✓ を「元の見た目」として覚えてしまい、✓ のまま戻らなくなっていた
+        var spIcons = window.__editorUtils ? window.__editorUtils.LUCIDE_ICONS : {};
         var sidePanelCopyPathBtn = document.querySelector('.side-panel-copy-path');
         if (sidePanelCopyPathBtn) {
+            if (spIcons.copyPath) { sidePanelCopyPathBtn.innerHTML = spIcons.copyPath; }
+            var sidePanelCopyPathTimer = null;
             sidePanelCopyPathBtn.addEventListener('click', function() {
                 if (!sidePanelFilePath) return;
                 navigator.clipboard.writeText(sidePanelFilePath).then(function() {
-                    var originalHTML = sidePanelCopyPathBtn.innerHTML;
-                    sidePanelCopyPathBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-                    setTimeout(function() {
-                        sidePanelCopyPathBtn.innerHTML = originalHTML;
+                    sidePanelCopyPathBtn.innerHTML = spIcons.copied || '';
+                    if (sidePanelCopyPathTimer) { clearTimeout(sidePanelCopyPathTimer); }
+                    sidePanelCopyPathTimer = setTimeout(function() {
+                        sidePanelCopyPathTimer = null;
+                        sidePanelCopyPathBtn.innerHTML = spIcons.copyPath || '';
                     }, 2000);
                 }).catch(function(err) {
                     console.error('Failed to copy path:', err);
@@ -9135,6 +9142,9 @@ var Outliner = (function() {
             var notesLayoutForBtn = document.querySelector('.notes-layout');
             if (notesLayoutForBtn) {
                 sidePanelCopyInAppLinkBtn.style.display = '';
+                // copy-path と同じく、✓ からの戻し先は配線時点のアイコンに固定する（連打で ✓ のまま残らない）
+                var sidePanelCopyInAppLinkIcon = sidePanelCopyInAppLinkBtn.innerHTML;
+                var sidePanelCopyInAppLinkTimer = null;
                 sidePanelCopyInAppLinkBtn.addEventListener('click', function() {
                     if (!sidePanelOriginNodeId) return;
                     var folderName = notesLayoutForBtn.dataset.noteFolderName;
@@ -9160,10 +9170,11 @@ var Outliner = (function() {
                         encodeURIComponent(pageId);
                     var mdLink = '[' + linkDisplayText.replace(/[\[\]]/g, '') + '](' + link + ')';
                     navigator.clipboard.writeText(mdLink).then(function() {
-                        var originalHTML = sidePanelCopyInAppLinkBtn.innerHTML;
-                        sidePanelCopyInAppLinkBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-                        setTimeout(function() {
-                            sidePanelCopyInAppLinkBtn.innerHTML = originalHTML;
+                        sidePanelCopyInAppLinkBtn.innerHTML = spIcons.copied || '';
+                        if (sidePanelCopyInAppLinkTimer) { clearTimeout(sidePanelCopyInAppLinkTimer); }
+                        sidePanelCopyInAppLinkTimer = setTimeout(function() {
+                            sidePanelCopyInAppLinkTimer = null;
+                            sidePanelCopyInAppLinkBtn.innerHTML = sidePanelCopyInAppLinkIcon;
                         }, 2000);
                     });
                 });
@@ -9632,6 +9643,14 @@ var Outliner = (function() {
                 var translateLangBtn = freshSpHeaderBtn('translateLang');
                 var translateBtn = freshSpHeaderBtn('translate');
                 var attachmentsBtn = freshSpHeaderBtn('attachments');
+                var revealBtn = freshSpHeaderBtn('revealInFinder');
+
+                // Reveal in Finder: md リンク右クリックと同じ host 経路（revealLinkTarget）で sidepanel の md 自身を選択表示
+                if (revealBtn) revealBtn.addEventListener('click', function() {
+                    if (sidePanelFilePath && typeof host.revealLinkTarget === 'function') {
+                        host.revealLinkTarget(sidePanelFilePath, 'md', sidePanelFilePath);
+                    }
+                });
 
                 if (navBackBtn) navBackBtn.addEventListener('click', function() {
                     if (sidePanelFilePath && typeof host.sidePanelNavigateBack === 'function') {

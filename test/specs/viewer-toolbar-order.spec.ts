@@ -39,6 +39,7 @@ const FULL_ORDER = [
     'viewer-open-external',
     'viewer-open-in-standalone',
     'viewer-export-file',
+    'viewer-reveal-in-finder',   // Reveal in Finder（md toolbar と同じく Copy Path の左）
     'viewer-copy-path',
     'viewer-copy-inapp-link',
     'viewer-open-in-new-tab',

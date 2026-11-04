@@ -2478,17 +2478,20 @@ body {
 .side-panel-header > .side-panel-overflow-btn {
     flex-shrink: 0;
 }
+/* 色は Fractal のテーマ（tokens.css の --fr-*）に従う — ファイルツリーの右クリックメニュー
+   （.file-panel-context-menu）と同じ値。以前は --vscode-menu-* を見ていたため、VS Code 側が暗い
+   テーマのとき・変数が無い面（fallback #252526）では、Fractal が light でも黒いメニューになっていた */
 .side-panel-overflow-menu {
     position: fixed;
-    background: var(--vscode-menu-background, #252526);
-    border: 1px solid var(--vscode-menu-border, #454545);
-    border-radius: 5px;
-    padding: 4px 0;
+    background: var(--fr-color-bg-elevated, #fff);
+    border: 1px solid var(--fr-color-border, #ddd);
+    border-radius: var(--fr-radius-lg, 10px);
+    padding: 4px;
     min-width: 144px;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    box-shadow: var(--fr-shadow-2, 0 4px 11px rgba(0,0,0,0.15));
     z-index: 1000;
     font-size: 12px;
-    color: var(--vscode-menu-foreground, #cccccc);
+    color: var(--fr-color-text-primary, inherit);
 }
 .side-panel-overflow-item {
     display: flex;
@@ -2498,6 +2501,7 @@ body {
     padding: 5px 18px 5px 11px;
     background: none;
     border: none;
+    border-radius: var(--fr-radius-sm, 6px);
     color: inherit;
     font-size: 12px;
     cursor: pointer;
@@ -2505,8 +2509,7 @@ body {
     text-align: left;
 }
 .side-panel-overflow-item:hover:not(:disabled) {
-    background: var(--vscode-menu-selectionBackground, #094771);
-    color: var(--vscode-menu-selectionForeground, #ffffff);
+    background: var(--fr-color-bg-app, rgba(128,128,128,0.15));
 }
 .side-panel-overflow-item:disabled {
     opacity: 0.4;
@@ -5689,10 +5692,11 @@ body.mm-dragging, body.mm-dragging * {
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         </button>
                         <button class="side-panel-header-btn" data-action="source" title="Source mode"></button>
+                        <button class="side-panel-header-btn" data-action="revealInFinder" title="Reveal in Finder"></button>
                     </div>
-                    <button class="side-panel-copy-path" id="sidePanelCopyPath" title="Copy file path">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                    </button>
+                    <!-- アイコンは md toolbar の Copy Path と同じ LUCIDE_ICONS.copyPath を editor.js / outliner.js が入れる
+                         （ここに SVG を複製しない。「コピーした」✓ からの戻し先もそれ） -->
+                    <button class="side-panel-copy-path" id="sidePanelCopyPath" title="Copy file path"></button>
                     <button class="side-panel-copy-inapp-link" id="sidePanelCopyInAppLink" title="Copy In-App Link" style="display:none">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
                     </button>
@@ -7669,6 +7673,11 @@ function articleToMarkdown(documentClone) {
         'openInTextEditor': '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>',
         'source': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 12.5 8 15l2 2.5"/><path d="m14 12.5 2 2.5-2 2.5"/></svg>',
         'copyPath': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+        // copy 系ボタンの「コピーした」表示（2 秒だけ出して copyPath 等の正典アイコンへ戻す）。
+        // sidepanel copy-path / copy-inapp-link の 3 実装（editor.js / outliner.js）が同じものを使う
+        'copied': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+        // Reveal in Finder（lucide folder-search）。md toolbar / sidepanel header / viewer toolbar で共通
+        'revealInFinder': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.7 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v4.1"/><path d="m21 21-1.9-1.9"/><circle cx="17" cy="17" r="3"/></svg>',
         'add-col-left': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="13" x="3" y="8" rx="1"/><path d="m15 2-3 3-3-3"/><rect width="7" height="13" x="14" y="8" rx="1"/></svg>',
         'add-col-right': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="13" x="3" y="3" rx="1"/><path d="m9 22 3-3 3 3"/><rect width="7" height="13" x="14" y="3" rx="1"/></svg>',
         'del-col': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
@@ -9715,7 +9724,8 @@ class EditorInstance {
         math: i18n.mathBlock, hr: i18n.horizontalRule, link: i18n.insertLink,
         image: i18n.insertImage, table: i18n.insertTable, source: i18n.toggleSourceMode,
         openInTextEditor: i18n.openInTextEditor, openOutline: i18n.openOutline,
-        imageDir: i18n.setImageDir, copyPath: i18n.copyPath
+        imageDir: i18n.setImageDir, copyPath: i18n.copyPath,
+        revealInFinder: i18n.notesRevealInFinder
     };
     if (toolbar) {
         toolbar.querySelectorAll('button[data-action]').forEach(function(btn) {
@@ -9735,6 +9745,14 @@ class EditorInstance {
         if (notesLayoutForInAppReveal && /\.md$/i.test(mdFpForReveal)) {
             copyInAppLinkBtn.style.display = '';
         }
+    }
+
+    // Reveal in Finder（md toolbar）: 宛先 md の path を知っている instance（= Notes の md ペイン。
+    // options.filePath あり）だけ表示する。standalone md editor は webview が path を持たないので隠したまま
+    var revealInFinderBtn = container.querySelector('[data-action="revealInFinder"]');
+    if (revealInFinderBtn && self.options.filePath && !self.options.isSidePanel
+        && typeof host.revealLinkTarget === 'function') {
+        revealInFinderBtn.style.display = '';
     }
 
     // FR-B06: 「アプリ内リンクをコピー」クリック時のハンドラ。
@@ -25083,6 +25101,13 @@ class EditorInstance {
             case 'copyInAppLink':
                 copyInAppLinkForMainMd();
                 break;
+            case 'revealInFinder':
+                // md リンク右クリックの Reveal in Finder と同じ host 経路（revealLinkTarget）に、
+                // 自分自身の絶対 path を href として渡す（host 側の clamp もそのまま効く）
+                if (self.options.filePath && typeof host.revealLinkTarget === 'function') {
+                    host.revealLinkTarget(self.options.filePath, 'md', self.options.filePath);
+                }
+                break;
             case 'openInNewTab':
                 if (typeof host.openInNewTab === 'function') {
                     host.openInNewTab();
@@ -29005,6 +29030,14 @@ class EditorInstance {
         var exportPdfBtn = freshButton('exportPdf');
         var exportBtn = freshButton('exportBundle');
         var sourceBtn = freshButton('source');
+        var revealBtn = freshButton('revealInFinder');
+
+        // Reveal in Finder: md リンク右クリックと同じ host 経路（revealLinkTarget）で sidepanel の md 自身を選択表示
+        if (revealBtn) revealBtn.addEventListener('click', function() {
+            if (sidePanelFilePath && typeof host.revealLinkTarget === 'function') {
+                host.revealLinkTarget(sidePanelFilePath, 'md', sidePanelFilePath);
+            }
+        });
 
         // FR-PDF-08 / design §8.2: sidepanel の PDF export は targetHint 'sidepanel-md' で送る。
         // exportBundle と同型（setupSidePanelHeaderButtons で main host closure を直接使う）だが、
@@ -29221,15 +29254,21 @@ class EditorInstance {
     }
 
     // Side panel copy path button
+    // アイコンは md toolbar の Copy Path と同じ LUCIDE_ICONS.copyPath（テンプレには SVG を持たない）。
+    // ✓ 表示からの戻し先は「押した時点の innerHTML」ではなくこの正典アイコン — 2 秒以内に 2 回押すと
+    // 2 回目が ✓ を「元の見た目」として覚えてしまい、✓ のまま戻らなくなっていた
     var sidePanelCopyPathBtn = container.querySelector('.side-panel-copy-path');
     if (sidePanelCopyPathBtn) {
+        sidePanelCopyPathBtn.innerHTML = LUCIDE_ICONS.copyPath;
+        var sidePanelCopyPathTimer = null;
         sidePanelCopyPathBtn.addEventListener('click', function() {
             if (!sidePanelFilePath) return;
             navigator.clipboard.writeText(sidePanelFilePath).then(function() {
-                var originalHTML = sidePanelCopyPathBtn.innerHTML;
-                sidePanelCopyPathBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-                setTimeout(function() {
-                    sidePanelCopyPathBtn.innerHTML = originalHTML;
+                sidePanelCopyPathBtn.innerHTML = LUCIDE_ICONS.copied;
+                if (sidePanelCopyPathTimer) clearTimeout(sidePanelCopyPathTimer);
+                sidePanelCopyPathTimer = setTimeout(function() {
+                    sidePanelCopyPathTimer = null;
+                    sidePanelCopyPathBtn.innerHTML = LUCIDE_ICONS.copyPath;
                 }, 2000);
             }).catch(function(err) {
                 console.error('Failed to copy path:', err);
@@ -49391,15 +49430,22 @@ var Outliner = (function() {
         }
 
         // Copy path
+        // アイコンは md toolbar の Copy Path と同じ LUCIDE_ICONS.copyPath（テンプレには SVG を持たない）。
+        // ✓ 表示からの戻し先は「押した時点の innerHTML」ではなくこの正典アイコン — 2 秒以内に 2 回押すと
+        // 2 回目が ✓ を「元の見た目」として覚えてしまい、✓ のまま戻らなくなっていた
+        var spIcons = window.__editorUtils ? window.__editorUtils.LUCIDE_ICONS : {};
         var sidePanelCopyPathBtn = document.querySelector('.side-panel-copy-path');
         if (sidePanelCopyPathBtn) {
+            if (spIcons.copyPath) { sidePanelCopyPathBtn.innerHTML = spIcons.copyPath; }
+            var sidePanelCopyPathTimer = null;
             sidePanelCopyPathBtn.addEventListener('click', function() {
                 if (!sidePanelFilePath) return;
                 navigator.clipboard.writeText(sidePanelFilePath).then(function() {
-                    var originalHTML = sidePanelCopyPathBtn.innerHTML;
-                    sidePanelCopyPathBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-                    setTimeout(function() {
-                        sidePanelCopyPathBtn.innerHTML = originalHTML;
+                    sidePanelCopyPathBtn.innerHTML = spIcons.copied || '';
+                    if (sidePanelCopyPathTimer) { clearTimeout(sidePanelCopyPathTimer); }
+                    sidePanelCopyPathTimer = setTimeout(function() {
+                        sidePanelCopyPathTimer = null;
+                        sidePanelCopyPathBtn.innerHTML = spIcons.copyPath || '';
                     }, 2000);
                 }).catch(function(err) {
                     console.error('Failed to copy path:', err);
@@ -49414,6 +49460,9 @@ var Outliner = (function() {
             var notesLayoutForBtn = document.querySelector('.notes-layout');
             if (notesLayoutForBtn) {
                 sidePanelCopyInAppLinkBtn.style.display = '';
+                // copy-path と同じく、✓ からの戻し先は配線時点のアイコンに固定する（連打で ✓ のまま残らない）
+                var sidePanelCopyInAppLinkIcon = sidePanelCopyInAppLinkBtn.innerHTML;
+                var sidePanelCopyInAppLinkTimer = null;
                 sidePanelCopyInAppLinkBtn.addEventListener('click', function() {
                     if (!sidePanelOriginNodeId) return;
                     var folderName = notesLayoutForBtn.dataset.noteFolderName;
@@ -49439,10 +49488,11 @@ var Outliner = (function() {
                         encodeURIComponent(pageId);
                     var mdLink = '[' + linkDisplayText.replace(/[\[\]]/g, '') + '](' + link + ')';
                     navigator.clipboard.writeText(mdLink).then(function() {
-                        var originalHTML = sidePanelCopyInAppLinkBtn.innerHTML;
-                        sidePanelCopyInAppLinkBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-                        setTimeout(function() {
-                            sidePanelCopyInAppLinkBtn.innerHTML = originalHTML;
+                        sidePanelCopyInAppLinkBtn.innerHTML = spIcons.copied || '';
+                        if (sidePanelCopyInAppLinkTimer) { clearTimeout(sidePanelCopyInAppLinkTimer); }
+                        sidePanelCopyInAppLinkTimer = setTimeout(function() {
+                            sidePanelCopyInAppLinkTimer = null;
+                            sidePanelCopyInAppLinkBtn.innerHTML = sidePanelCopyInAppLinkIcon;
                         }, 2000);
                     });
                 });
@@ -49911,6 +49961,14 @@ var Outliner = (function() {
                 var translateLangBtn = freshSpHeaderBtn('translateLang');
                 var translateBtn = freshSpHeaderBtn('translate');
                 var attachmentsBtn = freshSpHeaderBtn('attachments');
+                var revealBtn = freshSpHeaderBtn('revealInFinder');
+
+                // Reveal in Finder: md リンク右クリックと同じ host 経路（revealLinkTarget）で sidepanel の md 自身を選択表示
+                if (revealBtn) revealBtn.addEventListener('click', function() {
+                    if (sidePanelFilePath && typeof host.revealLinkTarget === 'function') {
+                        host.revealLinkTarget(sidePanelFilePath, 'md', sidePanelFilePath);
+                    }
+                });
 
                 if (navBackBtn) navBackBtn.addEventListener('click', function() {
                     if (sidePanelFilePath && typeof host.sidePanelNavigateBack === 'function') {
@@ -59726,6 +59784,8 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
      *     md sidepanel テンプレ SVG（:186-:217）
      *   - openInStandalone/allowScripts = editor-utils.js の LUCIDE_ICONS
      *     （openInTextEditor = VS Code ロゴ / code = `</>`）
+     *   - copyPath/copyCheck/revealInFinder = editor-utils.js の LUCIDE_ICONS（copyPath / copied / revealInFinder。
+     *     md toolbar の Copy Path・Reveal in Finder と同じグリフ — sidepanel テンプレは SVG を持たなくなった）
      *   - openExternal のみ md analog 不在の新規最小（lucide screen-share — openTab ↗ との識別性）
      * 自己完結コピーの理由: standalone 面は editor-utils.js を読み込まない + NFR-FV-02
      * （md グローバル window.__editorUtils への参照禁止）。表示サイズは CSS（svg 14×14）が正規化する。
@@ -59733,8 +59793,9 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
     const VIEWER_ICONS = {
         expand: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
         export: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
-        copyPath: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
-        copyCheck: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+        copyPath: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+        copyCheck: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+        revealInFinder: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.7 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v4.1"/><path d="m21 21-1.9-1.9"/><circle cx="17" cy="17" r="3"/></svg>',
         copyInAppLink: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
         openInNewTab: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
         openInStandalone: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>',
@@ -59917,6 +59978,16 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         }
         addAction(bar, 'viewer-export-file', VIEWER_ICONS.export, label('viewerExportFile', 'Export'),
             () => ({ type: 'viewerExportFile', fileUri, filePath: filePath || null }));
+        // Reveal in Finder（md toolbar と同じ位置 = Copy Path の左）。host 経路は md リンク右クリックの
+        // Reveal in Finder と同じ revealLinkTarget（新しい message は作らない）: href = 自分の絶対パス・
+        // 基準 md = 自分。kind 'md' は host の clamp root の選択（notes = note フォルダ / outliner = .out の dir）。
+        // standalone 面は host（fileViewerProvider）が document.uri を使うので filePath 不要。
+        // filePath の無い非 standalone 面は宛先が無いので出さない（copy-inapp-link と同じ条件）
+        if (filePath || standalone) {
+            addAction(bar, 'viewer-reveal-in-finder', VIEWER_ICONS.revealInFinder,
+                label('notesRevealInFinder', 'Reveal in Finder'),
+                () => ({ type: 'revealLinkTarget', href: filePath || null, kind: 'md', sidePanelFilePath: filePath || null }));
+        }
         const copyBtn = addAction(bar, 'viewer-copy-path', VIEWER_ICONS.copyPath,
             label('viewerCopyPath', 'Copy Path'),
             () => ({ type: 'viewerCopyPath', fileUri, filePath: filePath || null }));
