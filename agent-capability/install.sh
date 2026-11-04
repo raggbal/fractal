@@ -6,8 +6,9 @@
 #                  旧来の user scope の登録（claude mcp add fractal）は plugin を入れたあと外す（二重登録で plugin が隠れる）
 #   - Codex:       同じ plugin を同じ marketplace から入れる（plugin/plugin.json・mcp.json = Agent Plugins 形式。
 #                  Codex は .mcp.json の ${CLAUDE_PLUGIN_ROOT} を展開しないので、Agent Plugins の ${PLUGIN_ROOT} の方を読ませる）
-#   - Kiro:        ~/.kiro/settings/mcp.json に MCP を登録し、skill を ~/.kiro/skills/fractal に copy（Kiro は symlink の skill を認識しない）
-#   - Cursor:      ~/.cursor/mcp.json に MCP を登録（skill は置かない）
+#   - Kiro:        同じ plugin フォルダを Power として入れる（kiro-cli powers install。Kiro は Agent Plugins の plugin.json・mcp.json・skills/ を読む）。
+#                  Power は写しなので、MCP を直したら install.sh を流し直す。以前の登録（~/.kiro/settings/mcp.json の fractal と
+#                  ~/.kiro/skills/fractal の copy）は残ると tool と skill が二重になるので、毎回外す
 #   - Antigravity: 自動登録しない（表示するコマンドを手で設定）
 #
 # 以前 ai_skills/install.sh が配置していた skill（今は無い）と ~/.fractal/fractal-mcp の symlink は毎回片付ける。
@@ -27,18 +28,17 @@ CAP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MCP_DIR="$CAP_DIR/mcp"
 REPO_DIR="$(cd "$CAP_DIR/.." && pwd)"
 MCP_SERVER="$MCP_DIR/dist/server.mjs"
-SKILL_SRC="$CAP_DIR/plugin/skills/fractal"
+PLUGIN_DIR="$CAP_DIR/plugin"
 PLUGIN_ID="fractal@fractal-local"
 # 以前は skill として配置していたもの（install / uninstall のたびに片付ける）
 LEGACY_SKILLS="fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary fractal-mcp collect doc-md pptx-pages-md aws-doc-maker arxiv-md youtube-md web-crawler-md"
 # 以前 register-fractal.mjs 用に張っていた symlink
 LEGACY_LINK="$HOME/.fractal/fractal-mcp"
-IDE_LIST="claude codex cursor kiro antigravity"
+IDE_LIST="claude codex kiro antigravity"
 
 ide_parent() {
     case "$1" in
         claude)      echo "$HOME/.claude" ;;
-        cursor)      echo "$HOME/.cursor" ;;
         kiro)        echo "$HOME/.kiro" ;;
         codex)       echo "${CODEX_HOME:-$HOME/.codex}" ;;
         antigravity) echo "$HOME/.antigravity" ;;
@@ -57,7 +57,7 @@ while [ $# -gt 0 ]; do
         --uninstall) UNINSTALL=1; shift ;;
         --only)      ONLY="$2"; shift 2 ;;
         -h|--help)
-            sed -n '2,19p' "$0"
+            sed -n '2,20p' "$0"
             exit 0
             ;;
         *)
@@ -208,17 +208,25 @@ do_mcp_one() {
                 err "  Codex への plugin のインストールに失敗。codex plugin marketplace add $CAP_DIR → codex plugin add $PLUGIN_ID"
             fi
             ;;
-        kiro|cursor)
-            cfg="$(ide_parent "$ide")/mcp.json"
-            [ "$ide" = "kiro" ] && cfg="$HOME/.kiro/settings/mcp.json"
+        kiro)
+            # Kiro は Power（plugin フォルダ）。IDE 1.4.26 以降は CLI で入れた Power も IDE の Installed に出る
             if [ "$DRY_RUN" -eq 1 ]; then
-                echo "  [dry-run] $cfg の mcpServers.fractal を$([ "$UNINSTALL" -eq 1 ] && echo 削除 || echo "設定 ($server)")"
+                [ "$UNINSTALL" -eq 1 ] && echo "  [dry-run] kiro-cli powers uninstall fractal" || echo "  [dry-run] kiro-cli powers install $PLUGIN_DIR"
+                return 0
+            fi
+            if ! command -v kiro-cli >/dev/null 2>&1; then
+                [ "$UNINSTALL" -eq 1 ] || warn "  kiro-cli が無いので Kiro の Powers パネルで: Add Custom Power → Import power from a folder → $PLUGIN_DIR"
                 return 0
             fi
             if [ "$UNINSTALL" -eq 1 ]; then
-                "$node_bin" "$MCP_DIR/register.mjs" "$cfg" --remove && ok "  MCP: fractal ← 解除 ($cfg)"
+                kiro-cli powers uninstall fractal >/dev/null 2>&1 && ok "  Power: fractal ← 解除 (Kiro)" || true
+                return 0
+            fi
+            # 同じパスでもう一度 install すると中身を置き換える（Updated power）
+            if kiro-cli powers install "$PLUGIN_DIR" >/dev/null 2>&1; then
+                ok "  Power: fractal → Kiro（新しい会話で有効）"
             else
-                "$node_bin" "$MCP_DIR/register.mjs" "$cfg" "$server" --node "$node_bin" && ok "  MCP: fractal → $cfg"
+                err "  Kiro への Power のインストールに失敗。Kiro の Powers パネルで Add Custom Power → Import power from a folder → $PLUGIN_DIR"
             fi
             ;;
         *)
@@ -227,24 +235,26 @@ do_mcp_one() {
     esac
 }
 
-# 使い方の skill（agent-capability/plugin/skills/fractal）を Kiro に copy する。Claude Code と Codex は plugin に入っている。
-# 置いてあるものが自分の skill（frontmatter が name: fractal）のときだけ上書き・削除する
-do_skill_one() {
-    ide=$1
-    [ "$ide" = "kiro" ] || return 0
+# 以前の Kiro の登録（~/.kiro/settings/mcp.json の fractal と ~/.kiro/skills/fractal の copy）を外す。Power と二重になるので
+# install でも uninstall でも流す。skill は置いてあるものが自分の skill（frontmatter が name: fractal）のときだけ消す
+do_kiro_legacy() {
+    [ "$1" = "kiro" ] || return 0
+    cfg="$HOME/.kiro/settings/mcp.json"
     dest="$HOME/.kiro/skills/fractal"
-    if [ -e "$dest" ] && ! grep -q '^name: fractal$' "$dest/SKILL.md" 2>/dev/null; then
-        warn "  skill: $dest は Fractal の skill ではないので触らない"
-        return 0
-    fi
     if [ "$DRY_RUN" -eq 1 ]; then
-        [ "$UNINSTALL" -eq 1 ] && echo "  [dry-run] rm -rf $dest" || echo "  [dry-run] cp -R $SKILL_SRC $dest"
+        echo "  [dry-run] $cfg の mcpServers.fractal と ${dest}（以前の登録）を外す"
         return 0
     fi
-    rm -rf "$dest"
-    [ "$UNINSTALL" -eq 1 ] && { ok "  skill: fractal ← 削除 ($dest)"; return 0; }
-    mkdir -p "$(dirname "$dest")"
-    cp -R "$SKILL_SRC" "$dest" && ok "  skill: fractal → $dest"
+    if [ -f "$cfg" ] && command -v node >/dev/null 2>&1; then
+        [ "$(node "$MCP_DIR/unregister-legacy.mjs" "$cfg")" = "removed" ] && ok "  以前の MCP 登録を外した ($cfg)"
+    fi
+    if [ -e "$dest" ]; then
+        if grep -q '^name: fractal$' "$dest/SKILL.md" 2>/dev/null; then
+            rm -rf "$dest" && ok "  以前の skill の copy を外した ($dest)"
+        else
+            warn "  skill: $dest は Fractal の skill ではないので触らない"
+        fi
+    fi
 }
 
 # ─── メイン ────────────────────────────────────────
@@ -271,7 +281,7 @@ for ide in $TARGETS; do
         do_legacy_cleanup "$ide" "$legacy" || true
     done
     do_mcp_one "$ide" || true
-    do_skill_one "$ide" || true
+    do_kiro_legacy "$ide" || true
     did_any=1
 done
 

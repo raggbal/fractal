@@ -225,10 +225,10 @@ AWS アカウントがあれば、note を S3 に同期できます:
 AI エージェント向けの一式は [`agent-capability/`](agent-capability/README.md) にあります。拡張機能と同じコードでノート・アウトライナー・md を検索・読み取り・編集する **MCP サーバー**と、その使い方を教える **skill** です。
 
 - **tools**: `fractal_resolve` / `fractal_get`（note・アウトライナー・md の特定と読み取り）/ `fractal_search` / `fractal_summary` / `fractal_add` / `fractal_modify` / `fractal_attach` / `fractal_tree`（ノード・ページ・添付・ツリー操作・移動）/ `fractal_doctor`（整合性チェック）
-- **Claude Code** は plugin で入れ、**Kiro** / **Cursor** は MCP を登録（Kiro は skill も）
+- **Claude Code** と **Codex** は plugin、**Kiro** は同じ plugin フォルダを Power として入れる
 
 ```bash
-agent-capability/install.sh   # Claude Code・Codex: plugin / Kiro: MCP + skill / Cursor: MCP
+agent-capability/install.sh   # Claude Code・Codex: plugin / Kiro: Power
 ```
 
 MCP を登録すれば、Claude Code などのエージェントがリサーチ結果の整理、クリップの要約、ナレッジベースの構築を Fractal Note に直接書き込めます — AI ネイティブなワークフローを備えた、実用的な **Obsidian 代替** として。

@@ -220,10 +220,10 @@ Translate a selection or the whole document with **Amazon Translate**, including
 Fractal Note ships everything AI agents need in [`agent-capability/`](agent-capability/README.md): an **MCP server** whose tools search, read, and edit notes / outliners / markdown with the same code as the extension, and a **skill** that teaches agents how to use them.
 
 - **Tools**: `fractal_resolve` / `fractal_get` (identify and read notes, outliners, md) / `fractal_search` / `fractal_summary` / `fractal_add` / `fractal_modify` / `fractal_attach` / `fractal_tree` (nodes, pages, attachments, tree operations, moves) / `fractal_doctor` (integrity checks)
-- **Claude Code** installs it as a plugin; **Kiro** / **Cursor** get the MCP registered (Kiro also gets the skill)
+- **Claude Code** and **Codex** install it as a plugin; **Kiro** installs the same plugin folder as a Power
 
 ```bash
-agent-capability/install.sh   # Claude Code / Codex: plugin / Kiro: MCP + skill / Cursor: MCP
+agent-capability/install.sh   # Claude Code / Codex: plugin / Kiro: Power
 ```
 
 With the MCP registered, agents like Claude Code can organize research, summarize clips, and build knowledge bases by writing straight into Fractal Note — a practical **Obsidian alternative** with an AI-native workflow.
