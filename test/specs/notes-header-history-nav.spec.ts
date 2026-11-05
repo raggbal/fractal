@@ -1,6 +1,6 @@
 /**
  * Notes の左パネルを閉じたとき、note 面のヘッダーの一番左に ≡（パネル開閉）→ Recent の Back / Forward（< >）を出す（2026-11-05 ユーザー依頼）。
- * - note outliner: ≡ → < > → 集中ボタン（search mode toggle）…
+ * - note outliner: 1 行目の左端に ≡ → < > → タイトル（2 行目は集中ボタンから）
  * - note md: ≡ → < > → Outline 開閉 → Undo / Redo（Outline を開いているときは Outline のヘッダで ≡ → < >）
  * - note file viewer: ≡ → < > → ファイルのタイトル
  * - folder view（linkedfd をメインで開いた画面）: ≡ → < >（同じ ≡ の出し分けに合わせる）
@@ -35,15 +35,17 @@ async function visibleOrder(page: Page, containerSel: string) {
     }, containerSel);
 }
 
-test('TC-HHN-01 outliner: パネルを閉じると ≡ → < > → 集中ボタン の順に出る（開いている間は出さない）', async ({ page }) => {
+test('TC-HHN-01 outliner: パネルを閉じると 1 行目の左端に ≡ → < > → タイトル（開いている間は出さない）', async ({ page }) => {
     await setup(page);
-    const hist = page.locator('.outliner-search-bar .notes-header-history-btn');
+    const hist = page.locator('.outliner-page-title .notes-header-history-btn');
     await expect(hist).toHaveCount(2);
     await expect(hist.first()).toBeHidden();
     await collapsePanel(page);
     await expect(hist.first()).toBeVisible();
-    const order = await visibleOrder(page, '.outliner-search-bar');
-    expect(order.slice(0, 4)).toEqual(['#notesPanelToggleBtn', 'hist-back', 'hist-forward', 'outliner-search-mode-toggle']);
+    const order = await visibleOrder(page, '.outliner-page-title');
+    expect(order.slice(0, 4)).toEqual(['#notesPanelToggleBtn', 'hist-back', 'hist-forward', 'outliner-page-title-input']);
+    // 2 行目は集中ボタンから（≡ と < > は 2 行目に無い）
+    await expect(page.locator('.outliner-search-bar .notes-header-history-btn, .outliner-search-bar #notesPanelToggleBtn')).toHaveCount(0);
 });
 
 test('TC-HHN-02 md: Outline 閉は toolbar で ≡ → < > → Outline 開閉 → Undo / Redo、Outline 開は Outline のヘッダで ≡ → < >', async ({ page }) => {
@@ -101,8 +103,8 @@ test('TC-HHN-04 folder view: ≡ → < >（開き直しても 1 組だけ）', a
 test('TC-HHN-05 ヘッダーの < > はパネルの < > と同じ動き。端では押せない', async ({ page }) => {
     await setup(page);
     await collapsePanel(page);
-    const back = page.locator('.outliner-search-bar .notes-header-history-btn[data-notes-history-nav="back"]');
-    const fwd = page.locator('.outliner-search-bar .notes-header-history-btn[data-notes-history-nav="forward"]');
+    const back = page.locator('.outliner-page-title .notes-header-history-btn[data-notes-history-nav="back"]');
+    const fwd = page.locator('.outliner-page-title .notes-header-history-btn[data-notes-history-nav="forward"]');
     const pe = (l: any) => l.evaluate((e: HTMLElement) => getComputedStyle(e).pointerEvents);
     // 先頭: Back だけ押せる
     expect(await pe(back)).not.toBe('none');

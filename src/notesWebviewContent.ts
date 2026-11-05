@@ -279,12 +279,16 @@ export function getNotesWebviewContent(
             <div class="outliner-container">
                 <div class="outliner-scroll-content">
                     <div class="outliner-page-title">
+                        <button class="notes-panel-toggle-btn" id="notesPanelToggleBtn" title="Show file panel (Cmd+\\)">&#9776;</button>
+                        ${historyNav('outliner')}
                         <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
+                        <div class="outliner-title-actions">
+                            <button class="outliner-undo-btn" title="Undo (Cmd+Z)" disabled></button>
+                            <button class="outliner-redo-btn" title="Redo (Cmd+Shift+Z)" disabled></button>
+                        </div>
                     </div>
                     <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
                     <div class="outliner-search-bar">
-                        <button class="notes-panel-toggle-btn" id="notesPanelToggleBtn" title="Show file panel (Cmd+\\)">&#9776;</button>
-                        ${historyNav('outliner')}
                         <div class="outliner-daily-nav-area" style="display:none">
                             <button class="outliner-daily-btn" id="dailyNavToday">Today</button>
                             <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavPrev">&lt;</button>
@@ -305,8 +309,6 @@ export function getNotesWebviewContent(
                         <button class="outliner-nav-back-btn" title="Back" disabled></button>
                         <button class="outliner-nav-forward-btn" title="Forward" disabled></button>
                         <button class="outliner-view-toggle-btn" title="Switch view (Outline / Table)"></button>
-                        <button class="outliner-undo-btn" title="Undo (Cmd+Z)" disabled></button>
-                        <button class="outliner-redo-btn" title="Redo (Cmd+Shift+Z)" disabled></button>
                         <button class="outliner-task-mode-toggle-btn" title="Task Mode"></button>
                         <button class="outliner-task-filter-toggle-btn" title="Filter: Active / All"></button>
                         <button class="outliner-archive-btn" title="Archive completed tasks"></button>

@@ -485,7 +485,7 @@ function generateNotesFilePanelHtml(options) {
         }
         /* 最後の > と次のボタン（集中・Outline・タイトル等）の間 */
         .notes-header-history-btn[data-notes-history-nav="forward"] { margin-right: 5px; }
-        .notes-file-panel.collapsed ~ .notes-main-wrapper .outliner-search-bar .notes-header-history-btn--outliner { display: flex; }
+        .notes-file-panel.collapsed ~ .notes-main-wrapper .outliner-page-title .notes-header-history-btn--outliner { display: flex; }
         .notes-file-panel.collapsed ~ .notes-main-wrapper #sidebar.hidden ~ .editor-container .notes-header-history-btn--toolbar { display: flex; }
         .notes-file-panel.collapsed ~ .notes-main-wrapper #sidebar:not(.hidden) .notes-header-history-btn--outline { display: flex; }
         /* viewer / folder view の toolbar の button の既定（display 等）に負けないよう、同じ強さで隠す。

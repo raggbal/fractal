@@ -1112,6 +1112,7 @@ var Outliner = (function() {
             pageTitleInput.value = model.title || '';
             setupPageTitle();
         }
+        setupStickyTitleRow();
 
         // ボタンアイコン初期化
         if (searchModeToggleBtn) {
@@ -6932,6 +6933,56 @@ var Outliner = (function() {
     }
 
     // --- ページタイトル ---
+
+    /**
+     * 1 行目（タイトルの行: ≡・Recent の < >・タイトル・undo / redo）をスクロールで消さない。
+     * 行の高さ（--outliner-title-h）と 2 行目の高さ（--outliner-search-h）を測って .outliner-container に書き、
+     * CSS（outliner.css の .outliner-sticky-title）が 1 行目の上の余りだけを上へ流す。流し切ったら
+     * .outliner-title-compact を付けて、2 行目と同じ高さの中に小さいタイトルで並べ直す（高さは変えないので本文はずれない）。
+     * 縦に流れる .outliner-scroll-content が無い画面（electron・test の standalone outliner）や、タイトルの行を隠す設定では何もしない
+     */
+    var stickyTitleWired = false;
+    function setupStickyTitleRow() {
+        if (stickyTitleWired) { return; }
+        var container = document.querySelector('.outliner-container');
+        var scrollEl = container ? container.querySelector('.outliner-scroll-content') : null;
+        var titleRow = scrollEl ? scrollEl.querySelector(':scope > .outliner-page-title') : null;
+        var searchBar = scrollEl ? scrollEl.querySelector(':scope > .outliner-search-bar') : null;
+        if (!container || !scrollEl || !titleRow || !searchBar) { return; }
+        stickyTitleWired = true;
+        var delta = 0;
+        function updateCompact() {
+            if (!container.classList.contains('outliner-sticky-title')) { return; }
+            container.classList.toggle('outliner-title-compact', scrollEl.scrollTop >= Math.max(1, delta));
+        }
+        function measure() {
+            // 測る間だけ素の高さに戻す（compact の小さいタイトル・固定の高さを外す）
+            container.classList.remove('outliner-sticky-title', 'outliner-title-compact');
+            var th = titleRow.offsetHeight;
+            var sh = searchBar.offsetHeight;
+            if (!th || !sh || getComputedStyle(titleRow).display === 'none') { return; } // 非表示（md 表示中など）は次に測る
+            var stuck = Math.min(th, sh);
+            delta = th - stuck;
+            container.style.setProperty('--outliner-title-h', th + 'px');
+            container.style.setProperty('--outliner-search-h', sh + 'px');
+            container.style.setProperty('--outliner-row1-stuck-h', stuck + 'px');
+            container.classList.add('outliner-sticky-title');
+            updateCompact();
+        }
+        scrollEl.addEventListener('scroll', updateCompact, { passive: true });
+        window.addEventListener('resize', measure);
+        // 2 行目の高さ・幅が変わったら（表示の切り替え・フォント・幅）測り直す。1 行目は compact で中身が変わるので見ない
+        if (typeof ResizeObserver === 'function') {
+            var lastKey = '';
+            new ResizeObserver(function() {
+                var key = searchBar.offsetWidth + 'x' + searchBar.offsetHeight;
+                if (key === lastKey) { return; }
+                lastKey = key;
+                measure();
+            }).observe(searchBar);
+        }
+        measure();
+    }
 
     function setupPageTitle() {
         var isComposing = false;

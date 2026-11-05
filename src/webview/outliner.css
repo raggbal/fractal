@@ -71,10 +71,15 @@ body {
 .outliner-page-title {
     padding: 14px var(--outliner-gutter) 4px;
     flex-shrink: 0;
+    /* 1 行目: ≡ と Recent の < >（Notes でパネルを閉じたときだけ）→ タイトル → 右端に undo / redo（.outliner-title-actions） */
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
 }
 
 .outliner-page-title-input {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     font-size: 1.35em;
     font-weight: 600;
     border: none;
@@ -89,6 +94,13 @@ body {
 .outliner-page-title-input::placeholder {
     color: var(--outliner-placeholder);
     font-weight: 400;
+}
+
+.outliner-title-actions {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: 8px;
 }
 
 /* --- Search Bar --- */
@@ -278,12 +290,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     opacity: 1;
 }
 
-/* view 切替（outline / table / mindmap）は検索の右の < > から少し離し、undo / redo はその右でまた少し離す。
-   search-bar は sticky なので、スクロールしても undo / redo は見えたまま（タイトルの行は流れて消える）。
-   view 切替の無い画面（electron）は < > の右に undo / redo */
-.outliner-nav-forward-btn + .outliner-view-toggle-btn,
-.outliner-view-toggle-btn + .outliner-undo-btn,
-.outliner-nav-forward-btn + .outliner-undo-btn {
+/* view 切替（outline / table / mindmap）は検索の右の ← → から少し離す */
+.outliner-nav-forward-btn + .outliner-view-toggle-btn {
     margin-left: 14px;
 }
 
@@ -407,6 +415,31 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     width: 100%;
     z-index: 25;
     background: var(--outliner-bg);
+}
+
+/* 1 行目（タイトルの行）もスクロールで消さない（outliner.js の setupStickyTitleRow が高さを測って
+   .outliner-sticky-title と CSS 変数を付けたときだけ）。行の高さは変えず、上の (title の高さ − 2 行目の高さ) だけを
+   上へ流して隠す（sticky の top を負に）。流し切ったら .outliner-title-compact で、残った 2 行目と同じ高さの中に
+   小さいタイトルで並べ直す。高さが変わらないので、縮めても本文はずれない（スクロールの位置が揺れない） */
+.outliner-container.outliner-sticky-title .outliner-scroll-content > .outliner-page-title {
+    top: calc(var(--outliner-row1-stuck-h) - var(--outliner-title-h));
+    height: var(--outliner-title-h);
+    z-index: 31;
+}
+.outliner-container.outliner-sticky-title.outliner-title-compact .outliner-scroll-content > .outliner-page-title {
+    padding-top: calc(var(--outliner-title-h) - var(--outliner-row1-stuck-h));
+    padding-bottom: 0;
+}
+.outliner-container.outliner-sticky-title.outliner-title-compact .outliner-page-title-input {
+    font-size: 1em;
+    padding: 0;
+}
+.outliner-container.outliner-sticky-title .outliner-scroll-content > .outliner-search-bar {
+    top: var(--outliner-row1-stuck-h);
+}
+/* table の列見出しは 1 行目（縮めた高さ）+ 2 行目の直下 */
+.outliner-container.outliner-sticky-title .outliner-tree[data-view-mode="table"] .outliner-col-header {
+    top: calc(var(--outliner-row1-stuck-h) + var(--outliner-search-h));
 }
 
 /* search-bar: 縦も横もスクロールから外す (sticky top:0 + left:0、viewport width 固定) */
