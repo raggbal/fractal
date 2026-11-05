@@ -5,6 +5,7 @@
  * - undo / redo は切替の右で、また少し離す。アイコンは md の toolbar と同じ LUCIDE_ICONS
  * TC-OHL-01 undo / redo は sticky の search-bar の中（タイトルの行には無い）。スクロールしても見える
  * TC-OHL-02 undo / redo のアイコンが md の toolbar の undo / redo と同じ
+ * TC-OHL-04 < > は ← →（Notes パネルの Recent の < > と見分ける）
  * TC-OHL-03 検索欄 → < → > → view 切替 → undo → redo の順で、切替は > から・undo は切替から 10px 以上離れる
  */
 import { test, expect } from '@playwright/test';
@@ -77,4 +78,13 @@ test('TC-OHL-03 検索欄 → < → > → view 切替 → undo → redo（それ
     const undo = await page.locator('.outliner-undo-btn').boundingBox();
     expect(view!.x - (fwd!.x + fwd!.width)).toBeGreaterThanOrEqual(10);
     expect(undo!.x - (view!.x + view!.width)).toBeGreaterThanOrEqual(10);
+});
+
+test('TC-OHL-04 < > のアイコンは ← →（Recent の Back / Forward の < > と見分ける）', async ({ page }) => {
+    const r = await page.evaluate(() => {
+        const paths = (sel: string) => Array.from(document.querySelectorAll(sel + ' svg path, ' + sel + ' svg polyline')).map(e => e.getAttribute('d') || e.getAttribute('points'));
+        return { back: paths('.outliner-nav-back-btn'), fwd: paths('.outliner-nav-forward-btn') };
+    });
+    expect(r.back).toEqual(['m12 19-7-7 7-7', 'M19 12H5']);
+    expect(r.fwd).toEqual(['M5 12h14', 'm12 5 7 7-7 7']);
 });
