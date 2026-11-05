@@ -3206,14 +3206,10 @@ body {
 .outliner-page-title {
     padding: 14px var(--outliner-gutter) 4px;
     flex-shrink: 0;
-    /* タイトルの右端に undo / redo（.outliner-title-actions）。右端は search-bar の menu とそろう（同じ gutter） */
-    display: flex;
-    align-items: center;
 }
 
 .outliner-page-title-input {
-    flex: 1;
-    min-width: 0;
+    width: 100%;
     font-size: 1.35em;
     font-weight: 600;
     border: none;
@@ -3228,13 +3224,6 @@ body {
 .outliner-page-title-input::placeholder {
     color: var(--outliner-placeholder);
     font-weight: 400;
-}
-
-.outliner-title-actions {
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-    margin-left: 8px;
 }
 
 /* --- Search Bar --- */
@@ -3424,8 +3413,12 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     opacity: 1;
 }
 
-/* view 切替（outline / table / mindmap）は検索の右の < > から少し離す */
-.outliner-nav-forward-btn + .outliner-view-toggle-btn {
+/* view 切替（outline / table / mindmap）は検索の右の < > から少し離し、undo / redo はその右でまた少し離す。
+   search-bar は sticky なので、スクロールしても undo / redo は見えたまま（タイトルの行は流れて消える）。
+   view 切替の無い画面（electron）は < > の右に undo / redo */
+.outliner-nav-forward-btn + .outliner-view-toggle-btn,
+.outliner-view-toggle-btn + .outliner-undo-btn,
+.outliner-nav-forward-btn + .outliner-undo-btn {
     margin-left: 14px;
 }
 
@@ -6064,10 +6057,6 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                 <div class="outliner-scroll-content">
                     <div class="outliner-page-title">
                         <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
-                        <div class="outliner-title-actions">
-                            <button class="outliner-undo-btn" title="Undo" disabled></button>
-                            <button class="outliner-redo-btn" title="Redo" disabled></button>
-                        </div>
                     </div>
                     <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
                     <div class="outliner-search-bar">
@@ -6079,6 +6068,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                         </div>
                         <button class="outliner-nav-back-btn" title="Back" disabled></button>
                         <button class="outliner-nav-forward-btn" title="Forward" disabled></button>
+                        <button class="outliner-undo-btn" title="Undo" disabled></button>
+                        <button class="outliner-redo-btn" title="Redo" disabled></button>
                         <button class="outliner-menu-btn" title="Menu"></button>
                     </div>
                     <div class="outliner-pinned-nav-bar">

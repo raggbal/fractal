@@ -274,10 +274,6 @@ const html = `<!DOCTYPE html>
     <div class="outliner-container">
         <div class="outliner-page-title">
             <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
-            <div class="outliner-title-actions">
-                <button class="outliner-undo-btn" title="Undo" disabled></button>
-                <button class="outliner-redo-btn" title="Redo" disabled></button>
-            </div>
         </div>
         <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
         <div class="outliner-search-bar">
@@ -290,6 +286,8 @@ const html = `<!DOCTYPE html>
             <button class="outliner-nav-back-btn" title="Back" disabled></button>
             <button class="outliner-nav-forward-btn" title="Forward" disabled></button>
             <button class="outliner-view-toggle-btn" title="Switch view"></button>
+            <button class="outliner-undo-btn" title="Undo" disabled></button>
+            <button class="outliner-redo-btn" title="Redo" disabled></button>
             <button class="outliner-task-mode-toggle-btn" title="Task Mode"></button>
             <button class="outliner-task-filter-toggle-btn" title="Filter"></button>
             <button class="outliner-archive-btn" title="Archive"></button>

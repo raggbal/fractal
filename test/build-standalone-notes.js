@@ -584,10 +584,6 @@ const html = `<!DOCTYPE html>
                 <div class="outliner-scroll-content">
                     <div class="outliner-page-title">
                         <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
-                        <div class="outliner-title-actions">
-                            <button class="outliner-undo-btn" title="Undo" disabled></button>
-                            <button class="outliner-redo-btn" title="Redo" disabled></button>
-                        </div>
                     </div>
                     <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
                     <div class="outliner-search-bar">
@@ -599,6 +595,8 @@ const html = `<!DOCTYPE html>
                         </div>
                         <button class="outliner-nav-back-btn" title="Back" disabled></button>
                         <button class="outliner-nav-forward-btn" title="Forward" disabled></button>
+                        <button class="outliner-undo-btn" title="Undo" disabled></button>
+                        <button class="outliner-redo-btn" title="Redo" disabled></button>
                         <button class="outliner-menu-btn" title="Menu"></button>
                     </div>
                     <div class="outliner-pinned-nav-bar">
