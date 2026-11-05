@@ -236,7 +236,12 @@ export function getNotesWebviewContent(
     // (DOM 内 `.side-panel` 重複を避けるため。outliner.js が
     // `document.querySelector('.side-panel')` で最初の要素を掴む仕様のため、
     // 重複すると markdown-container 内側の hidden パネルを掴んでしまう)
-    const markdownPaneHtml = generateEditorBodyHtml(msg, process.platform, { includeSidePanel: false, showOpenInNewTab: true, showNotesPanelToggle: true });
+    // パネルを閉じたときに ≡ の右へ出す Recent の < >（パネル最上段のボタンと同じものを notes-body-html.js で作る）
+    const historyNav = (variant: string) => notesBodyHtml.generateNotesHistoryNavHtml(config.webviewMessages || {}, variant);
+    const markdownPaneHtml = generateEditorBodyHtml(msg, process.platform, {
+        includeSidePanel: false, showOpenInNewTab: true, showNotesPanelToggle: true,
+        notesHistoryNavHtml: { toolbar: historyNav('toolbar'), outline: historyNav('outline') },
+    });
 
     return `<!DOCTYPE html>
 <html lang="en" data-theme="${config.theme}" data-fr-theme="${config.theme}" data-toolbar-mode="${config.toolbarMode || 'full'}" data-show-translate-buttons="${String(config.showTranslateButtons ?? false)}" data-show-open-in-text-editor="${String(config.showOpenInTextEditor ?? true)}">
@@ -279,6 +284,7 @@ export function getNotesWebviewContent(
                     <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
                     <div class="outliner-search-bar">
                         <button class="notes-panel-toggle-btn" id="notesPanelToggleBtn" title="Show file panel (Cmd+\\)">&#9776;</button>
+                        ${historyNav('outliner')}
                         <div class="outliner-daily-nav-area" style="display:none">
                             <button class="outliner-daily-btn" id="dailyNavToday">Today</button>
                             <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavPrev">&lt;</button>

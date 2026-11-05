@@ -33,6 +33,28 @@
      *   initialHistory, initialHeight, initialCollapsed,
      * }
      */
+    /**
+     * パネルを閉じたときに note 面のヘッダーへ出す Recent の < > を、ref の直後に入れる（viewer / folder view の JS で作る toolbar 用。
+     * md / outliner は template に notes-body-html.js の generateNotesHistoryNavHtml で入っている）。
+     * パネル最上段の #notesHistoryBack / Forward を写すので、アイコンと title はパネルと同じ。既にあれば何もしない
+     */
+    window.__mountNotesHeaderHistoryNav = function(ref, variant) {
+        if (!ref || !ref.parentNode) return;
+        if (ref.parentNode.querySelector('.notes-header-history-btn')) return;
+        var srcs = [document.getElementById('notesHistoryBack'), document.getElementById('notesHistoryForward')];
+        var after = ref;
+        for (var i = 0; i < srcs.length; i++) {
+            if (!srcs[i]) return;
+            var b = srcs[i].cloneNode(true);
+            b.removeAttribute('id');
+            b.removeAttribute('disabled');
+            b.className = 'notes-header-history-btn notes-header-history-btn--' + variant;
+            b.setAttribute('data-notes-history-nav', i === 0 ? 'back' : 'forward');
+            after.parentNode.insertBefore(b, after.nextSibling);
+            after = b;
+        }
+    };
+
     window.__initNotesHistoryPanel = function(deps) {
         var panelEl = deps.panelEl;
         var listEl = deps.listEl;
@@ -76,8 +98,17 @@
 
         // D5: 端（開ける entry が無い方向）は押せない。現在位置を Recent で強調表示
         function updateNav() {
-            if (backEl) backEl.disabled = findTarget(1) < 0;
-            if (forwardEl) forwardEl.disabled = findTarget(-1) < 0;
+            var canBack = findTarget(1) >= 0;
+            var canForward = findTarget(-1) >= 0;
+            if (backEl) backEl.disabled = !canBack;
+            if (forwardEl) forwardEl.disabled = !canForward;
+            // パネルを閉じたときに note 面のヘッダーに出す < >（.notes-header-history-btn）は、作り直される DOM にあるので
+            // <html> の属性で押せるかを伝える（CSS が薄くして押せなくする — notes-body-html.js）
+            var root = document.documentElement;
+            if (root) {
+                root.setAttribute('data-notes-history-back', canBack ? '1' : '0');
+                root.setAttribute('data-notes-history-forward', canForward ? '1' : '0');
+            }
             var els = listEl.querySelectorAll('.side-panel-history-item');
             for (var i = 0; i < els.length; i++) {
                 var cur = i === cursor;
@@ -119,6 +150,19 @@
         function forward() { return navigate(-1); }
         if (backEl) backEl.addEventListener('click', function(e) { e.preventDefault(); back(); });
         if (forwardEl) forwardEl.addEventListener('click', function(e) { e.preventDefault(); forward(); });
+        // ヘッダーの < >（パネルを閉じたとき）は、md の DOM が updateData で作り直されても効くよう document で拾う
+        if (!window.__notesHeaderHistoryNavWired) {
+            window.__notesHeaderHistoryNavWired = true;
+            document.addEventListener('click', function(e) {
+                var t = e.target;
+                var btn = t && t.closest ? t.closest('.notes-header-history-btn') : null;
+                if (!btn) return;
+                e.preventDefault();
+                var panel = window.__notesHistoryPanel;
+                if (!panel) return;
+                if (btn.getAttribute('data-notes-history-nav') === 'back') { panel.back(); } else { panel.forward(); }
+            });
+        }
 
         // ── 描画（最新順・FR-HP-04） ──
         function render(history) {

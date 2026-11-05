@@ -134,7 +134,11 @@ const { generateSidePanelHtml, generateEditorBodyHtml } = require(editorBodyHtml
 const sidePanelHtml = generateSidePanelHtml({});
 // TC-RR-46: notes md ペイン（EditorInstance を構築して editor.js の click listener を document に登録させ、
 // cross-script 二重発火の load-bearing 条件を成立させるため）。production notesWebviewContent と同じ markdownPaneHtml。
-const markdownPaneHtml = generateEditorBodyHtml({}, process.platform, { includeSidePanel: false });
+// 本番（notesWebviewContent.ts）と同じく、パネルを閉じたときの ≡ と Recent の < > を md の toolbar / Outline ヘッダに入れる
+const markdownPaneHtml = generateEditorBodyHtml({}, process.platform, {
+    includeSidePanel: false, showNotesPanelToggle: true,
+    notesHistoryNavHtml: { toolbar: notesBodyHtml.generateNotesHistoryNavHtml({}, 'toolbar'), outline: notesBodyHtml.generateNotesHistoryNavHtml({}, 'outline') },
+});
 
 // --- テスト用 HostBridge モック (notes-host-bridge.js 相当) ---
 const testNotesHostBridge = `
@@ -588,6 +592,7 @@ const html = `<!DOCTYPE html>
                     <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
                     <div class="outliner-search-bar">
                         <button class="notes-panel-toggle-btn" id="notesPanelToggleBtn" title="Show file panel"></button>
+                        ${notesBodyHtml.generateNotesHistoryNavHtml({}, 'outliner')}
                         <button class="outliner-search-mode-toggle" title="Toggle search mode: Tree / Focus"></button>
                         <div class="outliner-search-input-wrapper">
                             <input type="text" class="outliner-search-input" placeholder="Search..." />

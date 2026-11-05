@@ -127,6 +127,8 @@
                 toggle.title = 'Show file panel (Cmd+\\)';
                 toggle.innerHTML = '&#9776;';
                 header.insertBefore(toggle, header.firstChild);
+                // パネルを閉じたときは ≡ の右に Recent の < >（notes-history-panel.js。表示の出し分けは notes-body-html.js の CSS）
+                if (typeof window.__mountNotesHeaderHistoryNav === 'function') { window.__mountNotesHeaderHistoryNav(toggle, 'fv'); }
             }
         }
         // FR-FLV-25（folder-view.md §4 通常 click）: タブを増やさずアクティブタブを folder に差し替える

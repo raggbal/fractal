@@ -97,6 +97,8 @@
                 toggle.title = 'Show file panel (Cmd+\\)';
                 toggle.innerHTML = '&#9776;';
                 bar.insertBefore(toggle, bar.firstChild);
+                // パネルを閉じたときは ≡ の右に Recent の < >（notes-history-panel.js。表示の出し分けは notes-body-html.js の CSS）
+                if (typeof window.__mountNotesHeaderHistoryNav === 'function') { window.__mountNotesHeaderHistoryNav(toggle, 'viewer'); }
             }
         }
     }

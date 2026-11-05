@@ -27,11 +27,17 @@ function generateEditorBodyHtml(messages, platform, options) {
     const notesPanelToggleBtn = showNotesPanelToggle
         ? `<button class="notes-panel-toggle-btn notes-panel-toggle-btn--toolbar" title="Show file panel (Cmd+\\)">&#9776;</button>`
         : '';
+    // Notes: パネルを閉じたときに ≡ の右へ出す Recent の < >（notes-body-html.js の generateNotesHistoryNavHtml で作った HTML）。
+    // toolbar = Outline 閉のとき toolbar の左端、outline = Outline 開のとき Outline のヘッダ（≡ と同じ出し分け）
+    const notesHistoryNav = (options && options.notesHistoryNavHtml) || {};
+    const historyNavToolbar = showNotesPanelToggle ? (notesHistoryNav.toolbar || '') : '';
+    const historyNavOutline = showNotesPanelToggle ? (notesHistoryNav.outline || '') : '';
 
     return `<div class="container">
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 ${showNotesPanelToggle ? `<button class="notes-panel-toggle-btn notes-panel-toggle-btn--outline" title="Show file panel (Cmd+\\)">&#9776;</button>` : ''}
+                ${historyNavOutline}
                 <h3>Outline</h3>
                 <button class="sidebar-toggle" id="closeSidebar" title="${m('closeOutline')} (Cmd+\\)">&times;</button>
             </div>
@@ -51,6 +57,7 @@ function generateEditorBodyHtml(messages, platform, options) {
             <div class="toolbar" id="toolbar">
                 <div class="toolbar-fixed toolbar-fixed--left">
                     ${notesPanelToggleBtn}
+                    ${historyNavToolbar}
                     <button data-action="openOutline" class="menu-btn hidden" id="openSidebarBtn" title="${m('openOutline')} (Cmd+\\)"></button>
                     <div class="toolbar-group" data-group="history">
                         <button data-action="undo" title="${m('undo')}"></button>

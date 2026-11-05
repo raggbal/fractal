@@ -5594,6 +5594,33 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         .notes-file-panel.collapsed ~ .notes-main-wrapper #sidebar.hidden ~ .editor-container .notes-panel-toggle-btn--toolbar { display: flex; }
         /* ③ md Outline ヘッダ左: Outline 開（#sidebar が .hidden でない）のときだけ表示（②と排他 = 単一ボタン） */
         .notes-file-panel.collapsed ~ .notes-main-wrapper #sidebar:not(.hidden) .notes-panel-toggle-btn--outline { display: flex; }
+        /* パネルを閉じたときの Recent Back / Forward（≡ の右。≡ と同じ出し分け: outliner / md toolbar（Outline 閉）/ md Outline ヘッダ（Outline 開）/ viewer / folder view） */
+        .notes-header-history-btn {
+            display: none; background: transparent; border: none; border-radius: 4px;
+            cursor: pointer; padding: 4px 3px; line-height: 0; color: var(--fr-color-text-primary, inherit);
+            opacity: 0.6; align-items: center; justify-content: center; flex-shrink: 0;
+            min-width: 0; min-height: 0;
+        }
+        .notes-header-history-btn:hover { opacity: 1; background: var(--selection-bg); }
+        .notes-header-history-btn:focus-visible { outline: none; box-shadow: none; }
+        /* 押せる向きが無いとき（端）は薄くして押せなくする（notes-history-panel.js が <html> に書く） */
+        html:not([data-notes-history-back="1"]) .notes-header-history-btn[data-notes-history-nav="back"],
+        html:not([data-notes-history-forward="1"]) .notes-header-history-btn[data-notes-history-nav="forward"] {
+            opacity: 0.25; pointer-events: none; cursor: default;
+        }
+        /* 最後の > と次のボタン（集中・Outline・タイトル等）の間 */
+        .notes-header-history-btn[data-notes-history-nav="forward"] { margin-right: 5px; }
+        .notes-file-panel.collapsed ~ .notes-main-wrapper .outliner-search-bar .notes-header-history-btn--outliner { display: flex; }
+        .notes-file-panel.collapsed ~ .notes-main-wrapper #sidebar.hidden ~ .editor-container .notes-header-history-btn--toolbar { display: flex; }
+        .notes-file-panel.collapsed ~ .notes-main-wrapper #sidebar:not(.hidden) .notes-header-history-btn--outline { display: flex; }
+        /* viewer / folder view の toolbar の button の既定（display 等）に負けないよう、同じ強さで隠す。
+           viewer の ≡ は order: -1（viewer-dispatcher.js）なので、その右に並べるため同じ order にする */
+        .toolbar button.notes-header-history-btn,
+        .sidebar-header button.notes-header-history-btn { display: none; }
+        .viewer-toolbar .notes-header-history-btn { display: none; order: -1; }
+        .fv-header .notes-header-history-btn { display: none; }
+        .notes-file-panel.collapsed ~ .notes-main-wrapper .viewer-toolbar .notes-header-history-btn--viewer { display: flex; }
+        .notes-file-panel.collapsed ~ .notes-main-wrapper .fv-header .notes-header-history-btn--fv { display: flex; }
         .file-panel-rename-input {
             width: 100%; padding: 4px 7px; font-size: 12px;
             border: 1px solid var(--fr-color-primary, var(--outliner-active, #4a9eff));
@@ -6061,6 +6088,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                     <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
                     <div class="outliner-search-bar">
                         <button class="notes-panel-toggle-btn" id="notesPanelToggleBtn" title="Show file panel"></button>
+                        <button class="notes-header-history-btn notes-header-history-btn--outliner" data-notes-history-nav="back" type="button" title="Back" aria-label="Back"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><button class="notes-header-history-btn notes-header-history-btn--outliner" data-notes-history-nav="forward" type="button" title="Forward" aria-label="Forward"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
                         <button class="outliner-search-mode-toggle" title="Toggle search mode: Tree / Focus"></button>
                         <div class="outliner-search-input-wrapper">
                             <input type="text" class="outliner-search-input" placeholder="Search..." />
@@ -6104,7 +6132,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                 <div class="container">
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                
+                <button class="notes-panel-toggle-btn notes-panel-toggle-btn--outline" title="Show file panel (Cmd+\)">&#9776;</button>
+                <button class="notes-header-history-btn notes-header-history-btn--outline" data-notes-history-nav="back" type="button" title="Back" aria-label="Back"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><button class="notes-header-history-btn notes-header-history-btn--outline" data-notes-history-nav="forward" type="button" title="Forward" aria-label="Forward"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
                 <h3>Outline</h3>
                 <button class="sidebar-toggle" id="closeSidebar" title=" (Cmd+\)">&times;</button>
             </div>
@@ -6123,7 +6152,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         <main class="editor-container">
             <div class="toolbar" id="toolbar">
                 <div class="toolbar-fixed toolbar-fixed--left">
-                    
+                    <button class="notes-panel-toggle-btn notes-panel-toggle-btn--toolbar" title="Show file panel (Cmd+\)">&#9776;</button>
+                    <button class="notes-header-history-btn notes-header-history-btn--toolbar" data-notes-history-nav="back" type="button" title="Back" aria-label="Back"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button><button class="notes-header-history-btn notes-header-history-btn--toolbar" data-notes-history-nav="forward" type="button" title="Forward" aria-label="Forward"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
                     <button data-action="openOutline" class="menu-btn hidden" id="openSidebarBtn" title=" (Cmd+\)"></button>
                     <div class="toolbar-group" data-group="history">
                         <button data-action="undo" title=""></button>
@@ -62831,6 +62861,8 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 toggle.title = 'Show file panel (Cmd+\\)';
                 toggle.innerHTML = '&#9776;';
                 bar.insertBefore(toggle, bar.firstChild);
+                // パネルを閉じたときは ≡ の右に Recent の < >（notes-history-panel.js。表示の出し分けは notes-body-html.js の CSS）
+                if (typeof window.__mountNotesHeaderHistoryNav === 'function') { window.__mountNotesHeaderHistoryNav(toggle, 'viewer'); }
             }
         }
     }
@@ -62993,6 +63025,8 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 toggle.title = 'Show file panel (Cmd+\\)';
                 toggle.innerHTML = '&#9776;';
                 header.insertBefore(toggle, header.firstChild);
+                // パネルを閉じたときは ≡ の右に Recent の < >（notes-history-panel.js。表示の出し分けは notes-body-html.js の CSS）
+                if (typeof window.__mountNotesHeaderHistoryNav === 'function') { window.__mountNotesHeaderHistoryNav(toggle, 'fv'); }
             }
         }
         // FR-FLV-25（folder-view.md §4 通常 click）: タブを増やさずアクティブタブを folder に差し替える
@@ -64876,6 +64910,28 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
      *   initialHistory, initialHeight, initialCollapsed,
      * }
      */
+    /**
+     * パネルを閉じたときに note 面のヘッダーへ出す Recent の < > を、ref の直後に入れる（viewer / folder view の JS で作る toolbar 用。
+     * md / outliner は template に notes-body-html.js の generateNotesHistoryNavHtml で入っている）。
+     * パネル最上段の #notesHistoryBack / Forward を写すので、アイコンと title はパネルと同じ。既にあれば何もしない
+     */
+    window.__mountNotesHeaderHistoryNav = function(ref, variant) {
+        if (!ref || !ref.parentNode) return;
+        if (ref.parentNode.querySelector('.notes-header-history-btn')) return;
+        var srcs = [document.getElementById('notesHistoryBack'), document.getElementById('notesHistoryForward')];
+        var after = ref;
+        for (var i = 0; i < srcs.length; i++) {
+            if (!srcs[i]) return;
+            var b = srcs[i].cloneNode(true);
+            b.removeAttribute('id');
+            b.removeAttribute('disabled');
+            b.className = 'notes-header-history-btn notes-header-history-btn--' + variant;
+            b.setAttribute('data-notes-history-nav', i === 0 ? 'back' : 'forward');
+            after.parentNode.insertBefore(b, after.nextSibling);
+            after = b;
+        }
+    };
+
     window.__initNotesHistoryPanel = function(deps) {
         var panelEl = deps.panelEl;
         var listEl = deps.listEl;
@@ -64919,8 +64975,17 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
 
         // D5: 端（開ける entry が無い方向）は押せない。現在位置を Recent で強調表示
         function updateNav() {
-            if (backEl) backEl.disabled = findTarget(1) < 0;
-            if (forwardEl) forwardEl.disabled = findTarget(-1) < 0;
+            var canBack = findTarget(1) >= 0;
+            var canForward = findTarget(-1) >= 0;
+            if (backEl) backEl.disabled = !canBack;
+            if (forwardEl) forwardEl.disabled = !canForward;
+            // パネルを閉じたときに note 面のヘッダーに出す < >（.notes-header-history-btn）は、作り直される DOM にあるので
+            // <html> の属性で押せるかを伝える（CSS が薄くして押せなくする — notes-body-html.js）
+            var root = document.documentElement;
+            if (root) {
+                root.setAttribute('data-notes-history-back', canBack ? '1' : '0');
+                root.setAttribute('data-notes-history-forward', canForward ? '1' : '0');
+            }
             var els = listEl.querySelectorAll('.side-panel-history-item');
             for (var i = 0; i < els.length; i++) {
                 var cur = i === cursor;
@@ -64962,6 +65027,19 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         function forward() { return navigate(-1); }
         if (backEl) backEl.addEventListener('click', function(e) { e.preventDefault(); back(); });
         if (forwardEl) forwardEl.addEventListener('click', function(e) { e.preventDefault(); forward(); });
+        // ヘッダーの < >（パネルを閉じたとき）は、md の DOM が updateData で作り直されても効くよう document で拾う
+        if (!window.__notesHeaderHistoryNavWired) {
+            window.__notesHeaderHistoryNavWired = true;
+            document.addEventListener('click', function(e) {
+                var t = e.target;
+                var btn = t && t.closest ? t.closest('.notes-header-history-btn') : null;
+                if (!btn) return;
+                e.preventDefault();
+                var panel = window.__notesHistoryPanel;
+                if (!panel) return;
+                if (btn.getAttribute('data-notes-history-nav') === 'back') { panel.back(); } else { panel.forward(); }
+            });
+        }
 
         // ── 描画（最新順・FR-HP-04） ──
         function render(history) {
