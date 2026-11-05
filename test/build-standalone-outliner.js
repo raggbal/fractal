@@ -274,19 +274,21 @@ const html = `<!DOCTYPE html>
     <div class="outliner-container">
         <div class="outliner-page-title">
             <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
+            <div class="outliner-title-actions">
+                <button class="outliner-undo-btn" title="Undo" disabled></button>
+                <button class="outliner-redo-btn" title="Redo" disabled></button>
+            </div>
         </div>
         <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
         <div class="outliner-search-bar">
-            <button class="outliner-nav-back-btn" title="Back" disabled></button>
-            <button class="outliner-nav-forward-btn" title="Forward" disabled></button>
             <button class="outliner-search-mode-toggle" title="Toggle search mode: Tree / Focus"></button>
             <div class="outliner-search-input-wrapper">
                 <input type="text" class="outliner-search-input" placeholder="Search..." />
                 <button class="outliner-search-clear-btn" style="display:none" title="Clear search"></button>
                 <div class="outliner-tag-suggest-bar" style="display:none"></div>
             </div>
-            <button class="outliner-undo-btn" title="Undo" disabled></button>
-            <button class="outliner-redo-btn" title="Redo" disabled></button>
+            <button class="outliner-nav-back-btn" title="Back" disabled></button>
+            <button class="outliner-nav-forward-btn" title="Forward" disabled></button>
             <button class="outliner-view-toggle-btn" title="Switch view"></button>
             <button class="outliner-task-mode-toggle-btn" title="Task Mode"></button>
             <button class="outliner-task-filter-toggle-btn" title="Filter"></button>
