@@ -1172,32 +1172,43 @@ test.describe('electron vscode shim — AC-3 (resources only from inside the roo
 });
 
 test.describe('electron desktop shell — development / test switches', () => {
-    test('a packaged app ignores the switches that change its code or profile; unpackaged runs and the E2E build honor what they need', () => {
+    test('a packaged app ignores the switches that change its code or profile or open it to the DevTools protocol; unpackaged runs and the E2E build honor what they need', () => {
         const base = {
             argv: ['/Applications/Fractal.app/Contents/MacOS/Fractal'] as string[],
             env: {} as Record<string, string>,
             resourcesPath: '/Applications/Fractal.app/Contents/Resources',
             mainDir: '/repo/electron/out/main',
         };
+        // Chromium's own parse of the command line (main.ts passes app.commandLine.hasSwitch)
+        const debugging = new Set(['remote-debugging-port', 'remote-debugging-pipe']);
         const hostile = {
-            argv: [...base.argv, '--fractal-user-data=/tmp/other-profile', '--fractal-open-note=/notes/n1'],
+            argv: [...base.argv, '--fractal-user-data=/tmp/other-profile', '--fractal-open-note=/notes/n1', '--remote-debugging-port=0', '--remote-debugging-pipe'],
             env: { FRACTAL_EXTENSION_ROOT: '/tmp/other-code', FRACTAL_USER_DATA: '/tmp/other-profile-2' },
+            hasChromiumSwitch: (name: string) => debugging.has(name),
         };
         const bundled = '/Applications/Fractal.app/Contents/Resources/ext';
-        // the release build: only the note to open is taken
+        // the release build: only the note to open is taken; the DevTools protocol switches are removed (spec 20261106-1312 D4b)
         expect(resolveLaunchOptions({ ...base, ...hostile, isPackaged: true, testBuild: false })).toEqual({
             extensionRoot: bundled,
             userData: undefined,
             devProfile: false,
             openNote: '/notes/n1',
-            ignored: ['FRACTAL_EXTENSION_ROOT', '--fractal-user-data', 'FRACTAL_USER_DATA'],
+            removeSwitches: ['remote-debugging-port', 'remote-debugging-pipe'],
+            ignored: ['FRACTAL_EXTENSION_ROOT', '--fractal-user-data', 'FRACTAL_USER_DATA', '--remote-debugging-port', '--remote-debugging-pipe'],
         });
-        // the E2E build: the profile switch too (each test runs on a temp profile), never another extension
+        // only what was given is removed / logged
+        expect(resolveLaunchOptions({ ...base, hasChromiumSwitch: (n: string) => n === 'remote-debugging-pipe', isPackaged: true, testBuild: false })).toMatchObject({
+            removeSwitches: ['remote-debugging-pipe'],
+            ignored: ['--remote-debugging-pipe'],
+        });
+        // the E2E build: the profile switch too (each test runs on a temp profile) and the DevTools protocol (Playwright
+        // drives the pages through --remote-debugging-port=0), never another extension
         expect(resolveLaunchOptions({ ...base, ...hostile, isPackaged: true, testBuild: true })).toEqual({
             extensionRoot: bundled,
             userData: '/tmp/other-profile',
             devProfile: false,
             openNote: '/notes/n1',
+            removeSwitches: [],
             ignored: ['FRACTAL_EXTENSION_ROOT'],
         });
         expect(resolveLaunchOptions({ ...base, env: { FRACTAL_USER_DATA: '/tmp/p' }, isPackaged: true, testBuild: true }).userData).toBe('/tmp/p');
@@ -1207,6 +1218,7 @@ test.describe('electron desktop shell — development / test switches', () => {
             userData: '/tmp/other-profile',
             devProfile: false,
             openNote: '/notes/n1',
+            removeSwitches: [],
             ignored: [],
         });
         // defaults
@@ -1215,6 +1227,7 @@ test.describe('electron desktop shell — development / test switches', () => {
             userData: undefined,
             devProfile: true,
             openNote: undefined,
+            removeSwitches: [],
             ignored: [],
         });
         expect(resolveLaunchOptions({ ...base, isPackaged: true, testBuild: false })).toEqual({
@@ -1222,6 +1235,7 @@ test.describe('electron desktop shell — development / test switches', () => {
             userData: undefined,
             devProfile: false,
             openNote: undefined,
+            removeSwitches: [],
             ignored: [],
         });
     });

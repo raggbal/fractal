@@ -129,7 +129,7 @@ export interface OpenerAdapter {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Webview panels (one panel = one window in the Electron shell)
+// Webview panels (the Electron shell shows each in a view of a window, next to its sidebar)
 // ---------------------------------------------------------------------------------------------
 
 export interface PanelViewState {
@@ -171,6 +171,8 @@ export interface PanelInit {
     readonly preserveFocus: boolean;
     readonly enableScripts: boolean;
     readonly retainContextWhenHidden: boolean;
+    /** The note folder of a Notes panel (ShimWebviewPanel.notesFolder()); the shell places the panel by it. */
+    readonly notesFolder?: string;
     readonly controller: PanelController;
 }
 

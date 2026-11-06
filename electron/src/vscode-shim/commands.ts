@@ -5,7 +5,7 @@
  *   executeCommand returns) and resolves to its (awaited) result; a throw becomes a rejection.
  * - unknown ids reject with "command 'x' not found".
  * Built-in VS Code commands the extension calls are handled here (spec D6):
- *   setContext → stored (the shell can read it), vscode.open / vscode.openWith → OpenerAdapter
+ *   setContext → stored + onDidChangeContext (the shell's when-clauses read it), vscode.open / vscode.openWith → OpenerAdapter
  *   (default: OS app), revealFileInOS → Finder, workbench.* → host hook (default no-op),
  *   undo / redo / vscode.diff → no-op.
  */
@@ -26,9 +26,12 @@ export interface CommandServices {
 
 export class CommandRegistry {
     private readonly handlers = new Map<string, { callback: Handler; thisArg: unknown }>();
+    /** setContext keys (the shell evaluates its sidebar's when-clauses against them). */
     readonly contextKeys = new Map<string, unknown>();
     /** Shim-only hook: fires before any command runs (the shell remembers the last opened note this way). */
     readonly onWillExecuteCommand = new EventEmitter<{ command: string; args: readonly unknown[] }>();
+    /** Shim-only hook: a setContext call changed a key's value (the key). */
+    readonly onDidChangeContext = new EventEmitter<string>();
 
     constructor(private readonly services: CommandServices) {}
 
@@ -75,7 +78,13 @@ export class CommandRegistry {
             case 'setContext': {
                 const [key, value] = args;
                 if (typeof key === 'string') {
+                    const had = this.contextKeys.has(key);
+                    const before = this.contextKeys.get(key);
                     this.contextKeys.set(key, value);
+                    // objects / arrays may have changed inside: always report them
+                    if (!had || before !== value || (value !== null && typeof value === 'object')) {
+                        this.onDidChangeContext.fire(key);
+                    }
                 }
                 return undefined;
             }

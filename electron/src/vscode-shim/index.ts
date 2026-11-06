@@ -46,6 +46,7 @@ export {
 export { ShimTextDocument } from './text-document';
 export type { ShimExtensionContext } from './extension-context';
 export type { TreeViewRecord } from './window';
+export { ShimTreeView } from './window';
 
 export const DEFAULT_EXTENSION_ID = 'imaken.fractal';
 
@@ -60,6 +61,25 @@ export function appAssetRoots(extensionRoot: string): string[] {
 
 /** How long a fractal.openNotesFolder request waits for its panel (the folder was already open / missing otherwise). */
 const NOTE_REQUEST_TTL_MS = 60000;
+
+/** contributes.views[*][*] id → name (VS Code's default TreeView.title); empty when package.json is unreadable. */
+function readContributedViewNames(packageJsonPath: string): Map<string, string> {
+    const names = new Map<string, string>();
+    try {
+        const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { contributes?: { views?: Record<string, unknown> } };
+        for (const list of Object.values(pkg.contributes?.views ?? {})) {
+            for (const v of Array.isArray(list) ? list : []) {
+                const { id, name } = (v ?? {}) as { id?: unknown; name?: unknown };
+                if (typeof id === 'string' && typeof name === 'string') {
+                    names.set(id, name);
+                }
+            }
+        }
+    } catch {
+        /* no names: titles stay undefined until the extension sets them */
+    }
+    return names;
+}
 
 export interface ShimOptions {
     /** Folder with out/extension.js, out/webview, media/, vendor/ and package.json. */
@@ -77,9 +97,15 @@ export interface ShimController {
     readonly onDidCreateWebviewPanel: Event<ShimWebviewPanel>;
     readonly onDidRevealWebviewPanel: Event<ShimWebviewPanel>;
     readonly onDidDisposeWebviewPanel: Event<ShimWebviewPanel>;
+    /** A tree view was registered, replaced or disposed (re-read treeViews()). */
     readonly onDidChangeTreeViews: Event<void>;
+    /** A registered tree view's title / description / message / badge changed (its view id). */
+    readonly onDidChangeTreeView: Event<string>;
+    /** A setContext key changed (the key). */
+    readonly onDidChangeContextKeys: Event<string>;
     readonly onWillExecuteCommand: Event<{ command: string; args: readonly unknown[] }>;
     panels(): ShimWebviewPanel[];
+    /** createTreeView / registerTreeDataProvider registrations by view id (the shell's sidebar draws them). */
     treeViews(): ReadonlyMap<string, TreeViewRecord>;
     customEditors(): ReadonlyMap<string, { provider: unknown; options: unknown }>;
     contextKeys(): ReadonlyMap<string, unknown>;
@@ -142,6 +168,7 @@ export function createVscodeShim(options: ShimOptions): VscodeShim {
     const onDidRevealWebviewPanel = new EventEmitter<ShimWebviewPanel>();
     const onDidDisposeWebviewPanel = new EventEmitter<ShimWebviewPanel>();
     const onDidChangeTreeViews = new EventEmitter<void>();
+    const onDidChangeTreeView = new EventEmitter<string>();
     const livePanels = new Set<ShimWebviewPanel>();
 
     const implicitResourceRoots = [
@@ -178,6 +205,8 @@ export function createVscodeShim(options: ShimOptions): VscodeShim {
         log,
         documents,
         onDidChangeTreeViews,
+        onDidChangeTreeView,
+        contributedViewNames: readContributedViewNames(path.join(extensionRoot, 'package.json')),
         panelServices: {
             host: host.webviewHost,
             log,
@@ -415,6 +444,8 @@ export function createVscodeShim(options: ShimOptions): VscodeShim {
         onDidRevealWebviewPanel: onDidRevealWebviewPanel.event,
         onDidDisposeWebviewPanel: onDidDisposeWebviewPanel.event,
         onDidChangeTreeViews: onDidChangeTreeViews.event,
+        onDidChangeTreeView: onDidChangeTreeView.event,
+        onDidChangeContextKeys: commands.onDidChangeContext.event,
         onWillExecuteCommand: commands.onWillExecuteCommand.event,
         panels: () => Array.from(livePanels),
         treeViews: () => treeViews,

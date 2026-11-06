@@ -8,8 +8,10 @@
  * - createQuickPick: hide() fires onDidHide asynchronously (VS Code round-trips to the UI), so an
  *   onDidAccept handler that calls hide() and then resolves still wins.
  * - withProgress runs the task synchronously and returns its promise.
- * Views VS Code draws itself (tree views, status bar, custom editors) are inert objects; the shell
- * can read the registered tree providers to build its menus (spec D2).
+ * - createTreeView / registerTreeDataProvider register { id, treeDataProvider, dragAndDropController }
+ *   and return a TreeView (title / description / message / badge, visible, selection, reveal, events):
+ *   the desktop shell draws these views in its sidebar (spec 20261107-0431 D2) from the registry.
+ * Other views VS Code draws itself (status bar, custom editors) are inert objects.
  */
 import * as path from 'path';
 import { CancellationTokenSource, Disposable, EventEmitter, NoneEvent } from './events';
@@ -89,21 +91,40 @@ function toRequestItem(item: unknown, picked: boolean): QuickPickRequestItem {
     };
 }
 
+/** What createTreeView / registerTreeDataProvider registered for a view id (the shell draws it — spec 20261107-0431 D2). */
 export interface TreeViewRecord {
     viewId: string;
+    /** options.treeDataProvider (getChildren / getTreeItem / onDidChangeTreeData) */
     provider: unknown;
+    /** options.dragAndDropController (kept for completeness: the desktop sidebar does no D&D yet, D5) */
+    dragAndDropController: unknown;
+    options: Readonly<Record<string, unknown>>;
     view: ShimTreeView;
 }
 
+export interface ShimTreeViewHooks {
+    /** The name contributed in package.json (VS Code's default TreeView.title). */
+    contributedName?: string;
+    /** title / description / message / badge changed (the shell redraws its view). */
+    onDidChangeProperties(viewId: string): void;
+    onDispose(): void;
+}
+
+/**
+ * VS Code's TreeView<T> as far as an extension can observe it. The shell (not VS Code) draws the view:
+ * it reads the record's provider, sets `visible` / `selection` through the shim-only _set* methods,
+ * and listens to onDidChangeProperties for title / description / message / badge.
+ */
 export class ShimTreeView {
-    title: string | undefined;
-    description: string | undefined;
-    message: string | undefined;
-    badge: unknown;
-    readonly visible = false;
-    readonly selection: unknown[] = [];
-    private readonly _onDidChangeVisibility = new EventEmitter<unknown>();
-    private readonly _onDidChangeSelection = new EventEmitter<unknown>();
+    private _title: string | undefined;
+    private _description: string | undefined;
+    private _message: string | undefined;
+    private _badge: unknown;
+    private _visible = false;
+    private _selection: readonly unknown[] = [];
+    private _disposed = false;
+    private readonly _onDidChangeVisibility = new EventEmitter<{ visible: boolean }>();
+    private readonly _onDidChangeSelection = new EventEmitter<{ selection: readonly unknown[] }>();
     private readonly _onDidExpandElement = new EventEmitter<unknown>();
     private readonly _onDidCollapseElement = new EventEmitter<unknown>();
     private readonly _onDidChangeCheckboxState = new EventEmitter<unknown>();
@@ -113,24 +134,108 @@ export class ShimTreeView {
     readonly onDidCollapseElement = this._onDidCollapseElement.event;
     readonly onDidChangeCheckboxState = this._onDidChangeCheckboxState.event;
 
-    constructor(readonly viewId: string, private readonly onDispose: () => void) {
-        this.title = undefined;
-        this.description = undefined;
-        this.message = undefined;
-        this.badge = undefined;
+    constructor(readonly viewId: string, private readonly hooks: ShimTreeViewHooks) {
+        this._title = undefined;
+        this._description = undefined;
+        this._message = undefined;
+        this._badge = undefined;
     }
 
-    reveal(): Promise<void> {
+    get title(): string | undefined {
+        return this._title ?? this.hooks.contributedName;
+    }
+
+    set title(value: string | undefined) {
+        this.setProperty('_title', value === undefined ? undefined : String(value));
+    }
+
+    get description(): string | undefined {
+        return this._description;
+    }
+
+    set description(value: string | undefined) {
+        this.setProperty('_description', value === undefined ? undefined : String(value));
+    }
+
+    get message(): string | undefined {
+        return this._message;
+    }
+
+    set message(value: string | undefined) {
+        this.setProperty('_message', value === undefined ? undefined : String(value));
+    }
+
+    get badge(): unknown {
+        return this._badge;
+    }
+
+    set badge(value: unknown) {
+        this.setProperty('_badge', value);
+    }
+
+    get visible(): boolean {
+        return this._visible;
+    }
+
+    get selection(): readonly unknown[] {
+        return this._selection;
+    }
+
+    /** VS Code selects (and focuses) the element unless `select: false`; the shell may show it. */
+    reveal(element?: unknown, options?: { select?: boolean; focus?: boolean; expand?: boolean | number }): Promise<void> {
+        if (!this._disposed && element !== undefined && options?.select !== false) {
+            this._setSelection([element]);
+        }
         return Promise.resolve();
     }
 
     dispose(): void {
+        if (this._disposed) {
+            return;
+        }
+        this._disposed = true;
         this._onDidChangeVisibility.dispose();
         this._onDidChangeSelection.dispose();
         this._onDidExpandElement.dispose();
         this._onDidCollapseElement.dispose();
         this._onDidChangeCheckboxState.dispose();
-        this.onDispose();
+        this.hooks.onDispose();
+    }
+
+    get isDisposed(): boolean {
+        return this._disposed;
+    }
+
+    /** Shell → view: the view is shown (an open sidebar with this section expanded) or not. */
+    _setVisible(visible: boolean): void {
+        if (this._disposed || this._visible === !!visible) {
+            return;
+        }
+        this._visible = !!visible;
+        this._onDidChangeVisibility.fire({ visible: this._visible });
+    }
+
+    /** Shell → view: the user selected these elements (a click in the sidebar). */
+    _setSelection(elements: readonly unknown[]): void {
+        if (this._disposed) {
+            return;
+        }
+        const next = elements.slice();
+        if (next.length === this._selection.length && next.every((e, i) => e === this._selection[i])) {
+            return;
+        }
+        this._selection = next;
+        this._onDidChangeSelection.fire({ selection: next });
+    }
+
+    private setProperty(key: '_title' | '_description' | '_message' | '_badge', value: unknown): void {
+        if (this[key] === value) {
+            return;
+        }
+        (this as unknown as Record<string, unknown>)[key] = value;
+        if (!this._disposed) {
+            this.hooks.onDidChangeProperties(this.viewId);
+        }
     }
 }
 
@@ -178,7 +283,12 @@ export interface WindowServices {
     log: ShimLogger;
     documents: TextDocumentRegistry;
     panelServices: PanelServices;
+    /** A tree view was registered / replaced / disposed. */
     onDidChangeTreeViews: EventEmitter<void>;
+    /** A tree view's title / description / message / badge changed (the view id). */
+    onDidChangeTreeView: EventEmitter<string>;
+    /** package.json contributes.views names (VS Code's default TreeView.title). */
+    contributedViewNames?: ReadonlyMap<string, string>;
 }
 
 export function createWindowNamespace(s: WindowServices) {
@@ -191,6 +301,33 @@ export function createWindowNamespace(s: WindowServices) {
     const onDidChangeActiveColorTheme = new EventEmitter<unknown>();
     const onDidChangeTabs = new EventEmitter<unknown>();
     const onDidChangeTabGroups = new EventEmitter<unknown>();
+
+    /** One record per view id; a second registration for the same id replaces the first (it stays usable but unseen). */
+    function registerTreeView(viewId: string, options: Record<string, unknown>): ShimTreeView {
+        const view = new ShimTreeView(viewId, {
+            contributedName: s.contributedViewNames?.get(viewId),
+            onDidChangeProperties: (id) => {
+                if (treeViews.get(id)?.view === view) {
+                    s.onDidChangeTreeView.fire(id);
+                }
+            },
+            onDispose: () => {
+                if (treeViews.get(viewId)?.view === view) {
+                    treeViews.delete(viewId);
+                    s.onDidChangeTreeViews.fire(undefined);
+                }
+            },
+        });
+        treeViews.set(viewId, {
+            viewId,
+            provider: options.treeDataProvider,
+            dragAndDropController: options.dragAndDropController,
+            options: { ...options },
+            view,
+        });
+        s.onDidChangeTreeViews.fire(undefined);
+        return view;
+    }
 
     function showMessage(severity: MessageSeverity, message: unknown, optionsOrFirstItem: unknown, rest: unknown[]): Promise<unknown> {
         const { modal, detail, items } = parseMessageArgs(optionsOrFirstItem, rest);
@@ -639,28 +776,12 @@ export function createWindowNamespace(s: WindowServices) {
         onDidChangeTextEditorViewColumn: NoneEvent,
         tabGroups,
 
-        // --- views VS Code draws itself (inert) ---
-        createTreeView: (viewId: string, options: { treeDataProvider?: unknown }) => {
-            const view = new ShimTreeView(viewId, () => {
-                if (treeViews.get(viewId)?.view === view) {
-                    treeViews.delete(viewId);
-                    s.onDidChangeTreeViews.fire(undefined);
-                }
-            });
-            treeViews.set(viewId, { viewId, provider: options?.treeDataProvider, view });
-            s.onDidChangeTreeViews.fire(undefined);
-            return view;
-        },
+        // --- tree views: registered for the shell's sidebar (spec 20261107-0431 D2) ---
+        createTreeView: (viewId: string, options: { treeDataProvider?: unknown; dragAndDropController?: unknown }) =>
+            registerTreeView(String(viewId), options ?? {}),
         registerTreeDataProvider: (viewId: string, provider: unknown) => {
-            const view = new ShimTreeView(viewId, () => undefined);
-            treeViews.set(viewId, { viewId, provider, view });
-            s.onDidChangeTreeViews.fire(undefined);
-            return new Disposable(() => {
-                if (treeViews.get(viewId)?.view === view) {
-                    treeViews.delete(viewId);
-                    s.onDidChangeTreeViews.fire(undefined);
-                }
-            });
+            const view = registerTreeView(String(viewId), { treeDataProvider: provider });
+            return new Disposable(() => view.dispose());
         },
         createStatusBarItem: () => createStatusBarItem(),
         createOutputChannel: (name: string) => createOutputChannel(String(name), log),

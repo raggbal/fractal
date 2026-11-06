@@ -12,8 +12,15 @@
  *                                              the profile folder: unpackaged runs and the E2E build
  *                                              (electron-builder.e2e.config.js sets
  *                                              package.json "fractalTestBuild": true)
+ *   --remote-debugging-port | --remote-debugging-pipe
+ *                                              Chromium's DevTools protocol endpoint (a 127.0.0.1 socket / fd 3
+ *                                              and 4): it drives every page of the app, so it reads the notes
+ *                                              the app shows. Unpackaged runs and the E2E build only (Playwright
+ *                                              passes --remote-debugging-port=0); the release build removes them
+ *                                              from app.commandLine before 'ready' (Chromium starts the endpoint
+ *                                              after the main script ran) — spec 20261106-1312 D4b.
  * The release build also turns off Electron's RunAsNode / NODE_OPTIONS / --inspect fuses
- * (package.json build.electronFuses).
+ * (package.json build.electronFuses); no fuse covers the two Chromium switches above.
  * Harmless everywhere: --fractal-open-note=<dir> | FRACTAL_OPEN_NOTE (a note to open),
  * FRACTAL_NO_EXTERNAL=1, FRACTAL_LANG.
  */
@@ -29,7 +36,12 @@ export interface LaunchContext {
     resourcesPath: string;
     /** __dirname of out/main/main.js */
     mainDir: string;
+    /** Chromium's own parse of the command line (app.commandLine.hasSwitch); absent = no switch given. */
+    hasChromiumSwitch?(name: string): boolean;
 }
+
+/** Chromium switches that open the app's pages to the DevTools protocol (CDP). */
+export const REMOTE_DEBUGGING_SWITCHES = ['remote-debugging-port', 'remote-debugging-pipe'] as const;
 
 export interface LaunchOptions {
     /** Folder with out/extension.js, out/webview, media/, vendor/ and package.json. */
@@ -40,6 +52,8 @@ export interface LaunchOptions {
     devProfile: boolean;
     /** A note folder to open at start. */
     openNote?: string;
+    /** Chromium switches main.ts removes from app.commandLine before 'ready' (listed in `ignored` too). */
+    removeSwitches: string[];
     /** Switches that were given but are not honored by this build (to log). */
     ignored: string[];
 }
@@ -82,12 +96,23 @@ export function resolveLaunchOptions(ctx: LaunchContext): LaunchOptions {
         }
     }
 
+    const removeSwitches: string[] = [];
+    if (ctx.isPackaged && !ctx.testBuild) {
+        for (const name of REMOTE_DEBUGGING_SWITCHES) {
+            if (ctx.hasChromiumSwitch?.(name)) {
+                removeSwitches.push(name);
+                ignored.push(`--${name}`);
+            }
+        }
+    }
+
     const openNote = argValue(ctx.argv, 'fractal-open-note') || env.FRACTAL_OPEN_NOTE;
     return {
         extensionRoot,
         userData,
         devProfile: !ctx.isPackaged && !userData,
         openNote: openNote ? path.resolve(openNote) : undefined,
+        removeSwitches,
         ignored,
     };
 }

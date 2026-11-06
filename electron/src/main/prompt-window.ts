@@ -1,11 +1,11 @@
 /**
- * showInputBox / showQuickPick: a small sheet on the current Notes window (or a centered window when
- * none is open) showing fractal-ui://prompt/index.html. The page is the app's own code
+ * showInputBox / showQuickPick: a small sheet on the window the user works in (or a centered window
+ * when none is open) showing fractal-ui://prompt/index.html. The page is the app's own code
  * (src/renderer/prompt-page.ts) served from a dedicated session; it gets the request over IPC and
  * renders it with textContent only. Like VS Code's quick input, a new prompt replaces an open one
  * (the old one resolves as dismissed).
  */
-import { BrowserWindow, ipcMain, session, type IpcMainEvent, type IpcMainInvokeEvent, type Session } from 'electron';
+import { BrowserWindow, ipcMain, session, type BaseWindow, type IpcMainEvent, type IpcMainInvokeEvent, type Session } from 'electron';
 import * as fs from 'fs';
 import type { InputBoxRequest, QuickPickRequest, ShimLogger } from '../vscode-shim/adapters';
 import { PROMPT_CH, UI_SCHEME } from './ipc';
@@ -36,7 +36,7 @@ export interface PromptServiceOptions {
     preloadPath: string;
     /** out/renderer/prompt-page.js */
     pageScriptPath: string;
-    parentWindow(): BrowserWindow | undefined;
+    parentWindow(): BaseWindow | undefined;
     isDark(): boolean;
 }
 

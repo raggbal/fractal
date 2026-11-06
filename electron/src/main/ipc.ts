@@ -32,7 +32,34 @@ export const PROMPT_CH = {
     done: 'fractal-prompt:done',
 } as const;
 
+/** The sidebar page ↔ main (spec 20261107-0431 D4): handles / tokens only, never command ids. */
+export const SIDEBAR_CH = {
+    /** invoke, renderer → main: () → SidebarPageModel | null */
+    getModel: 'fractal-sidebar:get-model',
+    /** main → renderer: a new SidebarPageModel */
+    model: 'fractal-sidebar:model',
+    /** renderer → main: (handle) run the item's TreeItem.command */
+    runItem: 'fractal-sidebar:run-item',
+    /** renderer → main: (token) a header / row button or a welcome link */
+    runAction: 'fractal-sidebar:run-action',
+    /** renderer → main: (handle) the item's right-click menu */
+    itemMenu: 'fractal-sidebar:item-menu',
+    /** renderer → main: (viewId) the header's "…" menu */
+    titleMenu: 'fractal-sidebar:title-menu',
+    /** renderer → main: (handle) close the open note of this row (its ● → ×) */
+    closeNote: 'fractal-sidebar:close-note',
+    /** renderer → main: (collapsed) */
+    setCollapsed: 'fractal-sidebar:set-collapsed',
+    /** renderer → main: (width, done) while dragging the edge / at the end */
+    setWidth: 'fractal-sidebar:set-width',
+    /** renderer → main: (viewId, expanded) */
+    setSection: 'fractal-sidebar:set-section',
+} as const;
+
 /** The scheme of a panel's document (VS Code's vscode-webview://): fractal-res://<panelId>/index.html */
 export const PANEL_SCHEME = 'fractal-res';
-/** The scheme of the app's own small pages (prompt): fractal-ui://prompt/index.html */
+/**
+ * The scheme of the app's own pages: fractal-ui://prompt/index.html (prompt session) and
+ * fractal-ui://sidebar/index.html (sidebar session). Each session serves only its own host.
+ */
 export const UI_SCHEME = 'fractal-ui';

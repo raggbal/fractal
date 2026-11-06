@@ -1,0 +1,172 @@
+/**
+ * The --vscode-* CSS variables VS Code injects into a webview (the extension's webview CSS reads ~36
+ * of them: focus border, inputs, buttons, menus, lists, editor colors / fonts), plus the side bar ones
+ * the desktop sidebar page reads (sidebar-view.ts serves this same set to it). Values follow VS Code's
+ * default Light Modern / Dark Modern themes. The dark set applies when the page's own Fractal theme is
+ * "dark", or "auto" (no attribute = auto) and the OS is dark — so the variables always agree with
+ * data-fr-theme, which the webview's tokens.css uses.
+ */
+// No Electron import: the sidebar unit spec reads these (every variable the sidebar page uses exists).
+
+export const COMMON: Record<string, string> = {
+    'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans", sans-serif',
+    'font-size': '13px',
+    'font-weight': 'normal',
+    'editor-font-family': 'Menlo, Monaco, "Courier New", monospace',
+    'editor-font-size': '12px',
+    'editor-font-weight': 'normal',
+};
+
+export const LIGHT: Record<string, string> = {
+    'foreground': '#3b3b3b',
+    'descriptionForeground': '#717171',
+    'errorForeground': '#f85149',
+    'focusBorder': '#005fb8',
+    'widget-border': '#e5e5e5',
+    'widget-shadow': 'rgba(0, 0, 0, 0.16)',
+    'panel-border': '#e5e5e5',
+    'editor-background': '#ffffff',
+    'editor-foreground': '#3b3b3b',
+    'editor-selectionBackground': '#add6ff',
+    'editor-selectionForeground': '#3b3b3b',
+    'editor-inactiveSelectionBackground': '#e5ebf1',
+    'editorWidget-background': '#f8f8f8',
+    'editorWidget-border': '#e5e5e5',
+    'input-background': '#ffffff',
+    'input-foreground': '#3b3b3b',
+    'input-border': '#cecece',
+    'input-placeholderForeground': '#767676',
+    'inputValidation-errorBackground': '#f2dede',
+    'inputValidation-errorBorder': '#be1100',
+    'button-background': '#005fb8',
+    'button-foreground': '#ffffff',
+    'button-hoverBackground': '#0258a8',
+    'button-border': 'rgba(0, 0, 0, 0.1)',
+    'button-secondaryBackground': '#e5e5e5',
+    'button-secondaryForeground': '#3b3b3b',
+    'button-secondaryHoverBackground': '#cccccc',
+    'button-secondaryBorder': 'rgba(0, 0, 0, 0.1)',
+    'list-hoverBackground': '#f2f2f2',
+    'list-activeSelectionBackground': '#e8e8e8',
+    'list-activeSelectionForeground': '#000000',
+    'list-inactiveSelectionBackground': '#e4e6f1',
+    'menu-background': '#ffffff',
+    'menu-foreground': '#3b3b3b',
+    'menu-border': '#cecece',
+    'menu-selectionBackground': '#005fb8',
+    'menu-selectionForeground': '#ffffff',
+    'menu-separatorBackground': '#d4d4d4',
+    'textLink-foreground': '#005fb8',
+    'textLink-activeForeground': '#005fb8',
+    'textBlockQuote-background': '#f8f8f8',
+    'textBlockQuote-border': '#e5e5e5',
+    'textCodeBlock-background': '#f8f8f8',
+    'textPreformat-foreground': '#3b3b3b',
+    'scrollbarSlider-background': 'rgba(100, 100, 100, 0.4)',
+    'scrollbarSlider-hoverBackground': 'rgba(100, 100, 100, 0.7)',
+    'scrollbarSlider-activeBackground': 'rgba(0, 0, 0, 0.6)',
+    'badge-background': '#cccccc',
+    'badge-foreground': '#3b3b3b',
+    'checkbox-background': '#f8f8f8',
+    'checkbox-border': '#cecece',
+    'dropdown-background': '#ffffff',
+    'dropdown-foreground': '#3b3b3b',
+    'dropdown-border': '#cecece',
+    // the desktop sidebar (spec 20261107-0431): VS Code's side bar / section header / toolbar colors
+    'sideBar-background': '#f8f8f8',
+    'sideBar-foreground': '#3b3b3b',
+    'sideBar-border': '#e5e5e5',
+    'sideBarTitle-foreground': '#3b3b3b',
+    'sideBarSectionHeader-background': '#f8f8f8',
+    'sideBarSectionHeader-foreground': '#3b3b3b',
+    'sideBarSectionHeader-border': '#e5e5e5',
+    'icon-foreground': '#3b3b3b',
+    'toolbar-hoverBackground': 'rgba(184, 184, 184, 0.31)',
+    'list-focusOutline': '#005fb8',
+    'sash-hoverBorder': '#005fb8',
+};
+
+export const DARK: Record<string, string> = {
+    'foreground': '#cccccc',
+    'descriptionForeground': '#9d9d9d',
+    'errorForeground': '#f85149',
+    'focusBorder': '#0078d4',
+    'widget-border': '#313131',
+    'widget-shadow': 'rgba(0, 0, 0, 0.36)',
+    'panel-border': '#2b2b2b',
+    'editor-background': '#1f1f1f',
+    'editor-foreground': '#cccccc',
+    'editor-selectionBackground': '#264f78',
+    'editor-selectionForeground': '#ffffff',
+    'editor-inactiveSelectionBackground': '#3a3d41',
+    'editorWidget-background': '#202020',
+    'editorWidget-border': '#313131',
+    'input-background': '#313131',
+    'input-foreground': '#cccccc',
+    'input-border': '#3c3c3c',
+    'input-placeholderForeground': '#989898',
+    'inputValidation-errorBackground': '#5a1d1d',
+    'inputValidation-errorBorder': '#be1100',
+    'button-background': '#0078d4',
+    'button-foreground': '#ffffff',
+    'button-hoverBackground': '#026ec1',
+    'button-border': 'rgba(255, 255, 255, 0.07)',
+    'button-secondaryBackground': '#313131',
+    'button-secondaryForeground': '#cccccc',
+    'button-secondaryHoverBackground': '#3c3c3c',
+    'button-secondaryBorder': 'rgba(255, 255, 255, 0.07)',
+    'list-hoverBackground': '#2a2d2e',
+    'list-activeSelectionBackground': '#04395e',
+    'list-activeSelectionForeground': '#ffffff',
+    'list-inactiveSelectionBackground': '#37373d',
+    'menu-background': '#1f1f1f',
+    'menu-foreground': '#cccccc',
+    'menu-border': '#454545',
+    'menu-selectionBackground': '#0078d4',
+    'menu-selectionForeground': '#ffffff',
+    'menu-separatorBackground': '#454545',
+    'textLink-foreground': '#4daafc',
+    'textLink-activeForeground': '#4daafc',
+    'textBlockQuote-background': '#2b2b2b',
+    'textBlockQuote-border': '#616161',
+    'textCodeBlock-background': '#2b2b2b',
+    'textPreformat-foreground': '#d0d0d0',
+    'scrollbarSlider-background': 'rgba(121, 121, 121, 0.4)',
+    'scrollbarSlider-hoverBackground': 'rgba(100, 100, 100, 0.7)',
+    'scrollbarSlider-activeBackground': 'rgba(191, 191, 191, 0.4)',
+    'badge-background': '#616161',
+    'badge-foreground': '#f8f8f8',
+    'checkbox-background': '#313131',
+    'checkbox-border': '#3c3c3c',
+    'dropdown-background': '#313131',
+    'dropdown-foreground': '#cccccc',
+    'dropdown-border': '#3c3c3c',
+    'sideBar-background': '#181818',
+    'sideBar-foreground': '#cccccc',
+    'sideBar-border': '#2b2b2b',
+    'sideBarTitle-foreground': '#cccccc',
+    'sideBarSectionHeader-background': '#181818',
+    'sideBarSectionHeader-foreground': '#cccccc',
+    'sideBarSectionHeader-border': '#2b2b2b',
+    'icon-foreground': '#cccccc',
+    'toolbar-hoverBackground': 'rgba(90, 93, 94, 0.31)',
+    'list-focusOutline': '#0078d4',
+    'sash-hoverBorder': '#0078d4',
+};
+
+function block(vars: Record<string, string>): string {
+    return Object.entries(vars)
+        .map(([k, v]) => `--vscode-${k}: ${v};`)
+        .join(' ');
+}
+
+/** Injected into every panel document (webFrame.insertCSS — not subject to the page CSP); the sidebar page's sidebar.css starts with it. */
+export function webviewThemeCss(): string {
+    const light = block({ ...COMMON, ...LIGHT });
+    const dark = block(DARK);
+    return [
+        `:root { ${light} }`,
+        `@media (prefers-color-scheme: dark) { :root:not([data-fr-theme="light"]) { ${dark} } }`,
+        `:root[data-fr-theme="dark"] { ${dark} }`,
+    ].join('\n');
+}

@@ -21,58 +21,38 @@
  * (--fractal-user-data) and note folder made with the extension's own NotesFileManager, and runs
  * with FRACTAL_NO_EXTERNAL=1 (links / Finder are logged, never opened).
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
-import { spawn, spawnSync } from 'child_process';
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
+import { spawn, spawnSync, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { NotesFileManager } from '../../src/shared/notes-file-manager';
-
-const REPO_ROOT = path.resolve(__dirname, '../..');
-const ELECTRON_DIR = path.join(REPO_ROOT, 'electron');
-const DEV_MODE = process.env.FRACTAL_E2E_DEV === '1';
-
-/** <dist>/<mac-arm64|mac|…>/Fractal.app/Contents/MacOS/Fractal, or '' */
-function builtExecutable(dist: string): string {
-    for (const dir of ['mac-arm64', 'mac', 'mac-universal', 'mac-x64']) {
-        const exe = path.join(dist, dir, 'Fractal.app', 'Contents', 'MacOS', 'Fractal');
-        if (fs.existsSync(exe)) {
-            return exe;
-        }
-    }
-    return '';
-}
-
-/** The E2E build (never the release build in electron/dist/mac-arm64: it would use your own profile). */
-function appExecutable(): string {
-    return process.env.FRACTAL_APP_EXECUTABLE || builtExecutable(path.join(ELECTRON_DIR, 'dist', 'e2e'));
-}
-
-/** Contents/ of the .app of a Contents/MacOS/<name> executable */
-function contentsOf(exe: string): string {
-    return path.resolve(exe, '..', '..');
-}
-
-/** package.json inside the app's app.asar */
-function packagedPackageJson(exe: string): Record<string, unknown> {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const asar = require(path.join(ELECTRON_DIR, 'node_modules', '@electron', 'asar')) as { extractFile(archive: string, file: string): Buffer };
-    return JSON.parse(asar.extractFile(path.join(contentsOf(exe), 'Resources', 'app.asar'), 'package.json').toString('utf8'));
-}
-
-/** Refuse to launch anything but the E2E build: a release build ignores --fractal-user-data. */
-function assertE2EBuild(exe: string): void {
-    if (DEV_MODE) {
-        return;
-    }
-    let marked = false;
-    try {
-        marked = packagedPackageJson(exe).fractalTestBuild === true;
-    } catch {
-        marked = false;
-    }
-    expect(marked, `${exe} is not the E2E build (it would run on your own profile) — run \`cd electron && npm run build:e2e\``).toBe(true);
-}
+// launch guard / environment / window-model helpers shared with sidebar.spec.ts (moved there unchanged,
+// plus the BaseWindow + WebContentsView lookups of spec 20261107-0431 D1)
+import {
+    acceptPrompt,
+    appExecutable,
+    appExtensionRoot,
+    builtExecutable,
+    clickMenu,
+    closeAllWindows,
+    contentsOf,
+    DEV_MODE,
+    ELECTRON_DIR,
+    launchApp,
+    launchEnv,
+    launchTarget,
+    menuLabels,
+    nextPanelPage,
+    outTexts,
+    packagedPackageJson,
+    panelPages,
+    REPO_ROOT,
+    rmrf,
+    waitForFile,
+    windowTitles,
+    type MenuItemLike,
+} from './harness';
 
 interface Fixture {
     tmp: string;
@@ -108,91 +88,19 @@ function makeFixture(noteName = 'smoke-note'): Fixture {
     return { tmp, home, userData, note, outPath, mdPath };
 }
 
-function launchTarget(): { executablePath: string; args: string[] } {
-    if (DEV_MODE) {
-        return {
-            executablePath: path.join(ELECTRON_DIR, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron'),
-            args: [ELECTRON_DIR],
-        };
-    }
-    return { executablePath: appExecutable(), args: [] };
-}
-
-/** The extension folder the app runs (packaged: Contents/Resources/ext; dev: the repo root). */
-function appExtensionRoot(): string {
-    return DEV_MODE ? REPO_ROOT : path.join(contentsOf(appExecutable()), 'Resources', 'ext');
-}
-
-/** The app's environment: temp HOME, no inherited Fractal / Electron / Node switches, no external apps. */
-function launchEnv(fx: Fixture, extra: Record<string, string> = {}): Record<string, string> {
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) {
-        if (typeof v === 'string') {
-            env[k] = v;
-        }
-    }
-    delete env.ELECTRON_RUN_AS_NODE;
-    delete env.NODE_OPTIONS;
-    delete env.FRACTAL_USER_DATA;
-    delete env.FRACTAL_OPEN_NOTE;
-    delete env.FRACTAL_EXTENSION_ROOT;
-    Object.assign(env, { HOME: fx.home, FRACTAL_NO_EXTERNAL: '1', FRACTAL_LANG: 'en' }, extra);
-    return env;
-}
-
+/**
+ * The app on the fixture, and the page of the note it opened. The first page Playwright sees is now the
+ * window's sidebar (spec 20261107-0431 D1), so the note's page is looked up by its fractal-res: URL.
+ */
 async function launch(fx: Fixture, extraEnv: Record<string, string> = {}): Promise<{ app: ElectronApplication; win: Page }> {
-    const target = launchTarget();
-    expect(target.executablePath, 'the desktop app is not built — run `cd electron && npm run build:e2e`').not.toBe('');
-    assertE2EBuild(target.executablePath);
-    const env = launchEnv(fx, extraEnv);
-    const app = await electron.launch({
-        executablePath: target.executablePath,
-        args: [...target.args, `--fractal-user-data=${fx.userData}`],
-        env,
-        timeout: 90000,
-    });
-    const win = await app.firstWindow({ timeout: 90000 });
-    await win.waitForSelector('.notes-layout', { timeout: 60000 });
+    const app = await launchApp(fx, extraEnv);
+    const win = await nextPanelPage(app, [], 60000);
     await win.waitForSelector('.file-panel-item', { timeout: 30000 });
     return { app, win };
 }
 
 /** After a window close: shorter than the extension's 1 s save debounces (see the close test). */
 const CLOSE_WRITE_MS = 500;
-
-/** Polls a file until `pred` holds; returns the last content. */
-async function waitForFile(file: string, pred: (s: string) => boolean, timeoutMs = 10000): Promise<string> {
-    const end = Date.now() + timeoutMs;
-    let last = '';
-    for (;;) {
-        try {
-            last = fs.readFileSync(file, 'utf8');
-        } catch {
-            last = '';
-        }
-        if (pred(last) || Date.now() > end) {
-            return last;
-        }
-        await new Promise((r) => setTimeout(r, 100));
-    }
-}
-
-function outTexts(json: string): string[] {
-    try {
-        const d = JSON.parse(json) as { nodes?: Record<string, { text?: string }> };
-        return Object.values(d.nodes ?? {}).map((n) => n.text ?? '');
-    } catch {
-        return [];
-    }
-}
-
-function rmrf(p: string): void {
-    try {
-        fs.rmSync(p, { recursive: true, force: true });
-    } catch {
-        /* best effort */
-    }
-}
 
 async function openTreeItem(win: Page, title: string): Promise<void> {
     await win.locator('.file-panel-item', { hasText: title }).first().click();
@@ -215,68 +123,6 @@ async function typeAtEndOfMd(win: Page, text: string): Promise<void> {
     await win.keyboard.type(text);
 }
 
-/** The part of Electron's MenuItem the tests read ('electron' types are not installed at the repo root). */
-interface MenuItemLike {
-    label: string;
-    enabled: boolean;
-    checked: boolean;
-    click(): void;
-    submenu?: { items: MenuItemLike[] } | null;
-}
-
-/** Runs an item of the application menu (what a click or its accelerator does): clickMenu(app, 'File', 'Notes', 'x'). */
-async function clickMenu(app: ElectronApplication, ...labels: string[]): Promise<void> {
-    const found = await app.evaluate(({ Menu }, path) => {
-        let items: MenuItemLike[] = Menu.getApplicationMenu()?.items ?? [];
-        let it: MenuItemLike | undefined;
-        for (const label of path) {
-            it = items.find((i: MenuItemLike) => i.label === label);
-            items = it?.submenu?.items ?? [];
-        }
-        if (!it || !it.enabled) {
-            return false;
-        }
-        it.click();
-        return true;
-    }, labels);
-    expect(found, `menu ${labels.join(' > ')}`).toBe(true);
-}
-
-/** Labels of a submenu of the application menu: menuLabels(app, 'File', 'Notes'). */
-async function menuLabels(app: ElectronApplication, ...labels: string[]): Promise<string[]> {
-    return app.evaluate(({ Menu }, path) => {
-        let items: MenuItemLike[] = Menu.getApplicationMenu()?.items ?? [];
-        for (const label of path) {
-            items = items.find((i: MenuItemLike) => i.label === label)?.submenu?.items ?? [];
-        }
-        return items.map((i: MenuItemLike) => i.label);
-    }, labels);
-}
-
-/** The titles of the app's windows, sorted. */
-async function windowTitles(app: ElectronApplication): Promise<string[]> {
-    const titles = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w: { getTitle(): string }) => w.getTitle()));
-    return titles.sort();
-}
-
-/** Enter in a prompt sheet: it closes on keydown (like VS Code's quick input), so no keyup is sent. */
-async function acceptPrompt(prompt: Page): Promise<void> {
-    const closed = prompt.waitForEvent('close', { timeout: 20000 });
-    await prompt.keyboard.down('Enter').catch(() => undefined); // the page may be gone before the call returns
-    await closed;
-}
-
-/** Close every window of the app the way the user does (red button / Cmd+W → 'close'). */
-async function closeAllWindows(app: ElectronApplication, win: Page): Promise<void> {
-    const closed = win.waitForEvent('close', { timeout: 20000 });
-    await app.evaluate(({ BrowserWindow }) => {
-        for (const w of BrowserWindow.getAllWindows()) {
-            w.close();
-        }
-    });
-    await closed;
-}
-
 test.describe('desktop app (Electron) — AC-4 Notes smoke', () => {
     test.skip(process.platform !== 'darwin', 'the desktop app is built for macOS only (spec D4)');
     test.describe.configure({ mode: 'serial' });
@@ -289,9 +135,9 @@ test.describe('desktop app (Electron) — AC-4 Notes smoke', () => {
             const pageErrors: string[] = [];
             win.on('pageerror', (e) => pageErrors.push(String(e)));
             try {
-                // the Notes panel: one window titled like the VS Code panel, the tree of the note
-                const titles = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w: { getTitle(): string }) => w.getTitle()));
-                expect(titles).toEqual(['Notes: smoke-note']);
+                // the Notes panel: one window titled like the VS Code panel (the window's title follows the note it
+                // shows — BaseWindow since spec 20261107-0431 D1), the tree of the note
+                expect(await windowTitles(app)).toEqual(['Notes: smoke-note']);
                 await expect(win.locator('.notes-file-panel')).toBeVisible();
                 await expect(win.locator('.file-panel-item', { hasText: 'Smoke Outline' })).toBeVisible();
                 await expect(win.locator('.file-panel-item', { hasText: 'Smoke Page' })).toBeVisible();
@@ -366,11 +212,11 @@ test.describe('desktop app (Electron) — AC-4 Notes smoke', () => {
                 expect(outTexts(outAfterClose)).toContain('typed just before close');
 
                 // the dock icon (activate) reopens the last note; md: type, close at once
-                const reopened = app.waitForEvent('window', { timeout: 60000 });
+                // (the reopened window's first page is its sidebar — spec 20261107-0431 D1 — so wait for the note's page)
                 await app.evaluate(({ app: a }) => {
                     a.emit('activate');
                 });
-                win = await reopened;
+                win = await nextPanelPage(app, [], 60000);
                 await win.waitForSelector('.file-panel-item', { timeout: 60000 });
                 await openTreeItem(win, 'Smoke Page');
                 await typeAtEndOfMd(win, 'md typed just before close');
@@ -378,11 +224,10 @@ test.describe('desktop app (Electron) — AC-4 Notes smoke', () => {
                 expect(await waitForFile(fx.mdPath, (s) => s.includes('md typed just before close'), CLOSE_WRITE_MS)).toContain('md typed just before close');
 
                 // quit (Cmd+Q → before-quit): every window closes with its flush, then the extension deactivates
-                const again = app.waitForEvent('window', { timeout: 60000 });
                 await app.evaluate(({ app: a }) => {
                     a.emit('activate');
                 });
-                win = await again;
+                win = await nextPanelPage(app, [], 60000);
                 await win.waitForSelector('.file-panel-item', { timeout: 60000 });
                 await openTreeItem(win, 'Smoke Outline');
                 await typeInFirstOutlinerNode(win, ' + typed before quit');
@@ -467,7 +312,11 @@ test.describe('desktop app (Electron) — AC-4 Notes smoke', () => {
 
                 // window.open / top navigation never leave the document; http(s) goes to the OS browser (logged here).
                 // Checked through the main process: Playwright keeps waiting for the navigation the app cancelled.
-                const before = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+                // (windows are BaseWindows and the note is a WebContentsView in one since spec 20261107-0431 D1)
+                const before = await app.evaluate(({ BaseWindow, webContents }) => ({
+                    windows: BaseWindow.getAllWindows().length,
+                    pages: webContents.getAllWebContents().length,
+                }));
                 await win.evaluate(() => {
                     window.open('https://example.com/opened');
                 });
@@ -475,12 +324,17 @@ test.describe('desktop app (Electron) — AC-4 Notes smoke', () => {
                     location.href = 'https://example.com/navigated';
                 });
                 await win.waitForTimeout(1000);
-                const after = await app.evaluate(async ({ BrowserWindow }) => {
-                    const wins = BrowserWindow.getAllWindows();
-                    const wc = wins[0].webContents;
-                    return { count: wins.length, url: wc.getURL(), layout: await wc.executeJavaScript('!!document.querySelector(".notes-layout")') };
+                const after = await app.evaluate(async ({ BaseWindow, webContents }) => {
+                    const wc = webContents.getAllWebContents().find((w) => w.getURL().startsWith('fractal-res:'));
+                    return {
+                        windows: BaseWindow.getAllWindows().length,
+                        pages: webContents.getAllWebContents().length,
+                        url: wc ? wc.getURL() : '',
+                        layout: wc ? await wc.executeJavaScript('!!document.querySelector(".notes-layout")') : false,
+                    };
                 });
-                expect(after.count).toBe(before);
+                expect(after.windows).toBe(before.windows);
+                expect(after.pages).toBe(before.pages);
                 expect(new URL(after.url).protocol).toBe('fractal-res:');
                 expect(after.layout).toBe(true);
                 const log = fs.readFileSync(path.join(fx.userData, 'logs', 'main.log'), 'utf8');
@@ -499,7 +353,7 @@ test.describe('desktop app (Electron) — AC-4 Notes smoke', () => {
                     second.kill();
                 }
                 expect(exit).toBe(0);
-                expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
+                expect(await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().length)).toBe(1);
             } finally {
                 await app.close();
             }
@@ -684,20 +538,68 @@ test.describe('desktop app (Electron) — AC-4 Notes smoke', () => {
         }
     });
 
-    test('AC-4 the release build (the app you run) starts on its own, opens the note and ignores the test profile switch', async () => {
+    test('AC-4 the release build (the app you run) starts on its own, opens the note and ignores the test profile switch and the remote debugging switches (no DevTools endpoint)', async () => {
         test.skip(DEV_MODE, 'packaged build only');
         const release = builtExecutable(path.join(ELECTRON_DIR, 'dist'));
         test.skip(!release, 'no release build — run `cd electron && npm run build:app-dir`');
         const fx = makeFixture();
         // a release build always uses the OS profile folder (~/Library/Application Support/Fractal);
         // CFFIXED_USER_HOME moves that home (like HOME for the extension) into the fixture. Not Playwright:
-        // the release build has no --inspect.
+        // the release build has no --inspect, and no --remote-debugging-port / -pipe either (spec
+        // 20261106-1312 D4b: either would open every page of the app to the DevTools protocol).
         const profile = path.join(fx.home, 'Library', 'Application Support', 'Fractal');
         const asked = path.join(fx.tmp, 'asked-profile');
         const stateFile = path.join(profile, 'desktop-state.json');
-        try {
-            const child = spawn(release, [`--fractal-user-data=${asked}`], { env: launchEnv(fx, { CFFIXED_USER_HOME: fx.home }), stdio: 'ignore' });
+        const mainLog = () => {
+            try {
+                return fs.readFileSync(path.join(profile, 'logs', 'main.log'), 'utf8');
+            } catch {
+                return '';
+            }
+        };
+        const count = (re: RegExp) => (mainLog().match(re) ?? []).length;
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        const children: ChildProcess[] = [];
+        const startRelease = (args: string[]) => {
+            // fd 3 / fd 4 are pipes: an app that honors --remote-debugging-pipe answers the DevTools protocol there
+            const child = spawn(release, args, { env: launchEnv(fx, { CFFIXED_USER_HOME: fx.home }), stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+            children.push(child);
             const exited = new Promise<void>((resolve) => child.on('exit', () => resolve()));
+            let stderr = '';
+            child.stderr?.setEncoding('utf8');
+            child.stderr?.on('data', (d: string) => {
+                stderr += d;
+            });
+            const toApp = child.stdio[3] as NodeJS.WritableStream & { on(ev: 'error', l: () => void): unknown };
+            const fromApp = child.stdio[4] as NodeJS.ReadableStream & { on(ev: 'error', l: () => void): unknown };
+            let reply = '';
+            toApp.on('error', () => undefined);
+            fromApp.on('error', () => undefined);
+            fromApp.on('data', (d: Buffer | string) => {
+                reply += d.toString();
+            });
+            return {
+                stderr: () => stderr,
+                /** Browser.getVersion on the pipe: whatever came back within 1.5 s */
+                askOverPipe: async () => {
+                    toApp.write('{"id":1,"method":"Browser.getVersion"}\0');
+                    await sleep(1500);
+                    return reply;
+                },
+                listening: () => spawnSync('lsof', ['-nP', '-a', '-p', String(child.pid), '-iTCP', '-sTCP:LISTEN'], { encoding: 'utf8' }).stdout.trim(),
+                // SIGTERM quits like Cmd+Q (before-quit → every window flushed and closed → the extension deactivated)
+                quit: async () => {
+                    child.kill('SIGTERM');
+                    await Promise.race([exited, sleep(20000)]);
+                    if (child.exitCode === null && child.signalCode === null) {
+                        child.kill('SIGKILL');
+                    }
+                },
+            };
+        };
+        try {
+            // 1. the test profile switch and --remote-debugging-port=0 (what Playwright passes the E2E build)
+            const first = startRelease([`--fractal-user-data=${asked}`, '--remote-debugging-port=0']);
             const lastNote = () => {
                 try {
                     return JSON.parse(fs.readFileSync(stateFile, 'utf8')).lastNoteFolder as string | undefined;
@@ -706,23 +608,36 @@ test.describe('desktop app (Electron) — AC-4 Notes smoke', () => {
                 }
             };
             await expect.poll(lastNote, { timeout: 60000 }).toBe(fx.note);
-            // SIGTERM quits like Cmd+Q (before-quit → every window flushed and closed → the extension deactivated)
-            child.kill('SIGTERM');
-            await Promise.race([exited, new Promise((r) => setTimeout(r, 20000))]);
-            if (child.exitCode === null && child.signalCode === null) {
-                child.kill('SIGKILL');
-            }
-            const log = fs.readFileSync(path.join(profile, 'logs', 'main.log'), 'utf8');
+            // no DevTools endpoint: no listening socket, no DevToolsActivePort file
+            expect(first.listening(), 'listening TCP sockets of the release app').toBe('');
+            expect(fs.existsSync(path.join(profile, 'DevToolsActivePort')), 'DevToolsActivePort').toBe(false);
+            await first.quit();
+            const log = mainLog();
             const started = /extension=(.*) userData=(.*)$/m.exec(log);
             expect(started?.[1]).toBe(path.join(contentsOf(release), 'Resources', 'ext'));
             // (macOS spells the temp folder /var/… or /private/var/…)
             expect(fs.realpathSync(started?.[2] ?? '')).toBe(fs.realpathSync(profile));
-            expect(log).toMatch(/ignored --fractal-user-data: development \/ test switches are not honored/);
+            expect(log).toMatch(/ignored --fractal-user-data, --remote-debugging-port: development \/ test switches are not honored/);
+            expect(first.stderr()).not.toMatch(/DevTools listening/);
             expect(log).not.toMatch(/could not open the note|start failed|uncaught exception/);
             expect(log).toMatch(/\[shell\] bye/);
             expect(fs.existsSync(asked)).toBe(false);
             expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).openNoteFolders).toEqual([fx.note]);
+
+            // 2. --remote-debugging-pipe (no socket at all: the protocol on fd 3 / fd 4): no answer there
+            const second = startRelease(['--remote-debugging-pipe']);
+            await expect.poll(() => count(/\[shell\] Fractal desktop/g), { timeout: 60000 }).toBe(2);
+            expect(await second.askOverPipe(), 'a DevTools protocol reply on the pipe').toBe('');
+            await second.quit();
+            expect(count(/\[shell\] bye/g)).toBe(2);
+            expect(mainLog()).toMatch(/ignored --remote-debugging-pipe: development \/ test switches are not honored/);
         } finally {
+            // a failed check must not leave the app running (it is not Playwright's to close)
+            for (const c of children) {
+                if (c.exitCode === null && c.signalCode === null) {
+                    c.kill('SIGKILL');
+                }
+            }
             rmrf(fx.tmp);
         }
     });
@@ -798,7 +713,8 @@ test.describe('desktop app (Electron) — AC-4 Notes smoke', () => {
                 await acceptPrompt(textPrompt);
                 const md = await waitForFile(fx.mdPath, (s) => s.includes('(https://example.com/docs)'));
                 expect(md).toContain('[the docs](https://example.com/docs)');
-                expect(app.windows().filter((p) => p.url().startsWith('fractal-ui:'))).toEqual([]);
+                // (the sidebar is a fractal-ui: page too since spec 20261107-0431: only prompt pages count here)
+                expect(app.windows().filter((p) => p.url().startsWith('fractal-ui://prompt/'))).toEqual([]);
             } finally {
                 await app.close();
             }
@@ -807,7 +723,7 @@ test.describe('desktop app (Electron) — AC-4 Notes smoke', () => {
         }
     });
 
-    test('AC-4 menu: New Note… and Open Note Folder… open notes in their own windows; File > Notes switches without opening twice', async () => {
+    test('AC-4 menu: New Note… and Open Note Folder… open notes in the window (one window, spec 20261107-0431 D1); File > Notes switches without opening twice', async () => {
         const fx = makeFixture();
         const parent = path.dirname(fx.note);
         // a second note that is not in the notes list (made by the extension's own file manager)
@@ -835,26 +751,27 @@ test.describe('desktop app (Electron) — AC-4 Notes smoke', () => {
                 const field = namePrompt.locator('input.field');
                 await expect(field).toBeVisible();
                 await field.fill('fresh-note');
-                const freshOpened = app.waitForEvent('window', { timeout: 30000 });
                 await acceptPrompt(namePrompt);
-                const freshWin = await freshOpened;
-                await freshWin.waitForSelector('.notes-layout', { timeout: 60000 });
+                const freshWin = await nextPanelPage(app, [win], 60000);
                 expect(fs.existsSync(path.join(fresh, 'outline.note'))).toBe(true);
                 const registry = JSON.parse(fs.readFileSync(path.join(fx.home, '.fractal', 'default.fractal'), 'utf8'));
                 expect(registry.notes).toEqual([fx.note, fresh]);
                 await expect.poll(() => menuLabels(app, 'File', 'Notes')).toEqual(['smoke-note', 'fresh-note']);
 
-                // File > Open Note Folder…: a note folder outside the list opens in its own window
-                const otherOpened = app.waitForEvent('window', { timeout: 30000 });
+                // File > Open Note Folder…: a note folder outside the list opens too — in the same window since
+                // spec 20261107-0431 D1 (one window shows one note at a time; the window title follows it)
                 await clickMenu(app, 'File', 'Open Note Folder…');
-                const otherWin = await otherOpened;
+                const otherWin = await nextPanelPage(app, [win, freshWin], 60000);
                 await expect(otherWin.locator('.file-panel-item', { hasText: 'Other Outline' })).toBeVisible({ timeout: 60000 });
-                expect(await windowTitles(app)).toEqual(['Notes: fresh-note', 'Notes: other-note', 'Notes: smoke-note']);
+                await expect.poll(() => windowTitles(app)).toEqual(['Notes: other-note']);
+                expect(panelPages(app).length).toBe(3);
 
-                // File > Notes > smoke-note: the open note is brought forward, not opened a second time
+                // File > Notes > smoke-note: the open note is brought forward (shown), not opened a second time
                 await clickMenu(app, 'File', 'Notes', 'smoke-note');
+                await expect.poll(() => windowTitles(app)).toEqual(['Notes: smoke-note']);
                 await win.waitForTimeout(1000);
-                expect(await windowTitles(app)).toEqual(['Notes: fresh-note', 'Notes: other-note', 'Notes: smoke-note']);
+                expect(panelPages(app).length).toBe(3);
+                expect(await windowTitles(app)).toEqual(['Notes: smoke-note']);
             } finally {
                 await app.close();
             }

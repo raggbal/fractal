@@ -1,7 +1,13 @@
 /**
- * The application menu (spec D2: switching notes and adding a .fractal happen here — there is no
- * VS Code tree view). The Notes / Notes Lists submenus are built from the extension's own tree data
- * providers (notesExplorer / notesLists) and run the commands their items carry.
+ * The application menu. The sidebar (spec 20261107-0431) is the main way to switch notes; the menu
+ * keeps the same entries for the keyboard: File > Notes / Notes Lists are built from the extension's
+ * own tree data providers (notesExplorer / notesLists) and run the commands their items carry.
+ * - File > Close Note (Cmd+W) closes the note the window shows (D6) — Close Window when it shows none;
+ *   File > Close Window (Shift+Cmd+W) closes the window with every note it holds. Both act on the key
+ *   window only, never on the window last used: with no window of the app key (minimized, About in
+ *   front) they do what role 'close' does (desktop-shell.ts keyWindow).
+ * - View > Toggle Sidebar (Alt+Cmd+B) collapses the sidebar to its 28px bar and back (D3).
+ * - Window lists the open notes (also those outside the active .fractal) to bring one forward.
  * Edit uses the standard roles: on macOS the page sees Cmd+Z / Cmd+C … first, so the webview's own
  * undo / clipboard handling wins and the role only acts when the page leaves the key alone.
  */
@@ -20,6 +26,13 @@ export interface ListMenuEntry {
     error?: string;
 }
 
+export interface OpenNoteMenuEntry {
+    label: string;
+    panelId: string;
+    /** the window the user works in shows it */
+    shown: boolean;
+}
+
 export interface MenuActions {
     newNote(): void;
     openNoteFolder(): void;
@@ -31,9 +44,14 @@ export interface MenuActions {
     removeList(): void;
     save(): void;
     revealNote(): void;
+    /** Cmd+W: the shown note, else the window */
+    closeNote(): void;
+    closeWindow(): void;
+    toggleSidebar(): void;
     toggleSidePanel(): void;
     reloadNote(): void;
     toggleDevTools(): void;
+    showOpenNote(panelId: string): void;
     openSettings(): void;
     openLogs(): void;
 }
@@ -41,7 +59,11 @@ export interface MenuActions {
 export interface MenuModel {
     notes: NoteMenuEntry[];
     lists: ListMenuEntry[];
+    /** the window the user works in shows a note */
     hasPanel: boolean;
+    /** a window is open */
+    hasWindow: boolean;
+    openNotes: OpenNoteMenuEntry[];
 }
 
 export function buildMenu(model: MenuModel, a: MenuActions): Menu {
@@ -71,6 +93,12 @@ export function buildMenu(model: MenuModel, a: MenuActions): Menu {
         { label: 'Create New .fractal…', click: () => a.createList() },
         { label: 'Remove .fractal from List…', enabled: model.lists.length > 0, click: () => a.removeList() },
     ];
+    const openNotes: MenuItemConstructorOptions[] = model.openNotes.map((n) => ({
+        label: n.label,
+        type: 'checkbox' as const,
+        checked: n.shown,
+        click: () => a.showOpenNote(n.panelId),
+    }));
 
     const template: MenuItemConstructorOptions[] = [
         ...(isMac
@@ -108,17 +136,19 @@ export function buildMenu(model: MenuModel, a: MenuActions): Menu {
                 { label: 'Reveal Note in Finder', enabled: model.hasPanel, click: () => a.revealNote() },
                 { type: 'separator' },
                 ...(isMac ? [] : [{ label: 'Settings…', accelerator: 'Ctrl+,', click: () => a.openSettings() }, { type: 'separator' as const }]),
-                { role: 'close' },
+                { label: model.hasPanel ? 'Close Note' : 'Close Window', accelerator: 'CmdOrCtrl+W', click: () => a.closeNote() },
+                { label: 'Close Window', accelerator: 'Shift+CmdOrCtrl+W', enabled: model.hasWindow, click: () => a.closeWindow() },
             ],
         },
         { role: 'editMenu' },
         {
             label: 'View',
             submenu: [
+                { label: 'Toggle Sidebar', accelerator: 'Alt+CmdOrCtrl+B', enabled: model.hasWindow, click: () => a.toggleSidebar() },
                 { label: 'Toggle Side Panel', accelerator: 'CmdOrCtrl+\\', enabled: model.hasPanel, click: () => a.toggleSidePanel() },
                 { type: 'separator' },
                 { label: 'Reload Note', accelerator: 'CmdOrCtrl+R', enabled: model.hasPanel, click: () => a.reloadNote() },
-                { label: 'Toggle Developer Tools', accelerator: isMac ? 'Alt+Cmd+I' : 'Ctrl+Shift+I', enabled: model.hasPanel, click: () => a.toggleDevTools() },
+                { label: 'Toggle Developer Tools', accelerator: isMac ? 'Alt+Cmd+I' : 'Ctrl+Shift+I', enabled: model.hasWindow, click: () => a.toggleDevTools() },
                 { type: 'separator' },
                 { role: 'resetZoom' },
                 { role: 'zoomIn' },
@@ -127,7 +157,16 @@ export function buildMenu(model: MenuModel, a: MenuActions): Menu {
                 { role: 'togglefullscreen' },
             ],
         },
-        { role: 'windowMenu' },
+        {
+            label: 'Window',
+            role: 'window',
+            submenu: [
+                { role: 'minimize' },
+                { role: 'zoom' },
+                ...(openNotes.length > 0 ? [{ type: 'separator' as const }, ...openNotes] : []),
+                ...(isMac ? [{ type: 'separator' as const }, { role: 'front' as const }] : []),
+            ],
+        },
         {
             role: 'help',
             submenu: [

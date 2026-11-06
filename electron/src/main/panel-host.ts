@@ -1,5 +1,8 @@
 /**
- * WebviewHostAdapter for the desktop app: one WebviewPanel = one BrowserWindow (spec D2).
+ * WebviewHostAdapter for the desktop app: one WebviewPanel = one WebContentsView, shown on the right of
+ * a window (BaseWindow) next to that window's sidebar (spec 20261107-0431-electron-sidebar D1, which
+ * supersedes 20261106-1312#D2 "one panel = one BrowserWindow"). A window keeps every panel it holds
+ * alive; only the one it shows is visible (PanelContainer = app-window.ts).
  *
  * Per panel:
  * - its own in-memory session (pooled): fractal-res://<panelId>/index.html serves the panel's HTML as
@@ -8,27 +11,29 @@
  *   controller.resourceRoots() (resolveResourceRequest: '..' / symlink escapes / outside → 404), other
  *   *.vscode-cdn.net hosts → 404, any other host → the network (ADR-0014). Intercepted requests carry
  *   no Origin header and get no CORS check, so a webRequest guard (request-guard.ts) decides first:
- *   the document only for this window's own navigation or frames with the panel's origin (it embeds
+ *   the document only for this view's own navigation or frames with the panel's origin (it embeds
  *   the opened note), resources only for frames with the panel's origin. Sandboxed viewer iframes
  *   (origin 'null') get neither. ACAO is the panel origin only, never '*'.
  * - contextIsolation + sandbox, no Node; the preload exposes acquireVsCodeApi() only (src/renderer).
- * - IPC is accepted only from the top frame of that window showing its own fractal-res page.
- * - the window never navigates away: http(s) / mailto open in the OS browser, everything else is dropped.
- * - close (user / quit): hide → the page flushes its pending edits (webview's own flush paths) →
- *   in-flight message handlers drain → the window unloads → onDidDispose fires (VS Code order) →
- *   the shell flushes documents. When the extension disposes the panel, the window goes at once.
+ * - IPC is accepted only from the top frame of that view showing its own fractal-res page.
+ * - the view never navigates away: http(s) / mailto open in the OS browser, everything else is dropped.
+ * - close (the note's × / Close Note / its window closing / quit): the view is hidden at once (its window
+ *   shows the last viewed open note, or the empty view) → the page flushes its pending edits (webview's
+ *   own flush paths) → in-flight message handlers drain → the page unloads (webContents closed) →
+ *   onDidDispose fires (VS Code order) → the shell flushes documents. When the extension disposes the
+ *   panel, the view goes at once.
  */
 import {
-    BrowserWindow,
     ipcMain,
     Menu,
-    screen,
     session,
+    WebContentsView,
+    type BaseWindow,
     type IpcMainEvent,
     type MenuItemConstructorOptions,
     type OnBeforeRequestListenerDetails,
-    type Rectangle,
     type Session,
+    type WebContents,
 } from 'electron';
 import * as fs from 'fs';
 import { Readable } from 'stream';
@@ -36,12 +41,10 @@ import { contentTypeFor, resolveResourceRequest, webviewResourcePath } from '../
 import type { PanelBinding, PanelController, PanelInit, ShimLogger, WebviewHostAdapter } from '../vscode-shim/adapters';
 import { PANEL_CH, PANEL_SCHEME } from './ipc';
 import { GUARDED_URL_PATTERNS, mayLoadInPanelSession, WEBVIEW_RESOURCE_BASE_HOST } from './request-guard';
-import type { WindowBounds } from './app-state';
 const ALLOWED_PERMISSIONS = new Set(['clipboard-read', 'clipboard-sanitized-write', 'fullscreen']);
 const FLUSH_TIMEOUT_MS = 3000;
 const DRAIN_TIMEOUT_MS = 5000;
 const CLOSE_TIMEOUT_MS = 2000;
-const DEFAULT_SIZE = { width: 1280, height: 860 };
 
 export interface ToastOptions {
     severity: 'info' | 'warning' | 'error';
@@ -53,19 +56,37 @@ export interface ToastOptions {
     progress?: boolean;
 }
 
+/** A window that shows panels (app-window.ts): it holds their views and shows one of them. */
+export interface PanelContainer {
+    readonly win: BaseWindow;
+    /** The panel the window shows (undefined = the empty view). */
+    readonly activePanel: PanelView | undefined;
+    /** The window is on screen (visible, not minimized). */
+    isOnScreen(): boolean;
+    /** Takes the panel's view in; `show` makes it the shown one (and focuses it when `focus`). */
+    addPanel(panel: PanelView, show: boolean, focus: boolean): void;
+    showPanel(panel: PanelView, focus: boolean): void;
+    /** The panel starts closing: hide it now (the window shows its last viewed other panel). */
+    hidePanel(panel: PanelView): void;
+    /** The panel left (closed / destroyed / moved to another window): drop its view. */
+    removePanel(panel: PanelView): void;
+    panelTitleChanged(panel: PanelView): void;
+}
+
 export interface PanelHostOptions {
     log: ShimLogger;
     preloadPath: string;
     themeCss(): string;
     isDark(): boolean;
-    /** Saved bounds for a new window (cascaded when other windows are open). */
-    savedBounds(): WindowBounds | undefined;
-    onBoundsChanged(bounds: WindowBounds): void;
-    onFocused(panel: PanelWindow): void;
-    /** After a user / quit close finished (window gone, onDidDispose fired). */
-    afterClose(panel: PanelWindow): Promise<void> | void;
+    /** The window a new panel goes to (D1: the window the user works in; "Open in New Window": that one). */
+    placePanel(init: PanelInit): PanelContainer;
+    /** The window the user works in (focused, else the last focused), if any. */
+    currentContainer(): PanelContainer | undefined;
+    onFocused(panel: PanelView): void;
+    /** After a user / quit close finished (page gone, onDidDispose fired). */
+    afterClose(panel: PanelView): Promise<void> | void;
     /** The page's renderer process died. */
-    onRendererGone(panel: PanelWindow, reason: string): void;
+    onRendererGone(panel: PanelView, reason: string): void;
     openExternal(url: string): void;
 }
 
@@ -141,7 +162,7 @@ function frameOrigin(details: OnBeforeRequestListenerDetails): string | null {
  */
 class SessionPool {
     private readonly free: Session[] = [];
-    private readonly owners = new Map<Session, PanelWindow>();
+    private readonly owners = new Map<Session, PanelView>();
     private count = 0;
     private refused = 0;
 
@@ -151,7 +172,7 @@ class SessionPool {
         return this.free.pop() ?? this.create();
     }
 
-    bind(ses: Session, panel: PanelWindow): void {
+    bind(ses: Session, panel: PanelView): void {
         this.owners.set(ses, panel);
     }
 
@@ -202,7 +223,7 @@ class SessionPool {
     }
 }
 
-export class PanelWindow {
+export class PanelView {
     readonly panelId: string;
     readonly viewType: string;
     /** URL host of the panel page (the panel id). */
@@ -210,40 +231,41 @@ export class PanelWindow {
     /** fractal-res://<host> — the page origin (VS Code's vscode-webview://<id>). */
     readonly origin: string;
     readonly controller: PanelController;
-    readonly win: BrowserWindow;
-    /** win.webContents.id (kept: the webContents cannot be read once the window is destroyed) */
+    readonly view: WebContentsView;
+    readonly wc: WebContents;
+    /** wc.id (kept: the webContents cannot be read once it is destroyed) */
     readonly webContentsId: number;
     readonly binding: PanelBinding;
+    /** The note folder of a Notes panel (fixed at creation). */
+    readonly notesFolder: string | undefined;
+    /** The window that holds the view (undefined while closing / moving). */
+    container: PanelContainer | undefined;
     lastFocusedAt = 0;
+    /** when its window last showed it (Date.now()) */
+    lastShownAt = 0;
 
+    private _title: string;
     private readonly ses: Session;
     private closing: Promise<void> | null = null;
     private isClosing = false;
-    private allowClose = false;
     private gone = false;
     private rendererGone = false;
-    private shown = false;
     private flushSeq = 0;
     private readonly flushWaiters = new Map<number, (ok: boolean) => void>();
     private toastSeq = 0;
     private readonly toastWaiters = new Map<number, (index: number | undefined) => void>();
-    private boundsTimer: NodeJS.Timeout | null = null;
 
-    constructor(init: PanelInit, private readonly owner: PanelHost, ses: Session, bounds: WindowBounds) {
+    constructor(init: PanelInit, private readonly owner: PanelHost, ses: Session) {
         const o = owner.options;
         this.panelId = init.panelId;
         this.viewType = init.viewType;
         this.controller = init.controller;
+        this.notesFolder = init.notesFolder;
+        this._title = init.title;
         this.host = init.panelId.toLowerCase().replace(/[^a-z0-9-]/g, '-');
         this.origin = `${PANEL_SCHEME}://${this.host}`;
         this.ses = ses;
-        this.win = new BrowserWindow({
-            ...bounds,
-            minWidth: 560,
-            minHeight: 360,
-            title: init.title,
-            show: false,
-            backgroundColor: o.isDark() ? '#1f1f1f' : '#ffffff',
+        this.view = new WebContentsView({
             webPreferences: {
                 preload: o.preloadPath,
                 session: ses,
@@ -261,32 +283,43 @@ export class PanelWindow {
                 devTools: true,
             },
         });
-        this.webContentsId = this.win.webContents.id;
+        this.view.setBackgroundColor(o.isDark() ? '#1f1f1f' : '#ffffff');
+        this.wc = this.view.webContents;
+        this.webContentsId = this.wc.id;
         this.installProtocols();
-        this.wire(init.preserveFocus);
+        this.wire();
         this.binding = {
             load: (generation) => this.load(generation),
             postMessage: (message) => this.post(message),
             setTitle: (title) => {
-                if (!this.win.isDestroyed()) {
-                    this.win.setTitle(title);
-                }
+                this._title = title;
+                this.container?.panelTitleChanged(this);
             },
-            reveal: (preserveFocus) => this.reveal(preserveFocus),
+            reveal: (preserveFocus) => this.owner.reveal(this, preserveFocus),
             optionsChanged: () => undefined, // the resource handler reads controller.resourceRoots() per request
             destroy: () => this.destroyNow(),
         };
     }
 
+    /** The panel title (the window title while the window shows this panel). */
+    get title(): string {
+        return this._title;
+    }
+
     get isGone(): boolean {
-        return this.gone || this.win.isDestroyed();
+        return this.gone || this.wc.isDestroyed();
     }
 
     get isClosingOrGone(): boolean {
         return this.isClosing || this.isGone;
     }
 
-    /** The URL of this panel's own page (anything else in the window is not trusted). */
+    /** Its window shows it, on screen. */
+    get isShown(): boolean {
+        return !this.isClosingOrGone && !!this.container && this.container.activePanel === this && this.container.isOnScreen();
+    }
+
+    /** The URL of this panel's own page (anything else in the view is not trusted). */
     isOwnUrl(url: string): boolean {
         try {
             const u = new URL(url);
@@ -296,7 +329,7 @@ export class PanelWindow {
         }
     }
 
-    /** webRequest guard (request-guard.ts): this window's own navigation, frames with the panel's origin. */
+    /** webRequest guard (request-guard.ts): this view's own navigation, frames with the panel's origin. */
     mayLoad(details: OnBeforeRequestListenerDetails, origin: string | null): boolean {
         return mayLoadInPanelSession(
             { url: details.url, resourceType: details.resourceType, webContentsId: details.webContentsId, frameOrigin: origin },
@@ -304,13 +337,13 @@ export class PanelWindow {
         );
     }
 
-    // --- shim → window -----------------------------------------------------------------------
+    // --- shim → view -------------------------------------------------------------------------
 
     private load(generation: number): void {
         if (this.isGone) {
             return;
         }
-        this.win.loadURL(`${this.origin}/index.html?gen=${generation}`).catch((err: unknown) => {
+        this.wc.loadURL(`${this.origin}/index.html?gen=${generation}`).catch((err: unknown) => {
             if (!/ERR_ABORTED/.test(String(err))) {
                 this.owner.options.log.warn(`[panel ${this.panelId}] load failed:`, err);
             }
@@ -322,7 +355,7 @@ export class PanelWindow {
             return false;
         }
         try {
-            this.win.webContents.send(PANEL_CH.message, message);
+            this.wc.send(PANEL_CH.message, message);
             return true;
         } catch (err) {
             this.owner.options.log.warn(`[panel ${this.panelId}] postMessage failed:`, err);
@@ -330,33 +363,17 @@ export class PanelWindow {
         }
     }
 
-    private reveal(preserveFocus: boolean): void {
-        if (this.isClosingOrGone) {
-            return;
-        }
-        if (this.win.isMinimized()) {
-            this.win.restore();
-        }
-        if (preserveFocus) {
-            this.win.showInactive();
-        } else {
-            this.win.show();
-            this.win.focus();
-        }
-        this.shown = true;
-    }
-
-    /** The extension disposed the panel: the window goes at once (no flush — VS Code drops it too). */
+    /** The extension disposed the panel: the view goes at once (no flush — VS Code drops it too). */
     private destroyNow(): void {
-        if (this.win.isDestroyed()) {
+        if (this.gone) {
             return;
         }
-        this.allowClose = true;
         this.gone = true;
-        this.win.destroy();
+        this.detach();
+        this.closeContents();
     }
 
-    // --- window → shim -----------------------------------------------------------------------
+    // --- view → shim -------------------------------------------------------------------------
 
     receive(message: unknown): void {
         this.controller.receiveMessage(message);
@@ -394,7 +411,7 @@ export class PanelWindow {
      * has reached the host (the ack travels on the same IPC pipe, after them), false on timeout.
      */
     flushRenderer(mode: 'close' | 'save', timeoutMs = FLUSH_TIMEOUT_MS): Promise<boolean> {
-        if (this.isGone || this.rendererGone || this.win.webContents.isDestroyed() || this.win.webContents.isCrashed()) {
+        if (this.isGone || this.rendererGone || this.wc.isDestroyed() || this.wc.isCrashed()) {
             return Promise.resolve(false);
         }
         const token = ++this.flushSeq;
@@ -409,7 +426,7 @@ export class PanelWindow {
                 resolve(ok);
             });
             try {
-                this.win.webContents.send(PANEL_CH.flush, token, mode);
+                this.wc.send(PANEL_CH.flush, token, mode);
             } catch {
                 this.flushWaiters.delete(token);
                 clearTimeout(timer);
@@ -433,7 +450,10 @@ export class PanelWindow {
         return ok;
     }
 
-    /** User / quit close with VS Code's order and the page's pending edits saved. Idempotent. */
+    /**
+     * Close with VS Code's order and the page's pending edits saved (the note's × / Close Note / its
+     * window closing / quit). Idempotent.
+     */
     closeGracefully(): Promise<void> {
         if (!this.closing) {
             this.isClosing = true;
@@ -444,51 +464,70 @@ export class PanelWindow {
                     this.controller.disposeByUser();
                 }
             });
-            this.owner.trackClosing(this.closing);
+            this.owner.trackClosing(this, this.closing);
         }
         return this.closing;
     }
 
     private async runClose(): Promise<void> {
         const log = this.owner.options.log;
+        // gone for the user at once (its window shows the last viewed other note); the page keeps running until flushed
+        this.container?.hidePanel(this);
         if (!this.controller.disposed && !this.rendererGone && !this.isGone) {
-            try {
-                this.win.hide(); // gone for the user at once; the page keeps running until flushed
-            } catch {
-                /* ignore */
-            }
             const flushed = await this.flushRenderer('close');
             if (!flushed) {
                 log.warn(`[panel ${this.panelId}] the page did not confirm its flush in time; closing anyway`);
             }
             await this.controller.drainMessageHandlers(DRAIN_TIMEOUT_MS);
         }
-        await this.unloadWindow();
+        await this.unloadContents();
         if (!this.controller.disposed) {
             this.controller.disposeByUser(); // onDidDispose → the extension writes what it holds
         }
         await this.owner.options.afterClose(this);
     }
 
-    /** Let the page unload normally (close), falling back to destroy. */
-    private unloadWindow(): Promise<void> {
-        if (this.win.isDestroyed()) {
+    /** Let the page unload normally (webContents.close → 'destroyed'), falling back to destroying it. */
+    private unloadContents(): Promise<void> {
+        if (this.wc.isDestroyed()) {
             this.gone = true;
+            this.detach();
             return Promise.resolve();
         }
-        const closed = new Promise<void>((resolve) => this.win.once('closed', () => resolve()));
-        this.allowClose = true;
+        const destroyed = new Promise<void>((resolve) => this.wc.once('destroyed', () => resolve()));
+        this.closeContents();
+        return Promise.race([destroyed, delay(CLOSE_TIMEOUT_MS)]).then(() => {
+            if (!this.wc.isDestroyed()) {
+                this.owner.options.log.warn(`[panel ${this.panelId}] the page did not unload in time; destroying it`);
+                try {
+                    (this.wc as unknown as { destroy?: () => void }).destroy?.();
+                } catch {
+                    /* ignore */
+                }
+            }
+            this.gone = true;
+            this.detach();
+        });
+    }
+
+    private closeContents(): void {
+        if (this.wc.isDestroyed()) {
+            return;
+        }
         try {
-            this.win.close();
+            this.wc.close(); // no beforeunload wait (will-prevent-unload is refused anyway)
         } catch {
             /* destroyed meanwhile */
         }
-        return Promise.race([closed, delay(CLOSE_TIMEOUT_MS)]).then(() => {
-            if (!this.win.isDestroyed()) {
-                this.win.destroy();
-            }
-            this.gone = true;
-        });
+    }
+
+    /** Leaves its window (the window drops the view). */
+    detach(): void {
+        const c = this.container;
+        if (c) {
+            this.container = undefined;
+            c.removePanel(this);
+        }
     }
 
     showToast(t: ToastOptions): { id: number; result: Promise<number | undefined> } {
@@ -500,7 +539,7 @@ export class PanelWindow {
             this.toastWaiters.set(id, resolve);
         });
         try {
-            this.win.webContents.send(PANEL_CH.toast, { id, ...t, dark: this.owner.options.isDark() });
+            this.wc.send(PANEL_CH.toast, { id, ...t, dark: this.owner.options.isDark() });
         } catch {
             this.toastDone(id, -1);
         }
@@ -510,7 +549,7 @@ export class PanelWindow {
     updateToast(id: number, t: ToastOptions): void {
         if (!this.isGone && this.toastWaiters.has(id)) {
             try {
-                this.win.webContents.send(PANEL_CH.toast, { id, ...t, dark: this.owner.options.isDark() });
+                this.wc.send(PANEL_CH.toast, { id, ...t, dark: this.owner.options.isDark() });
             } catch {
                 /* ignore */
             }
@@ -520,7 +559,7 @@ export class PanelWindow {
     closeToast(id: number): void {
         if (!this.isGone) {
             try {
-                this.win.webContents.send(PANEL_CH.toastClose, id);
+                this.wc.send(PANEL_CH.toastClose, id);
             } catch {
                 /* ignore */
             }
@@ -528,13 +567,13 @@ export class PanelWindow {
         this.toastDone(id, -1);
     }
 
-    /** VS Code semantics: active = the last focused panel; visible = shown and not minimized. */
+    /** VS Code semantics: visible = its window shows it on screen; active = visible in the window the user works in. */
     updateViewState(): void {
         if (this.isClosingOrGone || this.controller.disposed) {
             return;
         }
-        const visible = this.win.isVisible() && !this.win.isMinimized();
-        this.controller.setViewState({ active: visible && this.owner.isLastFocused(this), visible });
+        const visible = this.isShown;
+        this.controller.setViewState({ active: visible && this.owner.isActivePanel(this), visible });
     }
 
     // --- wiring ------------------------------------------------------------------------------
@@ -604,48 +643,17 @@ export class PanelWindow {
         return fileResponse(real, req, cors);
     }
 
-    private wire(preserveFocus: boolean): void {
-        const win = this.win;
-        const wc = win.webContents;
+    private wire(): void {
+        const wc = this.wc;
         const log = this.owner.options.log;
 
-        win.on('page-title-updated', (e) => e.preventDefault()); // the window title is the panel title
-        win.once('ready-to-show', () => this.showFirstTime(preserveFocus));
-        // never stay invisible if the page is slow to paint
-        setTimeout(() => this.showFirstTime(preserveFocus), 5000).unref?.();
-
-        win.on('focus', () => {
+        wc.on('focus', () => {
             if (this.isClosingOrGone) {
                 return;
             }
             this.lastFocusedAt = Date.now();
             this.owner.panelFocused(this);
         });
-        for (const ev of ['show', 'hide', 'minimize', 'restore'] as const) {
-            win.on(ev as 'show', () => this.updateViewState());
-        }
-        const boundsChanged = () => {
-            if (this.boundsTimer) {
-                clearTimeout(this.boundsTimer);
-            }
-            this.boundsTimer = setTimeout(() => {
-                this.boundsTimer = null;
-                if (!win.isDestroyed() && !win.isMinimized() && !win.isFullScreen()) {
-                    this.owner.options.onBoundsChanged(win.getNormalBounds());
-                }
-            }, 500);
-        };
-        win.on('resize', boundsChanged);
-        win.on('move', boundsChanged);
-
-        win.on('close', (e) => {
-            if (this.allowClose) {
-                return;
-            }
-            e.preventDefault();
-            void this.closeGracefully();
-        });
-        win.on('closed', () => this.onClosed());
 
         // --- the page never leaves its document ---
         wc.on('will-navigate', (e) => {
@@ -665,7 +673,7 @@ export class PanelWindow {
             return { action: 'deny' };
         });
         wc.on('will-attach-webview', (e) => e.preventDefault());
-        // a beforeunload handler must not keep a closing window alive
+        // a beforeunload handler must not keep a closing page alive
         wc.on('will-prevent-unload', (e) => e.preventDefault());
         // The page's own context menus (md editor, outliner, folder view) cancel the DOM event, so this
         // fires only where the page leaves the right-click alone (search fields, source mode, a text
@@ -688,7 +696,7 @@ export class PanelWindow {
                   ? [{ role: 'copy', enabled: f.canCopy }]
                   : [];
             if (items.length > 0) {
-                Menu.buildFromTemplate(items).popup({ window: win });
+                Menu.buildFromTemplate(items).popup(this.container ? { window: this.container.win } : {});
             }
         });
 
@@ -714,21 +722,10 @@ export class PanelWindow {
                 log.warn(`[webview ${this.panelId}] ${e.message} (${e.sourceId}:${e.lineNumber})`);
             }
         });
+        wc.once('destroyed', () => this.onDestroyed());
     }
 
-    private showFirstTime(preserveFocus: boolean): void {
-        if (this.shown || this.isClosingOrGone) {
-            return;
-        }
-        this.shown = true;
-        if (preserveFocus) {
-            this.win.showInactive();
-        } else {
-            this.win.show();
-        }
-    }
-
-    private onClosed(): void {
+    private onDestroyed(): void {
         this.gone = true;
         for (const w of this.flushWaiters.values()) {
             w(false);
@@ -738,25 +735,22 @@ export class PanelWindow {
             w(undefined);
         }
         this.toastWaiters.clear();
-        if (this.boundsTimer) {
-            clearTimeout(this.boundsTimer);
-            this.boundsTimer = null;
-        }
+        this.detach();
         this.owner.forget(this, this.ses);
         if (!this.isClosing && !this.controller.disposed) {
-            // closed by something other than the user / extension (e.g. the app exiting): dispose now
+            // destroyed by something other than the user / extension (e.g. the app exiting): dispose now
             this.controller.disposeByUser();
         }
     }
 }
 
 export class PanelHost implements WebviewHostAdapter {
-    private readonly panels = new Map<string, PanelWindow>();
-    private readonly byWebContents = new Map<number, PanelWindow>();
+    private readonly panels = new Map<string, PanelView>();
+    private readonly byWebContents = new Map<number, PanelView>();
     private readonly pool: SessionPool;
-    private lastFocused: PanelWindow | undefined;
     private rejectedLogged = 0;
-    private readonly inflight = new Set<Promise<void>>();
+    /** closes under way (until each has finished: page gone, onDidDispose fired, afterClose done) */
+    private readonly inflight = new Map<PanelView, Promise<void>>();
 
     constructor(readonly options: PanelHostOptions) {
         this.pool = new SessionPool(options.log);
@@ -765,113 +759,112 @@ export class PanelHost implements WebviewHostAdapter {
 
     createPanel(init: PanelInit): PanelBinding {
         const ses = this.pool.acquire();
-        const panel = new PanelWindow(init, this, ses, this.nextBounds());
+        const panel = new PanelView(init, this, ses);
         this.pool.bind(ses, panel);
         this.panels.set(panel.panelId, panel);
-        this.byWebContents.set(panel.win.webContents.id, panel);
-        if (!init.preserveFocus) {
-            this.lastFocused = panel;
-        }
+        this.byWebContents.set(panel.webContentsId, panel);
+        // a new panel is shown in its window (VS Code opens it as the active editor); preserveFocus keeps the focus
+        this.options.placePanel(init).addPanel(panel, true, !init.preserveFocus);
         return panel.binding;
     }
 
-    all(): PanelWindow[] {
+    /** panel.reveal(): its window shows it (and comes forward unless preserveFocus). */
+    reveal(panel: PanelView, preserveFocus: boolean): void {
+        if (panel.isClosingOrGone || !panel.container) {
+            return;
+        }
+        panel.container.showPanel(panel, !preserveFocus);
+    }
+
+    /** Moves an open panel into another window (Open in New Window), keeping its page. */
+    move(panel: PanelView, to: PanelContainer): void {
+        if (panel.isClosingOrGone) {
+            return;
+        }
+        if (panel.container === to) {
+            to.showPanel(panel, true);
+            return;
+        }
+        panel.detach();
+        to.addPanel(panel, true, true);
+    }
+
+    all(): PanelView[] {
         return Array.from(this.panels.values()).filter((p) => !p.isGone);
     }
 
-    get(panelId: string): PanelWindow | undefined {
+    get(panelId: string): PanelView | undefined {
         return this.panels.get(panelId);
     }
 
-    fromWindow(win: BrowserWindow | null | undefined): PanelWindow | undefined {
-        if (!win || win.isDestroyed()) {
-            return undefined;
-        }
-        return this.byWebContents.get(win.webContents.id);
+    /**
+     * The panel the window the user works in shows; none while that window shows the empty view (or no
+     * window is open). Never a note of another window: toasts, progress and File > Save / Reveal / Reload
+     * Note act on what the user sees in the window they work in.
+     */
+    current(): PanelView | undefined {
+        const shown = this.options.currentContainer()?.activePanel;
+        return shown && !shown.isClosingOrGone ? shown : undefined;
     }
 
-    /** The focused panel window, else the most recently focused one still open. */
-    current(): PanelWindow | undefined {
-        const focused = this.fromWindow(BrowserWindow.getFocusedWindow());
-        if (focused && !focused.isClosingOrGone) {
-            return focused;
-        }
-        if (this.lastFocused && !this.lastFocused.isClosingOrGone) {
-            return this.lastFocused;
-        }
-        return this.all()
-            .filter((p) => !p.isClosingOrGone)
-            .sort((a, b) => b.lastFocusedAt - a.lastFocusedAt)[0];
+    /** The panel is the one the window the user works in shows. */
+    isActivePanel(panel: PanelView): boolean {
+        return this.options.currentContainer()?.activePanel === panel;
     }
 
-    isLastFocused(panel: PanelWindow): boolean {
-        return this.lastFocused === panel;
-    }
-
-    panelFocused(panel: PanelWindow): void {
-        this.lastFocused = panel;
-        for (const p of this.all()) {
-            p.updateViewState();
-        }
+    panelFocused(panel: PanelView): void {
+        this.updateViewStates();
         this.options.onFocused(panel);
     }
 
-    /** Closes every panel window (each with its flush) and waits for closes already under way. */
+    updateViewStates(): void {
+        for (const p of this.all()) {
+            p.updateViewState();
+        }
+    }
+
+    /** Closes every panel (each with its flush) and waits for closes already under way. */
     async closeAll(): Promise<void> {
         const closes = this.all().map((p) => p.closeGracefully());
-        await Promise.allSettled([...closes, ...this.inflight]);
+        await Promise.allSettled([...closes, ...this.inflight.values()]);
     }
 
-    trackClosing(p: Promise<void>): void {
-        this.inflight.add(p);
-        void p.finally(() => this.inflight.delete(p));
+    /** Resolves when every close under way has finished. */
+    async settle(): Promise<void> {
+        await Promise.allSettled([...this.inflight.values()]);
     }
 
-    /** Called from the window's 'closed' event. */
-    forget(panel: PanelWindow, ses: Session): void {
+    /** The closes under way, by panel (a panel stays listed until its close has finished). */
+    closing(): Array<{ panel: PanelView; done: Promise<void> }> {
+        return Array.from(this.inflight, ([panel, done]) => ({ panel, done }));
+    }
+
+    trackClosing(panel: PanelView, p: Promise<void>): void {
+        this.inflight.set(panel, p);
+        void p.finally(() => {
+            if (this.inflight.get(panel) === p) {
+                this.inflight.delete(panel);
+            }
+        });
+    }
+
+    /** Called when the panel's webContents is destroyed. */
+    forget(panel: PanelView, ses: Session): void {
         this.panels.delete(panel.panelId);
         for (const [id, p] of this.byWebContents) {
             if (p === panel) {
                 this.byWebContents.delete(id);
             }
         }
-        if (this.lastFocused === panel) {
-            this.lastFocused = undefined;
-        }
         void this.pool.release(ses);
     }
 
-    private nextBounds(): WindowBounds {
-        const saved = this.options.savedBounds();
-        const width = saved?.width ?? DEFAULT_SIZE.width;
-        const height = saved?.height ?? DEFAULT_SIZE.height;
-        const open = this.all().length;
-        if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') {
-            const rect: Rectangle = { x: saved.x + open * 26, y: saved.y + open * 26, width, height };
-            const area = screen.getDisplayMatching(rect).workArea;
-            const visible =
-                rect.x < area.x + area.width - 80 && rect.x + rect.width > area.x + 80 && rect.y >= area.y - 10 && rect.y < area.y + area.height - 80;
-            if (visible) {
-                return rect;
-            }
-        }
-        const area = screen.getPrimaryDisplay().workArea;
-        const w = Math.min(width, area.width);
-        const h = Math.min(height, area.height);
-        return {
-            width: w,
-            height: h,
-            x: Math.round(area.x + (area.width - w) / 2) + open * 26,
-            y: Math.round(area.y + (area.height - h) / 2) + open * 26,
-        };
-    }
-
-    /** Only the top frame of a panel window showing its own page may talk to the shim. */
-    private panelFor(e: IpcMainEvent): PanelWindow | undefined {
+    /** Only the top frame of a panel view showing its own page may talk to the shim. */
+    private panelFor(e: IpcMainEvent): PanelView | undefined {
         const panel = this.byWebContents.get(e.sender.id);
         const frame = e.senderFrame;
         if (!panel || panel.isGone || !frame || frame.parent !== null || !panel.isOwnUrl(frame.url)) {
-            // the window's initial empty document runs the preload too (url '' / about:blank): expected, not logged
+            // the view's initial empty document runs the preload too (url '' / about:blank): expected, not logged
             const url = frame?.url ?? '';
             if (url !== '' && url !== 'about:blank' && this.rejectedLogged++ < 20) {
                 this.options.log.warn(`[panel-host] rejected IPC from webContents ${e.sender.id} (${url})`);

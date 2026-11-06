@@ -4,7 +4,8 @@
  *
  * Before 'ready': userData, the single instance lock (a second launch focuses the running app / opens
  * the note it was given), the privileged schemes. After 'ready': DesktopShell boots the extension's
- * own out/extension.js on the vscode shim and opens the Notes panel.
+ * own out/extension.js on the vscode shim and opens a window (the sidebar + the notes — spec
+ * 20261107-0431-electron-sidebar).
  *
  * Options (all optional — see launch-options.ts for which build honors which):
  *   --fractal-open-note=<dir> | FRACTAL_OPEN_NOTE   open this note folder at start
@@ -12,6 +13,8 @@
  *                                                   default: the OS app data folder)
  *   FRACTAL_EXTENSION_ROOT                          the extension folder (unpackaged runs only;
  *                                                   default: repo root / Resources/ext)
+ *   --remote-debugging-port / --remote-debugging-pipe  Chromium's DevTools protocol (unpackaged runs and the
+ *                                                   E2E build only; the release build removes them)
  *   FRACTAL_NO_EXTERNAL=1                           log instead of opening other apps (automated tests)
  *   FRACTAL_LANG=<lang>                             the extension's display language (default: the OS locale)
  */
@@ -41,7 +44,13 @@ const launch = resolveLaunchOptions({
     env: process.env,
     resourcesPath: process.resourcesPath,
     mainDir: __dirname,
+    hasChromiumSwitch: (name) => app.commandLine.hasSwitch(name),
 });
+// the release build opens no DevTools protocol endpoint (spec 20261106-1312 D4b): Chromium starts it
+// after this script has run, from the switches still on its command line
+for (const name of launch.removeSwitches) {
+    app.commandLine.removeSwitch(name);
+}
 if (launch.userData) {
     app.setPath('userData', launch.userData);
 } else if (launch.devProfile) {

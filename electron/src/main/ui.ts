@@ -1,14 +1,14 @@
 /**
  * UiAdapter with Electron:
- * - show*Message: modal → a native message box (a sheet on the Notes window); non-modal → a toast in
- *   the current Notes window (VS Code's notification), or a message box when no window is open.
+ * - show*Message: modal → a native message box (a sheet on the window); non-modal → a toast in the
+ *   note the window shows (VS Code's notification), or a message box when it shows none.
  *   Buttons follow VS Code: a modal without a close-affordance item gets a Cancel; Esc / Cancel
  *   returns the close-affordance item if there is one.
  * - open / save dialogs: native, as sheets on the current window.
  * - input box / quick pick: PromptService (prompt-window.ts).
  * - progress: a toast with a spinner (and Cancel when cancellable).
  */
-import { dialog, type BrowserWindow, type MessageBoxOptions, type OpenDialogOptions, type SaveDialogOptions } from 'electron';
+import { dialog, type BaseWindow, type MessageBoxOptions, type OpenDialogOptions, type SaveDialogOptions } from 'electron';
 import type {
     InputBoxRequest,
     MessageRequest,
@@ -28,24 +28,25 @@ export interface ElectronUiOptions {
     panels: PanelHost;
     prompts: PromptService;
     log: ShimLogger;
+    /** The window the user works in, when it is on screen (dialogs attach to it as sheets). */
+    currentWindow(): BaseWindow | undefined;
 }
 
 export class ElectronUi implements UiAdapter {
     constructor(private readonly o: ElectronUiOptions) {}
 
-    /** The window dialogs attach to (a visible Notes window), if any. */
-    parentWindow(): BrowserWindow | undefined {
-        const p = this.o.panels.current();
-        if (p && !p.isClosingOrGone && p.win.isVisible()) {
-            return p.win;
-        }
-        return undefined;
+    /** The window dialogs attach to (the window the user works in, on screen), if any. */
+    parentWindow(): BaseWindow | undefined {
+        const w = this.o.currentWindow();
+        return w && !w.isDestroyed() && w.isVisible() ? w : undefined;
     }
 
     async showMessage(req: MessageRequest): Promise<number | undefined> {
         const titles = req.items.map((i) => plainLabel(i.title));
+        // a toast in the note the window the user works in shows (VS Code's notification); else a message box
+        // on that window — never a toast in another window's note (PanelHost.current)
         const panel = this.o.panels.current();
-        if (!req.modal && panel && !panel.isClosingOrGone && panel.win.isVisible()) {
+        if (!req.modal && panel && panel.isShown) {
             const timeoutMs = titles.length > 0 ? 0 : req.severity === 'error' ? 15000 : 7000;
             return panel.showToast({ severity: req.severity, message: plainLabel(req.message), detail: req.detail, items: titles, timeoutMs }).result;
         }
@@ -125,7 +126,7 @@ export class ElectronUi implements UiAdapter {
     startProgress(req: ProgressRequest, onCancel: () => void): ProgressHandle {
         const panel = this.o.panels.current();
         const title = plainLabel(req.title || 'Working…');
-        if (!panel || panel.isClosingOrGone) {
+        if (!panel || !panel.isShown) {
             this.o.log.info(`[progress] ${title}`);
             return { report: () => undefined, done: () => undefined };
         }

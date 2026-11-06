@@ -1,23 +1,42 @@
 /**
  * The desktop shell around the extension (ADR-0013): builds the ShimHost with Electron adapters, boots
- * the extension's own bundle on the vscode shim, opens the Notes panel for the last used note (or the
- * first note of the active .fractal — ~/.fractal/default.fractal on the first run, created by the
- * extension itself), keeps the menu in sync with the extension's notes tree providers, and quits in
- * VS Code's order (close every panel with its flush → extension deactivate → state flush).
+ * the extension's own bundle on the vscode shim, and runs the app's windows (spec
+ * 20261107-0431-electron-sidebar): each window has the sidebar on the left — the extension's own tree
+ * views (Fractal List = notesLists, Notes = notesExplorer) drawn with package.json contributes — and
+ * the notes it holds on the right (one shown, the others kept alive). A note chosen in a window's
+ * sidebar opens in that window; "Open in New Window" (right-click) opens a second window.
+ *
+ * Start: a window at once, then the notes that were open (by window), else the first note of the
+ * active .fractal (~/.fractal/default.fractal on the first run, created by the extension), else the
+ * sidebar's welcome content. Quit in VS Code's order: every window closes every note it holds (each
+ * flushed) → extension deactivate → state flush.
  */
-import { app, clipboard, dialog, Menu, shell, type BrowserWindow } from 'electron';
+import { app, BaseWindow, clipboard, dialog, Menu, nativeTheme, shell, type MenuItemConstructorOptions } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { bootExtension, type BootedExtension } from '../vscode-shim/boot';
-import type { ShellAdapter, ShimHost } from '../vscode-shim/adapters';
+import type { PanelInit, ShellAdapter, ShimHost } from '../vscode-shim/adapters';
 import { appAssetRoots, isSameOrInside } from '../vscode-shim/index';
 import type { ShimWebviewPanel } from '../vscode-shim/webview';
-import { AppStateStore } from './app-state';
+import { AppStateStore, notesToReopen } from './app-state';
+import { AppWindow, WindowManager, type AppWindowDelegate, type SidebarUiState } from './app-window';
 import { createFileLogger, type FileLogger } from './log';
-import { buildMenu, type ListMenuEntry, type MenuActions, type NoteMenuEntry } from './menu';
+import { buildMenu, type ListMenuEntry, type MenuActions, type NoteMenuEntry, type OpenNoteMenuEntry } from './menu';
 import { createOpener } from './opener';
-import { PanelHost, type PanelWindow } from './panel-host';
+import { PanelHost, type PanelContainer, type PanelView } from './panel-host';
 import { PromptService } from './prompt-window';
+import { readSidebarContributes, type SidebarContributes } from './sidebar-contributes';
+import {
+    buildSidebarSnapshot,
+    decorateSidebar,
+    hasSection,
+    SIDEBAR_DEFAULT_WIDTH,
+    SnapshotHistory,
+    type ResolvedCommand,
+    type SidebarPageModel,
+    type TreeSource,
+} from './sidebar-model';
+import { SidebarService } from './sidebar-view';
 import { isDarkTheme, webviewThemeCss } from './theme';
 import { ElectronUi } from './ui';
 
@@ -34,6 +53,9 @@ export interface DesktopShellOptions {
 }
 
 type QuitPhase = 'running' | 'closing' | 'done';
+
+/** How long an "open this note in that window" request waits for the extension to create the panel. */
+const PLACEMENT_TTL_MS = 60000;
 
 function isDir(p: string | undefined): p is string {
     if (!p) {
@@ -70,36 +92,64 @@ function treeLabel(item: { label?: unknown }, fallback: string): string {
     return fallback;
 }
 
+function samePath(a: string, b: string): boolean {
+    return path.resolve(a) === path.resolve(b);
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-export class DesktopShell {
+export class DesktopShell implements AppWindowDelegate {
     readonly log: FileLogger;
     private readonly state: AppStateStore;
+    private readonly sidebars: SidebarService;
+    private readonly windows: WindowManager;
     private readonly panels: PanelHost;
     private readonly prompts: PromptService;
     private readonly ui: ElectronUi;
     private ext: BootedExtension | undefined;
+    private contributes: SidebarContributes = readSidebarContributes(undefined);
+    private readonly snapshots = new SnapshotHistory();
+    private snapshotRev = 0;
+    private sidebarTimer: NodeJS.Timeout | null = null;
+    private sidebarBuilding = false;
+    private sidebarQueued = false;
     private quitPhase: QuitPhase = 'running';
     private started = false;
     private menuTimer: NodeJS.Timeout | null = null;
     private treeSubscriptions: Array<{ dispose(): unknown }> = [];
     private startupOpening: Promise<void> | null = null;
+    /** note folder → the window its panel goes to, while that open is under way (openInWindow) */
+    private readonly placements = new Map<string, { win: AppWindow; at: number }>();
+    private refusedLogged = 0;
 
     constructor(private readonly o: DesktopShellOptions) {
         this.log = createFileLogger(path.join(o.userData, 'logs'));
         this.state = new AppStateStore(path.join(o.userData, 'desktop-state.json'), (err) => this.log.warn('[shell] state write failed:', err));
         const rendererDir = path.join(__dirname, '..', 'renderer');
+        this.sidebars = new SidebarService({
+            log: this.log,
+            preloadPath: path.join(rendererDir, 'sidebar-preload.js'),
+            pageScriptPath: path.join(rendererDir, 'sidebar-page.js'),
+            themeCss: () => webviewThemeCss(),
+        });
+        this.windows = new WindowManager({
+            delegate: this,
+            sidebars: this.sidebars,
+            savedBounds: () => this.state.get().windowBounds,
+            sidebarDefaults: () => this.sidebarDefaults(),
+        });
         this.panels = new PanelHost({
             log: this.log,
             preloadPath: path.join(rendererDir, 'panel-preload.js'),
             themeCss: () => webviewThemeCss(),
             isDark: () => this.isDark(),
-            savedBounds: () => this.state.get().windowBounds,
-            onBoundsChanged: (b) => this.state.update({ windowBounds: b }),
+            placePanel: (init) => this.placePanel(init),
+            currentContainer: () => this.windows.current(),
             onFocused: (p) => this.onPanelFocused(p),
             afterClose: async () => {
                 await this.ext?.controller.flush();
                 this.scheduleMenu();
+                this.pushSidebars();
             },
             onRendererGone: (p, reason) => void this.onRendererGone(p, reason),
             openExternal: (url) => void this.openExternalUrl(url),
@@ -111,7 +161,7 @@ export class DesktopShell {
             parentWindow: () => this.ui.parentWindow(),
             isDark: () => this.isDark(),
         });
-        this.ui = new ElectronUi({ panels: this.panels, prompts: this.prompts, log: this.log });
+        this.ui = new ElectronUi({ panels: this.panels, prompts: this.prompts, log: this.log, currentWindow: () => this.windows.current()?.win });
     }
 
     // --- start -------------------------------------------------------------------------------
@@ -121,6 +171,7 @@ export class DesktopShell {
         if (this.o.ignoredSwitches && this.o.ignoredSwitches.length > 0) {
             this.log.warn(`[shell] ignored ${this.o.ignoredSwitches.join(', ')}: development / test switches are not honored by this build`);
         }
+        this.contributes = readSidebarContributes(this.readExtensionPackageJson());
         const shellAdapter: ShellAdapter = {
             openExternal: (url) => this.openExternalUrl(url),
             openPath: async (p) => {
@@ -162,13 +213,34 @@ export class DesktopShell {
         const ctl = this.ext.controller;
         ctl.onDidCreateWebviewPanel((p) => this.onPanelCreated(p));
         ctl.onDidRevealWebviewPanel((p) => this.rememberNote(p));
-        ctl.onDidDisposeWebviewPanel(() => this.scheduleMenu());
+        ctl.onDidDisposeWebviewPanel(() => {
+            this.scheduleMenu();
+            this.pushSidebars();
+        });
         ctl.onDidChangeTreeViews(() => this.watchTrees());
+        ctl.onDidChangeTreeView(() => this.scheduleSidebar());
+        ctl.onDidChangeContextKeys(() => this.scheduleSidebar());
+        const ws = this.ext.api.workspace as { onDidChangeConfiguration?: (l: (e: { affectsConfiguration(s: string): boolean }) => void) => unknown };
+        ws.onDidChangeConfiguration?.((e) => {
+            if (e.affectsConfiguration('fractal.theme')) {
+                this.onThemeChanged();
+            }
+        });
+        nativeTheme.on('updated', () => this.onThemeChanged());
         this.watchTrees();
         this.setAboutPanel();
         this.refreshMenu();
         this.started = true;
         await this.openStartupNotes(this.o.requestedNotes);
+    }
+
+    private readExtensionPackageJson(): unknown {
+        try {
+            return JSON.parse(fs.readFileSync(path.join(this.o.extensionRoot, 'package.json'), 'utf8'));
+        } catch (err) {
+            this.log.warn('[shell] could not read the extension package.json (the sidebar has no buttons / welcome):', err);
+            return undefined;
+        }
     }
 
     private setAboutPanel(): void {
@@ -185,7 +257,7 @@ export class DesktopShell {
         });
     }
 
-    /** One at a time: a second dock click while the note is still opening must not open it twice. */
+    /** One at a time: a second dock click while the notes are still opening must not open them twice. */
     private openStartupNotes(requested: string[]): Promise<void> {
         if (!this.startupOpening) {
             this.startupOpening = this.doOpenStartupNotes(requested).finally(() => {
@@ -195,34 +267,61 @@ export class DesktopShell {
         return this.startupOpening;
     }
 
+    /** Remembered note folders that still exist and are not the app's own folders. */
+    private usableNotes(dirs: string[]): string[] {
+        return uniqueResolved(dirs.filter(isDir)).filter((dir) => {
+            const own = this.isAppFolder(dir);
+            if (own) {
+                // opening one would write outline.note into the app
+                this.log.warn(`[shell] not reopening ${dir}: it is one of the app's own folders, not a note`);
+            }
+            return !own;
+        });
+    }
+
     private async doOpenStartupNotes(requested: string[]): Promise<void> {
-        let targets = uniqueResolved(requested.filter(isDir));
-        if (targets.length === 0) {
-            const st = this.state.get();
-            const remembered = st.openNoteFolders && st.openNoteFolders.length > 0 ? st.openNoteFolders : st.lastNoteFolder ? [st.lastNoteFolder] : [];
-            // the app's own folders are never reopened as notes (opening one writes outline.note into the app)
-            targets = uniqueResolved(remembered.filter(isDir)).filter((dir) => {
-                const own = this.isAppFolder(dir);
-                if (own) {
-                    this.log.warn(`[shell] not reopening ${dir}: it is one of the app's own folders, not a note`);
-                }
-                return !own;
-            });
+        // a window at once: its sidebar shows the lists while the notes open
+        const first = this.windows.all()[0] ?? this.windows.create();
+        const endFirst = first.beginOpening();
+        try {
+            await this.openStartupGroups(first, requested);
+        } finally {
+            endFirst();
         }
-        if (targets.length === 0) {
-            const first = await this.firstNoteOfActiveList(4000);
-            if (first) {
-                targets = [first];
+    }
+
+    private async openStartupGroups(first: AppWindow, requested: string[]): Promise<void> {
+        let groups: string[][] = [];
+        const asked = uniqueResolved(requested.filter(isDir));
+        if (asked.length > 0) {
+            groups = [asked];
+        } else {
+            groups = notesToReopen(this.state.get())
+                .map((g) => this.usableNotes(g))
+                .filter((g) => g.length > 0);
+        }
+        if (groups.length === 0) {
+            const firstNote = await this.firstNoteOfActiveList(4000);
+            if (firstNote) {
+                groups = [[firstNote]];
             }
         }
-        if (targets.length === 0) {
-            await this.welcome();
-            return;
-        }
-        for (const dir of targets) {
-            const panel = await this.ext?.controller.openNotesFolder(dir);
-            if (!panel) {
-                this.log.warn(`[shell] could not open the note ${dir}`);
+        // nothing to open: the window shows the sidebar's welcome content (viewsWelcome) and the empty view
+        for (let i = 0; i < groups.length; i++) {
+            const win = i === 0 ? first : this.windows.create();
+            const end = win.beginOpening();
+            try {
+                for (const dir of groups[i]) {
+                    if (!win.alive) {
+                        break;
+                    }
+                    const panel = await this.openInWindow(dir, win);
+                    if (!panel) {
+                        this.log.warn(`[shell] could not open the note ${dir}`);
+                    }
+                }
+            } finally {
+                end();
             }
         }
     }
@@ -240,41 +339,371 @@ export class DesktopShell {
         }
     }
 
-    private async welcome(): Promise<void> {
-        const r = await dialog.showMessageBox({
-            type: 'info',
-            message: 'Welcome to Fractal',
-            detail: 'There is no note in the active notes list yet. Open an existing note folder, or create a new note.',
-            buttons: ['New Note…', 'Open Note Folder…', 'Not Now'],
-            defaultId: 0,
-            cancelId: 2,
-            noLink: true,
-        });
-        if (r.response === 0) {
-            await this.command('fractal.newNote');
-        } else if (r.response === 1) {
-            await this.openNoteFolderDialog();
-        }
-    }
-
     private isAppFolder(dir: string): boolean {
         return appAssetRoots(this.o.extensionRoot).some((root) => isSameOrInside(dir, root));
     }
 
-    // --- panels ------------------------------------------------------------------------------
+    // --- windows (AppWindowDelegate) -------------------------------------------------------
 
-    private shimPanel(panelId: string): ShimWebviewPanel | undefined {
-        return this.ext?.controller.panels().find((p) => p.panelId === panelId);
+    /** The window a new panel goes to: one asked for this note, else the window the user works in, else a new one. */
+    private placePanel(init: PanelInit): PanelContainer {
+        const folder = init.notesFolder ? path.resolve(init.notesFolder) : undefined;
+        if (folder) {
+            const asked = this.placements.get(folder);
+            this.placements.delete(folder);
+            if (asked && asked.win.alive && Date.now() - asked.at < PLACEMENT_TTL_MS) {
+                return asked.win;
+            }
+        }
+        return this.windows.current() ?? this.windows.create();
     }
 
-    private noteFolderOf(panelId: string): string | undefined {
-        const p = this.shimPanel(panelId);
-        return p?.notesFolder();
+    /**
+     * Opens a note folder into `win` (start, Open in New Window, View > Reload Note, Reopen after a crash):
+     * the panel the extension creates for it goes there (placePanel). The request ends with the open: one
+     * answered without a new panel (the extension revealed the note where it is, or could not open it) leaves
+     * nothing behind that would send a later panel of that note to `win`.
+     */
+    private async openInWindow(folder: string, win: AppWindow): Promise<ShimWebviewPanel | undefined> {
+        const key = path.resolve(folder);
+        const placement = { win, at: Date.now() };
+        this.placements.set(key, placement);
+        try {
+            return await this.ext?.controller.openNotesFolder(folder);
+        } finally {
+            if (this.placements.get(key) === placement) {
+                this.placements.delete(key);
+            }
+        }
+    }
+
+    private sidebarDefaults(): SidebarUiState {
+        const s = this.state.get().sidebar;
+        return { collapsed: s?.collapsed ?? false, width: s?.width ?? SIDEBAR_DEFAULT_WIDTH, sections: { ...(s?.sections ?? {}) } };
+    }
+
+    isDark(): boolean {
+        let theme: unknown = 'auto';
+        try {
+            const ws = this.ext?.api.workspace as { getConfiguration(s: string): { get(k: string): unknown } } | undefined;
+            theme = ws?.getConfiguration('fractal').get('theme') ?? 'auto';
+        } catch {
+            theme = 'auto';
+        }
+        return isDarkTheme(theme);
+    }
+
+    private themeSetting(): 'light' | 'dark' | 'auto' {
+        try {
+            const ws = this.ext?.api.workspace as { getConfiguration(s: string): { get(k: string): unknown } } | undefined;
+            const t = ws?.getConfiguration('fractal').get('theme');
+            return t === 'light' || t === 'dark' ? t : 'auto';
+        } catch {
+            return 'auto';
+        }
+    }
+
+    private onThemeChanged(): void {
+        const dark = this.isDark();
+        for (const w of this.windows.all()) {
+            w.applyTheme(dark);
+        }
+        this.pushSidebars();
+    }
+
+    sidebarModel(w: AppWindow): SidebarPageModel | null {
+        if (!this.snapshots.current) {
+            return null;
+        }
+        const open = new Set(this.openPanels().map((p) => p.notesFolder).filter((f): f is string => !!f));
+        return decorateSidebar(this.snapshots.current, {
+            collapsed: w.collapsed,
+            width: w.width,
+            sections: w.sections,
+            openNotes: open,
+            shownNote: w.activePanel?.notesFolder,
+            opening: w.opening,
+            theme: this.themeSetting(),
+            platform: process.platform,
+        });
+    }
+
+    isSection(viewId: unknown): boolean {
+        return hasSection(this.snapshots.current, viewId);
+    }
+
+    /** Click on a row: the TreeItem.command of an item this snapshot gave the page (D4). */
+    runItem(w: AppWindow, handle: unknown): void {
+        const item = this.snapshots.resolveItem(handle);
+        if (!item) {
+            this.refused('item', handle);
+            return;
+        }
+        const rec = this.ext?.controller.treeViews().get(item.viewId);
+        (rec?.view as { _setSelection?(e: unknown[]): void } | undefined)?._setSelection?.([item.element]);
+        if (item.command) {
+            void this.runIn(w, item.command);
+        }
+    }
+
+    /** A header / row button or a welcome link: a command package.json declares for that view (D4). */
+    runAction(w: AppWindow, token: unknown): void {
+        const action = this.snapshots.resolveAction(token);
+        if (!action) {
+            this.refused('action', token);
+            return;
+        }
+        if (action.kind === 'external') {
+            void this.openExternalUrl(action.url);
+            return;
+        }
+        void this.runIn(w, action.command);
+    }
+
+    showItemMenu(w: AppWindow, handle: unknown): void {
+        const item = this.snapshots.resolveItem(handle);
+        if (!item) {
+            this.refused('menu', handle);
+            return;
+        }
+        const template: MenuItemConstructorOptions[] = [];
+        if (item.noteFolder) {
+            const folder = item.noteFolder;
+            const open = this.panelForFolder(folder);
+            template.push({ label: 'Open in New Window', click: () => this.openInNewWindow(folder) });
+            if (open) {
+                template.push({ label: 'Close Note', click: () => void open.closeGracefully() });
+            }
+        }
+        for (const group of item.menu) {
+            if (template.length > 0) {
+                template.push({ type: 'separator' });
+            }
+            for (const entry of group) {
+                const cmd = entry.command;
+                template.push({ label: entry.title, click: () => void this.runIn(w, cmd) });
+            }
+        }
+        if (template.length > 0 && !w.isDestroyed) {
+            Menu.buildFromTemplate(template).popup({ window: w.win });
+        }
+    }
+
+    showTitleMenu(w: AppWindow, viewId: unknown): void {
+        const groups = hasSection(this.snapshots.current, viewId) ? this.snapshots.current?.titleMenus.get(viewId) : undefined;
+        if (!groups || groups.length === 0 || w.isDestroyed) {
+            return;
+        }
+        const template: MenuItemConstructorOptions[] = [];
+        for (const group of groups) {
+            if (template.length > 0) {
+                template.push({ type: 'separator' });
+            }
+            for (const entry of group) {
+                const cmd = entry.command;
+                template.push({ label: entry.title, click: () => void this.runIn(w, cmd) });
+            }
+        }
+        Menu.buildFromTemplate(template).popup({ window: w.win });
+    }
+
+    /** The ● → × of a row (D6): close that note's view (flushed first), wherever it is open. */
+    closeNote(_w: AppWindow, handle: unknown): void {
+        const item = this.snapshots.resolveItem(handle);
+        const open = item?.noteFolder ? this.panelForFolder(item.noteFolder) : undefined;
+        if (!open) {
+            if (!item) {
+                this.refused('close', handle);
+            }
+            return;
+        }
+        void open.closeGracefully();
+    }
+
+    sidebarStateChanged(w: AppWindow, persist: boolean): void {
+        if (!persist) {
+            return; // a drag step: the window re-laid itself out; the page draws its own width meanwhile
+        }
+        this.state.update({ sidebar: { collapsed: w.collapsed, width: w.width, sections: { ...w.sections } } });
+        const m = this.sidebarModel(w);
+        if (m) {
+            w.sidebar.push(m);
+        }
+        this.updateTreeVisibility();
+    }
+
+    shownPanelChanged(w: AppWindow): void {
+        this.panels.updateViewStates();
+        const folder = w.activePanel?.notesFolder;
+        if (folder && w === this.windows.current()) {
+            this.state.update({ lastNoteFolder: folder });
+        }
+        this.pushSidebars();
+        this.scheduleMenu();
+    }
+
+    focused(w: AppWindow): void {
+        this.windows.noteFocused(w);
+        this.panels.updateViewStates();
+        const folder = w.activePanel?.notesFolder;
+        if (folder) {
+            this.state.update({ lastNoteFolder: folder });
+        }
+        this.scheduleMenu();
+    }
+
+    boundsChanged(bounds: { x?: number; y?: number; width: number; height: number }): void {
+        this.state.update({ windowBounds: bounds });
+    }
+
+    closeRequested(w: AppWindow): void {
+        void this.closeWindow(w);
+    }
+
+    closed(w: AppWindow): void {
+        this.windows.forget(w);
+        this.updateTreeVisibility();
+        this.scheduleMenu();
+    }
+
+    private async closeWindow(w: AppWindow): Promise<void> {
+        await w.closeGracefully();
+        await this.ext?.controller.flush();
+        this.scheduleMenu();
+        this.pushSidebars();
+    }
+
+    /** Runs a command for a window's sidebar: the notes it opens go to that window (it is the one the user works in). */
+    private async runIn(w: AppWindow, c: ResolvedCommand): Promise<void> {
+        this.windows.noteFocused(w);
+        await this.command(c.command, ...c.args);
+    }
+
+    private refused(what: string, value: unknown): void {
+        if (this.refusedLogged++ < 20) {
+            this.log.warn(`[sidebar] refused ${what} ${typeof value === 'string' ? value.slice(0, 40) : typeof value} (not in the current sidebar)`);
+        }
+    }
+
+    /** Right-click > Open in New Window: a second window with its own sidebar shows the note (an open note moves there). */
+    private openInNewWindow(folder: string): void {
+        const w = this.windows.create();
+        const end = w.beginOpening();
+        void (async () => {
+            // a close of this note still under way (its ● / Close Note was just clicked): the extension still
+            // holds that panel and would only reveal it, so the note opens once it is closed
+            await Promise.allSettled(this.closesOf(folder));
+            if (!w.alive) {
+                return; // the new window was closed meanwhile
+            }
+            const open = this.panelForFolder(folder);
+            if (open) {
+                this.panels.move(open, w); // page and all
+                this.pushSidebars();
+                return;
+            }
+            await this.openInWindow(folder, w);
+        })()
+            .catch((err: unknown) => this.log.warn('[shell] Open in New Window failed:', err))
+            .finally(end);
+    }
+
+    /** The closes under way of a note folder's panels. */
+    private closesOf(folder: string): Promise<void>[] {
+        return this.panels
+            .closing()
+            .filter(({ panel }) => !!panel.notesFolder && samePath(panel.notesFolder, folder))
+            .map(({ done }) => done);
+    }
+
+    // --- sidebar model -------------------------------------------------------------------------
+
+    private treeSources(): Map<string, TreeSource> {
+        const out = new Map<string, TreeSource>();
+        for (const [id, rec] of this.ext?.controller.treeViews() ?? []) {
+            out.set(id, { provider: rec.provider, view: rec.view });
+        }
+        return out;
+    }
+
+    private scheduleSidebar(): void {
+        if (this.sidebarTimer) {
+            clearTimeout(this.sidebarTimer);
+        }
+        this.sidebarTimer = setTimeout(() => {
+            this.sidebarTimer = null;
+            void this.rebuildSidebar();
+        }, 40);
+    }
+
+    /** One build at a time; a change during a build builds once more after it. */
+    private async rebuildSidebar(): Promise<void> {
+        if (this.sidebarBuilding) {
+            this.sidebarQueued = true;
+            return;
+        }
+        this.sidebarBuilding = true;
+        try {
+            const ctl = this.ext?.controller;
+            if (!ctl) {
+                return;
+            }
+            const snapshot = await buildSidebarSnapshot({
+                rev: ++this.snapshotRev,
+                contributes: this.contributes,
+                trees: this.treeSources(),
+                contextKeys: ctl.contextKeys(),
+                log: this.log,
+            });
+            this.snapshots.push(snapshot);
+            this.pushSidebars();
+            this.updateTreeVisibility();
+        } catch (err) {
+            this.log.warn('[shell] sidebar update failed:', err);
+        } finally {
+            this.sidebarBuilding = false;
+            if (this.sidebarQueued) {
+                this.sidebarQueued = false;
+                this.scheduleSidebar();
+            }
+        }
+    }
+
+    private pushSidebars(): void {
+        if (!this.snapshots.current) {
+            return;
+        }
+        for (const w of this.windows.all()) {
+            const m = this.sidebarModel(w);
+            if (m) {
+                w.sidebar.push(m);
+            }
+        }
+    }
+
+    /** TreeView.visible: some open window shows the sidebar with that section expanded. */
+    private updateTreeVisibility(): void {
+        const windows = this.windows.all();
+        for (const [id, rec] of this.ext?.controller.treeViews() ?? []) {
+            const visible = windows.some((w) => !w.collapsed && w.sections[id] !== false) && hasSection(this.snapshots.current, id);
+            (rec.view as { _setVisible?(v: boolean): void })._setVisible?.(visible);
+        }
+    }
+
+    // --- panels ------------------------------------------------------------------------------
+
+    private openPanels(): PanelView[] {
+        return this.panels.all().filter((p) => !p.isClosingOrGone);
+    }
+
+    private panelForFolder(folder: string): PanelView | undefined {
+        return this.openPanels().find((p) => !!p.notesFolder && samePath(p.notesFolder, folder));
     }
 
     private onPanelCreated(p: ShimWebviewPanel): void {
         this.rememberNote(p);
         this.scheduleMenu();
+        this.pushSidebars();
     }
 
     private rememberNote(p: ShimWebviewPanel): void {
@@ -284,29 +713,40 @@ export class DesktopShell {
         }
     }
 
-    private onPanelFocused(p: PanelWindow): void {
-        const folder = this.noteFolderOf(p.panelId);
-        if (folder) {
-            this.state.update({ lastNoteFolder: folder });
+    private onPanelFocused(p: PanelView): void {
+        if (p.container instanceof AppWindow) {
+            this.windows.noteFocused(p.container);
         }
+        if (p.notesFolder) {
+            this.state.update({ lastNoteFolder: p.notesFolder });
+        }
+        this.scheduleMenu();
     }
 
-    /** Note folders of the open Notes windows, least recently focused first. */
+    /** Note folders of the open notes, least recently shown first. */
     private openNoteFolders(): string[] {
-        return this.panels
-            .all()
-            .filter((p) => !p.isClosingOrGone)
-            .sort((a, b) => a.lastFocusedAt - b.lastFocusedAt)
-            .map((p) => this.noteFolderOf(p.panelId))
+        return this.openPanels()
+            .sort((a, b) => a.lastShownAt - b.lastShownAt || a.lastFocusedAt - b.lastFocusedAt)
+            .map((p) => p.notesFolder)
             .filter((f): f is string => !!f);
     }
 
-    private async onRendererGone(p: PanelWindow, reason: string): Promise<void> {
-        const folder = this.noteFolderOf(p.panelId);
-        const parent = p.win.isDestroyed() ? undefined : p.win;
+    /** The open notes by window (each least recently shown first). */
+    private openNotesByWindow(): string[][] {
+        return this.windows
+            .all()
+            .sort((a, b) => a.lastFocusedAt - b.lastFocusedAt)
+            .map((w) => w.heldPanels().filter((p) => !p.isClosingOrGone).map((p) => p.notesFolder).filter((f): f is string => !!f))
+            .filter((g) => g.length > 0);
+    }
+
+    private async onRendererGone(p: PanelView, reason: string): Promise<void> {
+        const folder = p.notesFolder;
+        const container = p.container instanceof AppWindow ? p.container : undefined;
+        const parent = container && !container.isDestroyed ? container.win : undefined;
         const opts = {
             type: 'warning' as const,
-            message: 'This note window stopped unexpectedly.',
+            message: 'This note stopped unexpectedly.',
             detail: `${folder ?? p.panelId} (${reason}). What was already saved is on disk; reopen the note to continue.`,
             buttons: ['Reopen', 'Close'],
             defaultId: 0,
@@ -316,7 +756,11 @@ export class DesktopShell {
         const r = parent ? await dialog.showMessageBox(parent, opts) : await dialog.showMessageBox(opts);
         await p.closeGracefully();
         if (r.response === 0 && folder) {
-            await this.ext?.controller.openNotesFolder(folder);
+            if (container?.alive) {
+                await this.openInWindow(folder, container);
+            } else {
+                await this.ext?.controller.openNotesFolder(folder);
+            }
         }
     }
 
@@ -379,13 +823,19 @@ export class DesktopShell {
                 /* ignore */
             }
         }
-        for (const id of ['notesExplorer', 'notesLists']) {
-            const provider = this.ext?.controller.treeViews().get(id)?.provider as { onDidChangeTreeData?: (l: () => void) => { dispose(): unknown } } | undefined;
+        for (const [, rec] of this.ext?.controller.treeViews() ?? []) {
+            const provider = rec.provider as { onDidChangeTreeData?: (l: () => void) => { dispose(): unknown } } | undefined;
             if (provider && typeof provider.onDidChangeTreeData === 'function') {
-                this.treeSubscriptions.push(provider.onDidChangeTreeData(() => this.scheduleMenu()));
+                this.treeSubscriptions.push(
+                    provider.onDidChangeTreeData(() => {
+                        this.scheduleMenu();
+                        this.scheduleSidebar();
+                    })
+                );
             }
         }
         this.scheduleMenu();
+        this.scheduleSidebar();
     }
 
     private scheduleMenu(): void {
@@ -398,12 +848,45 @@ export class DesktopShell {
         }, 80);
     }
 
+    private openNoteMenuEntries(): OpenNoteMenuEntry[] {
+        const shown = this.windows.current()?.activePanel;
+        return this.openPanels()
+            .sort((a, b) => (a.notesFolder ?? a.title).localeCompare(b.notesFolder ?? b.title))
+            .map((p) => ({ label: p.notesFolder ? path.basename(p.notesFolder) : p.title, panelId: p.panelId, shown: p === shown }));
+    }
+
     private refreshMenu(): void {
         void (async () => {
             const [notes, lists] = await Promise.all([this.noteEntries(), this.listEntries()]);
-            const hasPanel = this.panels.all().some((p) => !p.isClosingOrGone);
-            Menu.setApplicationMenu(buildMenu({ notes, lists, hasPanel }, this.menuActions()));
+            const current = this.windows.current();
+            const hasPanel = !!current?.activePanel && !current.activePanel.isClosingOrGone;
+            const model = { notes, lists, hasPanel, hasWindow: this.windows.all().length > 0, openNotes: this.openNoteMenuEntries() };
+            Menu.setApplicationMenu(buildMenu(model, this.menuActions()));
         })().catch((err) => this.log.warn('[shell] menu update failed:', err));
+    }
+
+    /**
+     * The key window, for File > Close Note / Close Window: they act on it only (like role 'close'), never on
+     * the window last used — one of ours, another window of the app (a prompt sheet), or none (the window is
+     * minimized / hidden, or a window that is not Electron's is key, such as About).
+     */
+    private keyWindow(): { app?: AppWindow; other?: BaseWindow } {
+        const focused = BaseWindow.getFocusedWindow();
+        if (!focused) {
+            return {};
+        }
+        const appWin = this.windows.fromBaseWindow(focused);
+        if (!appWin) {
+            return { other: focused };
+        }
+        return appWin.alive ? { app: appWin } : {};
+    }
+
+    /** No Electron window is key: what role 'close' does — the key window (About…) closes; with none, nothing. */
+    private closeOtherKeyWindow(): void {
+        if (process.platform === 'darwin') {
+            Menu.sendActionToFirstResponder('performClose:');
+        }
     }
 
     private menuActions(): MenuActions {
@@ -425,11 +908,43 @@ export class DesktopShell {
             },
             revealNote: () => {
                 const p = current();
-                const folder = p && this.noteFolderOf(p.panelId);
+                const folder = p?.notesFolder;
                 if (folder) {
-                    shell.showItemInFolder(folder);
+                    if (this.o.noExternal) {
+                        this.log.info(`[shell] (no-external) showItemInFolder ${folder}`);
+                    } else {
+                        shell.showItemInFolder(folder);
+                    }
                 }
             },
+            closeNote: () => {
+                const key = this.keyWindow();
+                if (key.other) {
+                    key.other.close(); // a prompt sheet: dismissed
+                    return;
+                }
+                if (!key.app) {
+                    this.closeOtherKeyWindow();
+                    return;
+                }
+                const shown = key.app.activePanel;
+                if (shown && !shown.isClosingOrGone) {
+                    void shown.closeGracefully();
+                } else {
+                    void this.closeWindow(key.app);
+                }
+            },
+            closeWindow: () => {
+                const key = this.keyWindow();
+                if (key.other) {
+                    key.other.close();
+                } else if (key.app) {
+                    void this.closeWindow(key.app);
+                } else {
+                    this.closeOtherKeyWindow();
+                }
+            },
+            toggleSidebar: () => this.windows.current()?.toggleSidebar(),
             toggleSidePanel: () => void this.command('fractal.toggleSidebar'),
             reloadNote: () => {
                 const p = current();
@@ -438,9 +953,21 @@ export class DesktopShell {
                 }
             },
             toggleDevTools: () => {
-                const p = current();
-                if (p && !p.isGone) {
-                    p.win.webContents.toggleDevTools();
+                const w = this.windows.current();
+                const wc = w?.activePanel && !w.activePanel.isGone ? w.activePanel.wc : w && !w.sidebar.isDestroyed ? w.sidebar.view.webContents : undefined;
+                if (!wc) {
+                    return;
+                }
+                if (wc.isDevToolsOpened()) {
+                    wc.closeDevTools();
+                } else {
+                    wc.openDevTools({ mode: 'detach' });
+                }
+            },
+            showOpenNote: (panelId) => {
+                const p = this.panels.get(panelId);
+                if (p && !p.isClosingOrGone) {
+                    this.panels.reveal(p, false);
                 }
             },
             openSettings: () => void this.openSettings(),
@@ -448,12 +975,17 @@ export class DesktopShell {
         };
     }
 
-    /** View > Reload: reopen the note from disk (a raw page reload would re-run the stale initial HTML). */
-    private async reloadNote(p: PanelWindow): Promise<void> {
-        const folder = this.noteFolderOf(p.panelId);
+    /** View > Reload: reopen the note from disk in its window (a raw page reload would re-run the stale initial HTML). */
+    private async reloadNote(p: PanelView): Promise<void> {
+        const folder = p.notesFolder;
+        const container = p.container instanceof AppWindow ? p.container : undefined;
         await p.closeGracefully();
         if (folder) {
-            await this.ext?.controller.openNotesFolder(folder);
+            if (container?.alive) {
+                await this.openInWindow(folder, container);
+            } else {
+                await this.ext?.controller.openNotesFolder(folder);
+            }
         }
     }
 
@@ -478,7 +1010,7 @@ export class DesktopShell {
     }
 
     /** Opening a folder that is not a note yet turns it into one (outline.note + a first outline): ask first. */
-    private async confirmNoteFolder(dir: string, parent: BrowserWindow | undefined): Promise<boolean> {
+    private async confirmNoteFolder(dir: string, parent: BaseWindow | undefined): Promise<boolean> {
         if (fs.existsSync(path.join(dir, 'outline.note'))) {
             return true;
         }
@@ -558,17 +1090,6 @@ export class DesktopShell {
         }
     }
 
-    private isDark(): boolean {
-        let theme: unknown = 'auto';
-        try {
-            const ws = this.ext?.api.workspace as { getConfiguration(s: string): { get(k: string): unknown } } | undefined;
-            theme = ws?.getConfiguration('fractal').get('theme') ?? 'auto';
-        } catch {
-            theme = 'auto';
-        }
-        return isDarkTheme(theme);
-    }
-
     // --- app events --------------------------------------------------------------------------
 
     /** A note folder from a second launch / the OS (dock drop, open-file). */
@@ -588,13 +1109,13 @@ export class DesktopShell {
     }
 
     focusSomething(): void {
-        const p = this.panels.current() ?? this.panels.all()[0];
-        if (p && !p.isClosingOrGone) {
-            if (p.win.isMinimized()) {
-                p.win.restore();
+        const w = this.windows.current() ?? this.windows.all()[0];
+        if (w) {
+            w.bringForward();
+            const shown = w.activePanel;
+            if (shown && !shown.isGone) {
+                shown.wc.focus();
             }
-            p.win.show();
-            p.win.focus();
             return;
         }
         if (this.started && this.quitPhase === 'running') {
@@ -602,15 +1123,15 @@ export class DesktopShell {
         }
     }
 
-    /** Dock icon click: reopen the last note when no window is open, or bring a minimized one back. */
+    /** Dock icon click: reopen the last notes when no window is open, or bring a minimized one back. */
     onActivate(): void {
         if (!this.started || this.quitPhase !== 'running') {
             return;
         }
-        const open = this.panels.all().filter((p) => !p.isClosingOrGone);
+        const open = this.windows.all();
         if (open.length === 0) {
             void this.openStartupNotes([]);
-        } else if (!open.some((p) => p.win.isVisible() && !p.win.isMinimized())) {
+        } else if (!open.some((w) => w.isOnScreen())) {
             this.focusSomething();
         }
     }
@@ -632,7 +1153,12 @@ export class DesktopShell {
         void (async () => {
             try {
                 const open = this.openNoteFolders();
-                this.state.update({ openNoteFolders: open, ...(open.length > 0 ? { lastNoteFolder: open[open.length - 1] } : {}) });
+                this.state.update({
+                    openNoteFolders: open,
+                    openWindows: this.openNotesByWindow(),
+                    ...(open.length > 0 ? { lastNoteFolder: open[open.length - 1] } : {}),
+                });
+                await this.windows.closeAll();
                 await this.panels.closeAll();
                 await this.ext?.deactivate();
             } catch (err) {

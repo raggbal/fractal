@@ -321,6 +321,7 @@ export class ShimWebviewPanel {
             preserveFocus,
             enableScripts: !!opts.enableScripts,
             retainContextWhenHidden: !!opts.retainContextWhenHidden,
+            notesFolder: this._notesFolder,
             controller: this.controller,
         });
         services.onCreated(this);
