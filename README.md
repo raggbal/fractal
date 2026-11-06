@@ -385,15 +385,21 @@ Tables have an Excel-like **select mode** (click a cell to enter it):
 
 ### Database view
 
-The outliner column supports all of the outliner shortcuts above. In addition:
+Like a spreadsheet, every cell is first **selected** (frame, no caret) and then **edited**. While editing, the outliner column supports all of the outliner shortcuts above.
 
 | Shortcut | Action |
 | --- | --- |
-| `Cmd+←/→/↑/↓` | Move between cells (all columns) |
-| `Tab` / `Shift+Tab` | Next / previous cell (text columns) |
-| `Enter` or `Space` | Open the tag dropdown (tag columns) / the date picker (Date columns; clicking works too) |
-| `↑↓` + `Enter` | Select and confirm inside the dropdown |
+| Click / `←/→/↑/↓` | Select a cell / move one cell |
+| Double-click / `Enter` / `F2` | Edit the selected cell (tag columns: type to show the tag list) |
+| `Esc` | Stop editing (back to cell selection) |
+| Type a character | Start editing (text and outliner columns: append / Date columns: re-enter) |
+| `Delete` / `Backspace` | Clear the selected cell (outliner column: text only, the row stays) |
+| `Cmd+C` / `Cmd+X` / `Cmd+V` | Copy / cut / paste the cell content |
+| `←/→/↑/↓` while editing | Move to the next cell at the cell edge (first / last line, start / end); the next cell opens in edit mode |
+| `Tab` / `Shift+Tab` | Next / previous cell |
 | `Cmd+B` / `Cmd+I` / `Cmd+E` | Inline formatting in text columns |
+
+Date columns: type digits (`20261106` → `2026-11-06`) or use the calendar / clock buttons.
 
 ### Mindmap mode
 

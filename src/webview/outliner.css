@@ -1853,9 +1853,28 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-cell-date-native::-webkit-calendar-picker-indicator {
     position: absolute; inset: 0; width: auto; height: auto; margin: 0; padding: 0; cursor: pointer; opacity: 0;
 }
-/* 矢印でセルに来たとき（表示のまま focus）: どのセルにいるかが分かるよう、枠だけ薄く出す */
-.outliner-cell-date:focus:not(.is-editing) {
-    box-shadow: inset 0 0 0 1px var(--vscode-focusBorder, #007acc);
+/* table のセル選択モード（spec 20261106-1700 D1）: 選んだセルに枠（カーソルは出さない）。
+   outline の列・文字・Date・Date & Time・選択肢のどのセルも同じ。編集モード（カーソルあり）では枠を外す（outliner.js） */
+.outliner-tree[data-view-mode="table"] > .is-cell-selected {
+    box-shadow: inset 0 0 0 2px var(--vscode-focusBorder, #007acc);
+    /* 矢印で動かしてスクロールしたとき、sticky の検索欄 + 列ヘッダーの下に隠れないように */
+    scroll-margin-top: 4.5em;
+}
+/* 選択モードのキーボードの受け口（outliner.js tableSelProxy）: 見えない・押せない。選んだセルの左上に置く
+   （IME の候補の窓がセルの近くに出る）。focus を受けるので display:none / visibility:hidden にはしない */
+.outliner-table-sel-proxy {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    white-space: pre;
+    outline: none;
+    caret-color: transparent;
+    z-index: -1;
 }
 
 /* multiselect cell */
@@ -1869,26 +1888,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     min-height: 22px;
     outline: none;
 }
-/* multiselect cell: 普通の text caret 風の cursor で focus 位置を示す
- * (text editing / native picker が無い cell type なので simulated caret を ::before で生成) */
 .outliner-cell-multiselect:focus {
     outline: none;
     box-shadow: none;
-}
-.outliner-cell-multiselect:focus::before {
-    content: '';
-    display: inline-block;
-    width: 1px;
-    height: 1.2em;
-    background: currentColor;
-    margin-right: 2px;
-    align-self: center;
-    animation: outliner-caret-blink 1s steps(2, start) infinite;
-    pointer-events: none;
-    flex-shrink: 0;
-}
-@keyframes outliner-caret-blink {
-    50% { background: transparent; }
 }
 .outliner-cell-multiselect-placeholder {
     color: var(--vscode-descriptionForeground, rgba(127, 127, 127, 0.6));
@@ -1923,7 +1925,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-chip-color-pink   { background: rgba(233, 30, 99, 0.18); color: #f06292; }
 .outliner-chip-color-zinc   { background: rgba(120, 120, 120, 0.18); color: #bdbdbd; }
 
-/* multiselect dropdown */
+/* multiselect dropdown（一覧。20261106-1700 D10: 編集モードで文字を打ったときだけ出す） */
 .outliner-multiselect-dropdown {
     background: var(--outliner-bg);
     color: var(--outliner-fg);
@@ -1935,16 +1937,26 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     max-height: 288px;
     overflow-y: auto;
 }
+/* 選択肢の編集モード（D10）: chip の後ろのセルの中の入力欄（= カーソル）。枠・背景は出さない */
 .outliner-multiselect-input {
-    width: 100%;
-    background: var(--outliner-search-bg, var(--outliner-bg));
-    color: var(--outliner-fg);
-    border: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
-    padding: 4px 5px;
-    margin-bottom: 4px;
-    border-radius: 3px;
-    box-sizing: border-box;
+    flex: 1 0 24px;
+    min-width: 24px;
+    align-self: center;
+    background: transparent;
+    color: inherit;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
     font-size: 11px;
+    line-height: 1.26;
+}
+.outliner-multiselect-input:focus,
+.outliner-multiselect-input:focus-visible {
+    outline: none;
+    box-shadow: none;
 }
 .outliner-multiselect-list {
     display: flex;

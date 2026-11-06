@@ -6,6 +6,8 @@
  * (3) 日付を数字で打つと年が 4 桁で止まる（6 桁にならない）
  * (4) Date / Date & Time の ↑↓ は年月日・時刻を変えずにセル移動。矢印でセルに来たときは表示のまま（カレンダーを開かない）
  * TC-TKD-01〜06 / TC-TKD-07 カレンダー・時刻のボタンはブラウザの picker の印を直接押す形（VS Code の webview = cross-origin の iframe では showPicker() が使えない）
+ * 20261106-1700（セル選択モード）で変わった所: 1 回のクリックはセルを選ぶだけ（入力はダブルクリック / Enter — D2）。
+ * 編集のまま矢印で date に来たら入力欄（表示のままにしない — D9）。選択モードの矢印・数字は受け口（.outliner-table-sel-proxy）が受ける
  */
 import { test, expect, Page } from '@playwright/test';
 
@@ -39,14 +41,22 @@ async function setup(page: Page) {
 const cell = (type: string, nodeId: string, colId?: string) =>
     type === 'outline' ? `.outliner-node[data-id="${nodeId}"] .outliner-text`
         : `.outliner-cell-${type}[data-node-id="${nodeId}"]${colId ? `[data-col-id="${colId}"]` : ''}`;
-/** いま focus のあるセル（node id と列の種類） */
+/** いま focus のあるセル（node id と列の種類）。editing = date の入力欄が開いて focus がある。
+ *  選択モード（20261106-1700: focus は受け口 .outliner-table-sel-proxy・枠 .is-cell-selected）は select: true */
 async function where(page: Page) {
     return page.evaluate(() => {
         const a = document.activeElement as HTMLElement;
+        const desc = (c: HTMLElement, a: HTMLElement) => {
+            if (c.classList.contains('outliner-node')) return { kind: 'outline', id: c.dataset.id };
+            return { kind: c.className.split(' ')[0].replace('outliner-cell-', ''), id: c.dataset.nodeId, col: c.dataset.colId, editing: a.tagName === 'INPUT' };
+        };
+        if (a.classList.contains('outliner-table-sel-proxy')) {
+            const s = document.querySelector('.outliner-tree > .is-cell-selected') as HTMLElement | null;
+            return s ? { ...desc(s, a), select: true } : null;
+        }
         const c = a.closest('.outliner-cell-text, .outliner-cell-date, .outliner-cell-multiselect, .outliner-node') as HTMLElement;
         if (!c) return null;
-        if (c.classList.contains('outliner-node')) return { kind: 'outline', id: c.dataset.id };
-        return { kind: c.className.split(' ')[0].replace('outliner-cell-', ''), id: c.dataset.nodeId, col: c.dataset.colId, editing: a.tagName === 'INPUT' };
+        return { ...desc(c, a), select: false };
     });
 }
 async function caretOffset(page: Page) {
@@ -101,23 +111,25 @@ test('TC-TKD-02 (1) ← は先頭のとき左のセル・→ は末尾のとき�
     expect(await caretOffset(page)).toBe(0);
     await setCaret(page, cell('text', 'n1'), 'end');
     await page.keyboard.press('ArrowRight');
-    expect(await where(page), '末尾からの → は右の date のセル（表示のまま）').toMatchObject({ kind: 'date', id: 'n1', col: 'c_date', editing: false });
+    // 20261106-1700 D9: 編集のまま来たので date も入力欄（旧: 表示のまま）
+    expect(await where(page), '末尾からの → は右の date のセル（編集のまま = 入力欄）').toMatchObject({ kind: 'date', id: 'n1', col: 'c_date', editing: true });
 });
 
-test('TC-TKD-03 (1) outline 列: ↓ / ↑ で上下の行の outline、date の表示からは 4 方向ともセル移動', async ({ page }) => {
+test('TC-TKD-03 (1) outline 列: ↓ / ↑ で上下の行の outline、編集のまま来た date の入力欄からも端ではセル移動', async ({ page }) => {
     await setup(page);
     await setCaret(page, cell('outline', 'n1'), 'end');
     await page.keyboard.press('ArrowDown');
     expect(await where(page)).toMatchObject({ kind: 'outline', id: 'n2' });
     await page.keyboard.press('ArrowUp');
     expect(await where(page)).toMatchObject({ kind: 'outline', id: 'n1' });
-    // date の表示（矢印で来た）: カレンダーは開かず、4 方向ともセル移動
+    // date（矢印で来た）: 20261106-1700 D9 で編集のまま = 入力欄（カレンダーは開かない）。空の欄は先頭 = 末尾なので ←→ もセル移動
     await setCaret(page, cell('text', 'n2'), 'end');
     await page.keyboard.press('ArrowRight');
-    expect(await where(page)).toMatchObject({ kind: 'date', id: 'n2', editing: false });
-    await expect(page.locator(cell('date', 'n2') + ' input')).toHaveCount(0);
+    expect(await where(page)).toMatchObject({ kind: 'date', id: 'n2', editing: true });
+    await expect(page.locator(cell('date', 'n2') + ' input.outliner-cell-date-input')).toHaveCount(1);
     await page.keyboard.press('ArrowDown');
-    expect(await where(page)).toMatchObject({ kind: 'date', id: 'n3' });
+    expect(await where(page)).toMatchObject({ kind: 'date', id: 'n3', editing: true });
+    expect(await cellValue(page, 'n2', 'c_date'), '↓ で年月日を変えない').toBe('2026-02-02');
     await page.keyboard.press('ArrowRight');
     expect(await where(page)).toMatchObject({ kind: 'date', id: 'n3', col: 'c_dt' });
     await page.keyboard.press('ArrowLeft');
@@ -126,15 +138,19 @@ test('TC-TKD-03 (1) outline 列: ↓ / ↑ で上下の行の outline、date の
 
 test('TC-TKD-04 (4) date の入力中も ↑↓ は数字を変えずにセル移動。Enter / 数字で入力を始める', async ({ page }) => {
     await setup(page);
+    // 20261106-1700: date のセルそのものへの focus は選択モード（受け口）に替わる。Enter で入力欄（D3）
     await page.locator(cell('date', 'n2', 'c_date')).focus();
+    expect(await where(page)).toMatchObject({ kind: 'date', id: 'n2', col: 'c_date', select: true });
     await page.keyboard.press('Enter');
     const inp2 = page.locator(cell('date', 'n2', 'c_date') + ' input.outliner-cell-date-input');
     await expect(inp2).toBeFocused();
     await expect(inp2).toHaveValue('2026-02-02');
     await page.keyboard.press('ArrowUp');
-    expect(await where(page)).toMatchObject({ kind: 'date', id: 'n1', col: 'c_date', editing: false });
+    // 20261106-1700 D9: 編集のまま移ったので上のセルも入力欄（旧: 表示のまま）
+    expect(await where(page)).toMatchObject({ kind: 'date', id: 'n1', col: 'c_date', editing: true });
     expect(await cellValue(page, 'n2', 'c_date'), '↑ で年月日を変えない').toBe('2026-02-02');
-    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter'); // 確定して選択モードへ（D7）
+    expect(await where(page)).toMatchObject({ kind: 'date', id: 'n1', col: 'c_date', select: true });
     await page.keyboard.press('ArrowDown');
     expect(await where(page)).toMatchObject({ kind: 'date', id: 'n2', col: 'c_date' });
     expect(await cellValue(page, 'n1', 'c_date')).toBe('2026-01-01');
@@ -147,7 +163,9 @@ test('TC-TKD-04 (4) date の入力中も ↑↓ は数字を変えずにセル�
     await page.keyboard.press('ArrowDown');
     expect(await where(page)).toMatchObject({ kind: 'date', id: 'n2', col: 'c_dt' });
     expect(await cellValue(page, 'n1', 'c_dt'), '時刻を変えない').toBe('2026-01-01T09:30');
-    // 表示のまま数字を打つと入力が始まる
+    // 選択モード（Esc で抜けた）で数字を打つと入力が始まる（D4）
+    await page.keyboard.press('Escape');
+    expect(await where(page)).toMatchObject({ kind: 'date', id: 'n2', col: 'c_dt', select: true });
     await page.keyboard.press('2');
     await expect(page.locator(cell('date', 'n2', 'c_dt') + ' input.outliner-cell-date-input')).toHaveValue('2');
 });
@@ -191,7 +209,8 @@ test('TC-TKD-05 (3) 日付を数字で打つと年は 4 桁で止まって月・
 
 test('TC-TKD-06 (2) カレンダー / 時刻で選ぶとその場で保存。Date & Time は日付だけでも消えない（00:00）。欄を離れても残る', async ({ page }) => {
     await setup(page);
-    await page.locator(cell('date', 'n2', 'c_dt')).click();
+    // 20261106-1700 D2: 入力欄はダブルクリックで開く（1 回のクリックはセルを選ぶだけ）
+    await page.locator(cell('date', 'n2', 'c_dt')).dblclick();
     await expect(page.locator(cell('date', 'n2', 'c_dt') + ' input.outliner-cell-date-input')).toBeFocused();
     await expect(page.locator(cell('date', 'n2', 'c_dt') + ' .outliner-cell-date-picker-btn')).toHaveCount(2);
     // カレンダーで日付を選んだのと同じ（隠した native の date に値が入り input / change が来る）
@@ -213,14 +232,14 @@ test('TC-TKD-06 (2) カレンダー / 時刻で選ぶとその場で保存。Dat
     expect(await cellValue(page, 'n2', 'c_dt')).toBe('2026-11-06T14:05');
     await expect(page.locator(cell('date', 'n2', 'c_dt') + ' .outliner-cell-date-display')).toHaveText('2026-11-06 14:05');
     // Date の列: カレンダーで選んで欄を離れると残る
-    await page.locator(cell('date', 'n3', 'c_date')).click();
+    await page.locator(cell('date', 'n3', 'c_date')).dblclick();
     const natDate2 = page.locator(cell('date', 'n3', 'c_date') + ' .outliner-cell-date-picker--date input');
     await natDate2.evaluate((el: HTMLInputElement) => { el.value = '2026-12-24'; el.dispatchEvent(new Event('change', { bubbles: true })); });
     await page.locator(cell('text', 'n1')).click();
     await page.waitForTimeout(50);
     await expect(page.locator(cell('date', 'n3', 'c_date') + ' .outliner-cell-date-display')).toHaveText('2026-12-24');
     // 打っている途中で欄を離れても、元の値は消えない
-    await page.locator(cell('date', 'n3', 'c_date')).click();
+    await page.locator(cell('date', 'n3', 'c_date')).dblclick();
     await page.keyboard.press(SELECT_ALL);
     await page.keyboard.type('2027');
     await page.locator(cell('text', 'n1')).click();
@@ -235,7 +254,8 @@ test('TC-TKD-07 カレンダー・時刻のボタンは native の picker の印
         (window as any).__showPickerCalls = 0;
         (HTMLInputElement.prototype as any).showPicker = function () { (window as any).__showPickerCalls++; throw new DOMException('cross-origin', 'SecurityError'); };
     });
-    await page.locator(cell('date', 'n2', 'c_dt')).click();
+    // 20261106-1700 D2: 入力欄（とカレンダー・時刻のボタン）はダブルクリックで開く
+    await page.locator(cell('date', 'n2', 'c_dt')).dblclick();
     for (const kind of ['date', 'time']) {
         const r = await page.evaluate(({ k }) => {
             const wrap = document.querySelector('.outliner-cell-date[data-node-id="n2"][data-col-id="c_dt"] .outliner-cell-date-picker--' + k) as HTMLElement;

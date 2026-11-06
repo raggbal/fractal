@@ -7634,17 +7634,22 @@ var SHORTCUTS_MINDMAP = [
 
 // database (table) ビュー用（README「Database view」章より。outliner 列は outliner と同じ）。
 var SHORTCUTS_TABLE = [
+    // 2026-11-06: セル選択モード（既定）→ 編集モード（spec 20261106-1700-table-cell-select-mode）
     { category: 'editing', items: [
+        { keys: 'Enter / F2 / Double-click', desc: 'Edit the selected cell' },
+        { keys: 'Esc', desc: 'Stop editing (back to cell selection)' },
+        { keys: 'Type', desc: 'Start editing (text: append / date: re-enter)' },
+        { keys: 'Delete / Backspace', desc: 'Clear the selected cell' },
+        { keys: 'Cmd+C / Cmd+X / Cmd+V', desc: 'Copy / cut / paste the cell content' },
         { keys: 'Cmd+B / Cmd+I / Cmd+E', desc: 'Inline format in text columns' },
-        { keys: 'Enter / Space', desc: 'Open tag dropdown / date picker' },
-        { keys: '↑↓ + Enter', desc: 'Choose in dropdown' },
     ] },
     { category: 'navigation', items: [
-        { keys: 'Cmd+←/→/↑/↓', desc: 'Move between cells (all columns)' },
-        { keys: 'Tab / Shift+Tab', desc: 'Next / previous cell (text columns)' },
+        { keys: '←/→/↑/↓', desc: 'Move between cells (while editing: at the cell edge)' },
+        { keys: 'Tab / Shift+Tab', desc: 'Next / previous cell' },
+        { keys: '↑↓ + Enter', desc: 'Choose in the tag list (after typing)' },
     ] },
     { category: 'other', items: [
-        { keys: '(Outliner column)', desc: 'All outliner shortcuts work as-is' },
+        { keys: '(Outliner column)', desc: 'Outliner shortcuts work while editing' },
         { keys: 'Cmd+Shift+/', desc: 'Show / hide this shortcut list' },
     ] },
 ];

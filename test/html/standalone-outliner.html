@@ -4988,9 +4988,28 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-cell-date-native::-webkit-calendar-picker-indicator {
     position: absolute; inset: 0; width: auto; height: auto; margin: 0; padding: 0; cursor: pointer; opacity: 0;
 }
-/* 矢印でセルに来たとき（表示のまま focus）: どのセルにいるかが分かるよう、枠だけ薄く出す */
-.outliner-cell-date:focus:not(.is-editing) {
-    box-shadow: inset 0 0 0 1px var(--vscode-focusBorder, #007acc);
+/* table のセル選択モード（spec 20261106-1700 D1）: 選んだセルに枠（カーソルは出さない）。
+   outline の列・文字・Date・Date & Time・選択肢のどのセルも同じ。編集モード（カーソルあり）では枠を外す（outliner.js） */
+.outliner-tree[data-view-mode="table"] > .is-cell-selected {
+    box-shadow: inset 0 0 0 2px var(--vscode-focusBorder, #007acc);
+    /* 矢印で動かしてスクロールしたとき、sticky の検索欄 + 列ヘッダーの下に隠れないように */
+    scroll-margin-top: 4.5em;
+}
+/* 選択モードのキーボードの受け口（outliner.js tableSelProxy）: 見えない・押せない。選んだセルの左上に置く
+   （IME の候補の窓がセルの近くに出る）。focus を受けるので display:none / visibility:hidden にはしない */
+.outliner-table-sel-proxy {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    white-space: pre;
+    outline: none;
+    caret-color: transparent;
+    z-index: -1;
 }
 
 /* multiselect cell */
@@ -5004,26 +5023,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     min-height: 22px;
     outline: none;
 }
-/* multiselect cell: 普通の text caret 風の cursor で focus 位置を示す
- * (text editing / native picker が無い cell type なので simulated caret を ::before で生成) */
 .outliner-cell-multiselect:focus {
     outline: none;
     box-shadow: none;
-}
-.outliner-cell-multiselect:focus::before {
-    content: '';
-    display: inline-block;
-    width: 1px;
-    height: 1.2em;
-    background: currentColor;
-    margin-right: 2px;
-    align-self: center;
-    animation: outliner-caret-blink 1s steps(2, start) infinite;
-    pointer-events: none;
-    flex-shrink: 0;
-}
-@keyframes outliner-caret-blink {
-    50% { background: transparent; }
 }
 .outliner-cell-multiselect-placeholder {
     color: var(--vscode-descriptionForeground, rgba(127, 127, 127, 0.6));
@@ -5058,7 +5060,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-chip-color-pink   { background: rgba(233, 30, 99, 0.18); color: #f06292; }
 .outliner-chip-color-zinc   { background: rgba(120, 120, 120, 0.18); color: #bdbdbd; }
 
-/* multiselect dropdown */
+/* multiselect dropdown（一覧。20261106-1700 D10: 編集モードで文字を打ったときだけ出す） */
 .outliner-multiselect-dropdown {
     background: var(--outliner-bg);
     color: var(--outliner-fg);
@@ -5070,16 +5072,26 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     max-height: 288px;
     overflow-y: auto;
 }
+/* 選択肢の編集モード（D10）: chip の後ろのセルの中の入力欄（= カーソル）。枠・背景は出さない */
 .outliner-multiselect-input {
-    width: 100%;
-    background: var(--outliner-search-bg, var(--outliner-bg));
-    color: var(--outliner-fg);
-    border: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
-    padding: 4px 5px;
-    margin-bottom: 4px;
-    border-radius: 3px;
-    box-sizing: border-box;
+    flex: 1 0 24px;
+    min-width: 24px;
+    align-self: center;
+    background: transparent;
+    color: inherit;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
     font-size: 11px;
+    line-height: 1.26;
+}
+.outliner-multiselect-input:focus,
+.outliner-multiselect-input:focus-visible {
+    outline: none;
+    box-shadow: none;
 }
 .outliner-multiselect-list {
     display: flex;
@@ -8677,17 +8689,22 @@ var SHORTCUTS_MINDMAP = [
 
 // database (table) ビュー用（README「Database view」章より。outliner 列は outliner と同じ）。
 var SHORTCUTS_TABLE = [
+    // 2026-11-06: セル選択モード（既定）→ 編集モード（spec 20261106-1700-table-cell-select-mode）
     { category: 'editing', items: [
+        { keys: 'Enter / F2 / Double-click', desc: 'Edit the selected cell' },
+        { keys: 'Esc', desc: 'Stop editing (back to cell selection)' },
+        { keys: 'Type', desc: 'Start editing (text: append / date: re-enter)' },
+        { keys: 'Delete / Backspace', desc: 'Clear the selected cell' },
+        { keys: 'Cmd+C / Cmd+X / Cmd+V', desc: 'Copy / cut / paste the cell content' },
         { keys: 'Cmd+B / Cmd+I / Cmd+E', desc: 'Inline format in text columns' },
-        { keys: 'Enter / Space', desc: 'Open tag dropdown / date picker' },
-        { keys: '↑↓ + Enter', desc: 'Choose in dropdown' },
     ] },
     { category: 'navigation', items: [
-        { keys: 'Cmd+←/→/↑/↓', desc: 'Move between cells (all columns)' },
-        { keys: 'Tab / Shift+Tab', desc: 'Next / previous cell (text columns)' },
+        { keys: '←/→/↑/↓', desc: 'Move between cells (while editing: at the cell edge)' },
+        { keys: 'Tab / Shift+Tab', desc: 'Next / previous cell' },
+        { keys: '↑↓ + Enter', desc: 'Choose in the tag list (after typing)' },
     ] },
     { category: 'other', items: [
-        { keys: '(Outliner column)', desc: 'All outliner shortcuts work as-is' },
+        { keys: '(Outliner column)', desc: 'Outliner shortcuts work while editing' },
         { keys: 'Cmd+Shift+/', desc: 'Show / hide this shortcut list' },
     ] },
 ];
@@ -40798,7 +40815,11 @@ var Outliner = (function() {
                     syncSelectionModeClass();
                 }
             }
+            // 20261106-1700: table を出るときはセル選択モードを終える（受け口の focus を外す = 以前と同じく focus 無し）
+            if (prev === 'table') { endTableSelectMode(); }
             renderTree();
+            // 20261106-1700 D11: table に切り替えたら選択モード（focus のある行の outline の列を選ぶ）
+            if (mode === 'table') { selectTableRowOutlineCell(focusedNodeId); }
         }
         updateViewToggleButton();
         updateHeaderForViewMode(); // [K] iteration 29 / TASK-77
@@ -41728,6 +41749,9 @@ var Outliner = (function() {
         // 旧 .out は 'outliner'。table/mindmap を永続化していれば復元する (decision-persistence)。
         VIEW_MODE = (model.viewMode === 'table' || model.viewMode === 'mindmap')
             ? model.viewMode : 'outliner';
+        // 20261106-1700: 前の model のセル選択は持ち越さない（table の初期化の focus = D11 で選び直す）
+        tableSel = null;
+        tableSelEl = null;
 
         // JSONから検索モードを復元
         if (data && data.searchFocusMode) {
@@ -42122,6 +42146,16 @@ var Outliner = (function() {
             }, true);
         }
 
+        // 20261106-1700 D2: table のセル選択モード — 1 回のクリック = 選択（カーソルを置かない）/ ダブルクリック = 編集。
+        // mousedown は capture 段で先取りする（セルの contenteditable に caret が入る前に止める）。修飾クリックは上の
+        // Cmd/Ctrl+Click（行の選択）や Shift+Click（範囲）に任せる。冪等配線（init が複数回呼ばれる harness で二重登録しない）
+        if (!treeEl.__fractalTableSelWired) {
+            treeEl.__fractalTableSelWired = true;
+            treeEl.addEventListener('mousedown', onTableCellMousedown, true);
+            treeEl.addEventListener('dblclick', onTableCellDblclick);
+            treeEl.addEventListener('focusin', onTableCellFocusin);
+        }
+
         // FR-MSC-02（裁定 R31）: 選択トレースの入力側 hook。**選択が非空のときだけ** keydown / keyup /
         // mousedown を記録する（「cmd を離した瞬間に消える」の実機機序を webview 内で捕まえるため。
         // 記録は document capture 段で、他リスナーの stopPropagation に負けない位置に置く）。
@@ -42218,6 +42252,13 @@ var Outliner = (function() {
                 // カーソルが飛ぶ競走 — lesson L-20260829-g20。旧 DOM の node は renderTree で外れるので対象外）
                 var ae = document.activeElement;
                 if (ae && ae.closest && ae.closest('.outliner-node') && treeEl.contains(ae)) { return; }
+                // 20261106-1700 D11: table は選択モード（最初の行の outline の列を選ぶ）。待つ間にセルを選んだ・
+                // 編集を始めていたら奪わない
+                if (VIEW_MODE === 'table') {
+                    if (tableSel || (ae && treeEl.contains(ae))) { return; }
+                    selectTableRowOutlineCell(null);
+                    return;
+                }
                 focusFirstVisibleNode();
             }, 100);
         }
@@ -42969,6 +43010,11 @@ var Outliner = (function() {
             selectedNodeIds.forEach(function (sid) { if (!model.getNode(sid)) { _pruned.push(sid); selectedNodeIds.delete(sid); } });
             if (_pruned.length > 0) { _selTracePush('prune', '(renderTree: model に無い id) ' + _pruned.join(',')); }
         }
+        // 20261106-1700: table 以外を描くときにセル選択モードが残っていたら終える（ファイル切替・再 init で
+        // VIEW_MODE が setViewMode を通らずに変わったとき。受け口に focus が残るとキーが行き場を失う）
+        if (VIEW_MODE !== 'table' && (tableSel || (tableSelProxy && document.activeElement === tableSelProxy))) {
+            endTableSelectMode();
+        }
         treeEl.innerHTML = '';
         // Phase F2.1: data-view-mode 属性を treeEl に反映 (CSS / 列ヘッダー描画判定で使用)
         treeEl.dataset.viewMode = VIEW_MODE;
@@ -43285,6 +43331,15 @@ var Outliner = (function() {
      *  操作ハンドラから直接呼ばれる場合があるので、この関数自身で必ずクリアする。 */
     function renderTableMode() {
         ensureColumnsForTable();
+        // 20261106-1700 D10: 選択肢の編集中（セルの中の入力欄）に描き直すと入力欄が消えるので閉じ、
+        // 打っていた所なら描き直したあと選択モードの同じセルへ戻す
+        var reselectKey = null;
+        if (activeDropdownEl) {
+            var editingKey = activeDropdownReturnFocusEl ? tableCellKey(activeDropdownReturnFocusEl) : null;
+            var typing = !!(activeDropdownInput && document.activeElement === activeDropdownInput);
+            closeMultiselectDropdown({ refocus: false });
+            if (typing) { reselectKey = editingKey; }
+        }
         treeEl.innerHTML = '';
         treeEl.dataset.viewMode = 'table';
         updateBreadcrumb();
@@ -43340,6 +43395,9 @@ var Outliner = (function() {
             renderTableRows(rootIds, rowFragment, 0, searchQuery, cols);
         }
         treeEl.appendChild(rowFragment);
+        // 20261106-1700: セル選択モードの枠を描き直したセルに付け直す（受け口は treeEl の外なので focus は残っている）
+        var reselectEl = reselectKey ? findTableCellEl(reselectKey) : null;
+        if (reselectEl) { selectTableCell(reselectEl); } else { reapplyTableSel(); }
     }
 
     /** table mode フォーカス検索: マッチ node を depth=0 として並べ、子孫は depth+1 以降 */
@@ -43494,13 +43552,12 @@ var Outliner = (function() {
         return btn;
     }
 
-    /** table cell 間の移動 (Cmd+↑↓→←)
-     *  el = 現在のセル要素 (.outliner-node もしくは .outliner-cell-text/.outliner-cell-multiselect/.outliner-cell-date)
+    /** 隣のセル（treeEl の直下に行 × 列の順で並ぶ grid item）。無ければ null。
+     *  el = 今のセル要素 (.outliner-node もしくは .outliner-cell-text/.outliner-cell-multiselect/.outliner-cell-date)
      *  dir = 'up' | 'down' | 'left' | 'right'
-     *  return: focus 移動できたら true
-     */
-    function moveTableCell(el, dir) {
-        if (!treeEl || VIEW_MODE !== 'table') return false;
+     *  編集のまま移る moveTableCell と、セル選択モードの移動（20261106-1700 D3）で共用する */
+    function tableCellNeighbor(el, dir) {
+        if (!treeEl || VIEW_MODE !== 'table') return null;
         var cells = Array.prototype.slice.call(treeEl.children).filter(function (c) {
             return c.classList && (
                 c.classList.contains('outliner-node') ||
@@ -43511,9 +43568,9 @@ var Outliner = (function() {
         });
         var cols = model.columns || [];
         var ncols = cols.length;
-        if (ncols === 0) return false;
+        if (ncols === 0) return null;
         var idx = cells.indexOf(el);
-        if (idx < 0) return false;
+        if (idx < 0) return null;
         var rowIdx = Math.floor(idx / ncols);
         var colIdx = idx % ncols;
         var targetIdx = -1;
@@ -43521,14 +43578,22 @@ var Outliner = (function() {
         else if (dir === 'right' && colIdx < ncols - 1) targetIdx = idx + 1;
         else if (dir === 'up' && rowIdx > 0) targetIdx = idx - ncols;
         else if (dir === 'down' && rowIdx < Math.floor((cells.length - 1) / ncols)) targetIdx = idx + ncols;
-        if (targetIdx < 0 || targetIdx >= cells.length) return false;
-        var targetEl = cells[targetIdx];
+        if (targetIdx < 0 || targetIdx >= cells.length) return null;
+        return cells[targetIdx];
+    }
+
+    /** table cell 間の移動（編集モードのまま隣のセルへ — 移った先も編集モード。20261106-1700 D9）
+     *  return: focus 移動できたら true
+     */
+    function moveTableCell(el, dir) {
+        var targetEl = tableCellNeighbor(el, dir);
+        if (!targetEl) return false;
         focusTableCell(targetEl, dir);
         return true;
     }
 
-    /** dir（来た向き）でカーソルの置き場を決める: → で来たら先頭 / ← で来たら末尾 / ↓ で来たら先頭 / ↑ で来たら末尾。
-     *  dir が無い（Tab 等）ときは従来どおり末尾 */
+    /** 隣のセルを編集モードにする。dir（来た向き）でカーソルの置き場を決める: → で来たら先頭 / ← で来たら末尾 /
+     *  ↓ で来たら先頭 / ↑ で来たら末尾。dir が無い（Tab 等）ときは従来どおり末尾 */
     function focusTableCell(cellEl, dir) {
         if (!cellEl) return;
         var toStart = (dir === 'right' || dir === 'down');
@@ -43545,13 +43610,12 @@ var Outliner = (function() {
             cellEl.focus();
             place(cellEl);
         } else if (cellEl.classList.contains('outliner-cell-multiselect')) {
-            // multiselect は直接 focus できないので click → dropdown 表示
-            cellEl.tabIndex = -1;
-            cellEl.focus();
+            // 20261106-1700 D9 / D10: 編集のまま来たら選択肢もセルの中のカーソル（一覧は文字を打つまで出さない）
+            if (cellEl._tableCellApi) { cellEl._tableCellApi.beginEdit({}); }
         } else if (cellEl.classList.contains('outliner-cell-date')) {
-            // date / datetime cell: 表示のまま focus（矢印で通り過ぎられるように、入力欄・カレンダーは開かない。
-            // 入力を始めるのは click / Enter / Space / F2）
-            cellEl.focus();
+            // 20261106-1700 D9: 編集のまま来たら Date / Date & Time も入力欄（カレンダーは開かない）。
+            // カーソルは来た向きで先頭 / 末尾（文字のセルと同じ）
+            if (cellEl._tableCellApi) { cellEl._tableCellApi.beginEdit({ caret: toStart ? 'start' : 'end' }); }
         }
     }
 
@@ -43586,14 +43650,15 @@ var Outliner = (function() {
         return { top: caret.top - minTop < lh * 0.5, bottom: maxBottom - caret.bottom < lh * 0.5 };
     }
 
-    /** table のセル間の矢印キー。
+    /** table のセル間の矢印キー（編集モード。移った先も編集モード — 20261106-1700 D9）。
      *  - Cmd/Ctrl + 矢印: 常にセル移動（従来）
      *  - 素の矢印（2026-11-06 ユーザー依頼）:
      *      文字のセル・outline 列 … ↑ = 1 行目にいるとき上のセル / ↓ = 最後の行にいるとき下のセル /
      *                                ← = 先頭（1 行目の左端）のとき左のセル / → = 末尾（最後の行の右端）のとき右のセル。
      *                                それ以外はカーソルを動かす（'native'）
-     *      date / datetime の入力欄 … ↑↓ = 年月日・時刻の数字を変えずにセル移動 / ← は先頭・→ は末尾で隣のセル
-     *      date の表示・multiselect のセル（カーソルの無いセル）… 4 方向ともセル移動
+     *      date / datetime・選択肢の入力欄 … ↑↓ = 年月日・時刻の数字を変えずにセル移動 / ← は先頭・→ は末尾で隣のセル
+     *      カーソルの無い要素 … 4 方向ともセル移動（date / 選択肢のセルそのものの focus は選択モードに替わるので、通常は来ない）
+     *  セル選択モードの矢印は受け口（onTableSelKeydown）が扱う。
      *  返り値: true = 移動した（呼び出し側で preventDefault）/ 'native' = カーソルを動かすので他の処理をしない /
      *          false = 扱わない（呼び出し側の従来の処理へ） */
     function handleTableCellArrowKey(el, e) {
@@ -43631,7 +43696,7 @@ var Outliner = (function() {
         }
         var editable = el.isContentEditable ? el : null;
         if (!editable) {
-            // カーソルの無いセル（date の表示・multiselect）: 4 方向ともセル移動
+            // カーソルの無い要素: 4 方向ともセル移動
             return moveTableCell(cellEl, dir);
         }
         var edges = caretVisualEdges(editable);
@@ -43644,6 +43709,700 @@ var Outliner = (function() {
             : (off >= text.length);
         if (!atEdge) return (dir === 'up' || dir === 'down') ? 'native' : false;
         return moveTableCell(cellEl, dir);
+    }
+
+    // ========================================================================
+    // table のセル選択モード（spec 20261106-1700-table-cell-select-mode / D1〜D11）
+    // ========================================================================
+    // どのセル（outline の列・文字・Date・Date & Time・選択肢）も、既定は「選択モード」（カーソル無し・セルに枠）、
+    // 編集モード = カーソルがセルの中にある状態（contenteditable / date の入力欄 / 選択肢のセルの中の入力欄に focus）。
+    // 選択モードの間は、キーボードの focus を見えない受け口（tableSelProxy）1 つに置き、選んだセルに is-cell-selected を付ける。
+    //  - 受け口は treeEl の外（.outliner-container）に置く: 表を描き直しても（renderTableMode）消えず、focus を失わない
+    //  - 受け口は contenteditable にする: 編集できない要素に focus があると IME が働かず（ローマ字がそのまま来る）、
+    //    copy / cut / paste のイベントも届かない（Chromium は clipboard のイベントを selection のある所へ配る）
+    //  - 受け口の中身は選んだセルの文字（全選択）。Cmd+C / Cmd+X で copy / cut のイベントが来る。書く値は model から作る
+    // outliner（非 table）のノードの選択モード（ADRL-0114 / 0119 = selectedNodeIds・Cmd+click / Shift+↑↓）とは別物で、
+    // 両方が同時に立つこともある（そのときの Delete / Cmd+C / Cmd+X / Cmd+V は選んだノード（行）に今どおり効く）。
+    var tableSel = null;        // { nodeId, colId } = 選択モードのセル（null = 選択モードでない）
+    var tableSelEl = null;      // 選んだセルの要素（検索の focus モードで同じ行が 2 回出るとき、選んだ方を覚える）
+    var tableSelProxy = null;   // キーボードの受け口（contenteditable の div）
+
+    var TABLE_CELL_SELECTOR = '.outliner-node.outliner-cell-outliner, .outliner-cell-text, .outliner-cell-date, .outliner-cell-multiselect';
+
+    /** table の outline 列の id */
+    function tableOutlinerColId() {
+        var cols = (model && model.columns) || [];
+        for (var i = 0; i < cols.length; i++) { if (cols[i].type === 'outliner') return cols[i].id; }
+        return null;
+    }
+
+    function tableColumnById(colId) {
+        var cols = (model && model.columns) || [];
+        for (var i = 0; i < cols.length; i++) { if (cols[i].id === colId) return cols[i]; }
+        return null;
+    }
+
+    /** 要素 → それを含む table のセル（treeEl の直下の grid item）。セルの外なら null */
+    function tableCellOf(t) {
+        if (!t || t.nodeType !== 1 || !t.closest || !treeEl) return null;
+        var c = t.closest(TABLE_CELL_SELECTOR);
+        return (c && c.parentNode === treeEl) ? c : null;
+    }
+
+    /** セルの種類: 'outline' | 'text' | 'date' | 'multiselect' | null */
+    function tableCellKind(cellEl) {
+        if (!cellEl || !cellEl.classList) return null;
+        if (cellEl.classList.contains('outliner-cell-outliner')) return 'outline';
+        if (cellEl.classList.contains('outliner-cell-text')) return 'text';
+        if (cellEl.classList.contains('outliner-cell-date')) return 'date';
+        if (cellEl.classList.contains('outliner-cell-multiselect')) return 'multiselect';
+        return null;
+    }
+
+    /** セル → { nodeId, colId }（描き直しても同じセルを引き当てる鍵） */
+    function tableCellKey(cellEl) {
+        var kind = tableCellKind(cellEl);
+        if (!kind) return null;
+        if (kind === 'outline') {
+            return cellEl.dataset.id ? { nodeId: cellEl.dataset.id, colId: tableOutlinerColId() } : null;
+        }
+        return (cellEl.dataset.nodeId && cellEl.dataset.colId)
+            ? { nodeId: cellEl.dataset.nodeId, colId: cellEl.dataset.colId } : null;
+    }
+
+    function findTableCellEl(key) {
+        if (!key || !key.nodeId || !treeEl || VIEW_MODE !== 'table') return null;
+        var el = (key.colId && key.colId === tableOutlinerColId())
+            ? treeEl.querySelector('.outliner-node.outliner-cell-outliner[data-id="' + key.nodeId + '"]')
+            : treeEl.querySelector('[data-node-id="' + key.nodeId + '"][data-col-id="' + key.colId + '"]');
+        return (el && el.parentNode === treeEl) ? el : null;
+    }
+
+    /** いま選んでいるセルの要素（描き直したあとは鍵で引き当て直す） */
+    function currentTableSelCell() {
+        if (!tableSel) return null;
+        if (tableSelEl && tableSelEl.parentNode === treeEl) {
+            var k = tableCellKey(tableSelEl);
+            if (k && k.nodeId === tableSel.nodeId && k.colId === tableSel.colId) return tableSelEl;
+        }
+        tableSelEl = findTableCellEl(tableSel);
+        return tableSelEl;
+    }
+
+    /** 先頭の行の colId の列のセル（無ければ先頭の行の outline の列） */
+    function firstTableRowCell(colId) {
+        var first = treeEl ? treeEl.querySelector('.outliner-node.outliner-cell-outliner') : null;
+        if (!first || first.parentNode !== treeEl) return null;
+        return findTableCellEl({ nodeId: first.dataset.id, colId: colId }) || first;
+    }
+
+    /** セルが編集モードか（カーソルがセルの中にある / date・選択肢の入力欄が開いている） */
+    function isTableCellEditing(cellEl) {
+        if (!cellEl) return false;
+        if (cellEl.classList.contains('is-editing')) return true;
+        var ae = document.activeElement;
+        if (!ae || !cellEl.contains(ae)) return false;
+        // date / 選択肢のセルそのものの focus は「表示のまま」（編集ではない）
+        return ae !== cellEl || !!cellEl.isContentEditable;
+    }
+
+    /** 文字を打つ所（contenteditable・入力欄・date の picker）か */
+    function isTableEditableTarget(t) {
+        if (!t || t.nodeType !== 1) return false;
+        return !!(t.isContentEditable || t.tagName === 'INPUT' || (t.closest && t.closest('.outliner-cell-date-picker')));
+    }
+
+    /** セルの中のボタン類（D2: 今どおり押せる）。{ el, drag?, link? } / null。
+     *  drag = D&D の掴み: mousedown を止めると drag が始まらない（Chromium で実測）ので止めない */
+    function tableCellControlOf(t, cellEl) {
+        if (!t || !t.closest) return null;
+        var c = t.closest('.outliner-bullet, .outliner-page-icon, .outliner-file-icon, .outliner-images');
+        if (c && cellEl.contains(c)) return { el: c, drag: true };
+        c = t.closest('.outliner-checkbox, .outliner-scope-btn, .outliner-chip-remove');
+        if (c && cellEl.contains(c)) return { el: c, drag: false };
+        c = t.closest('a[href]');
+        if (c && cellEl.contains(c)) return { el: c, link: true };
+        return null;
+    }
+
+    function ensureTableSelProxy() {
+        if (tableSelProxy && tableSelProxy.isConnected) return tableSelProxy;
+        var p = document.createElement('div');
+        p.className = 'outliner-table-sel-proxy';
+        p.contentEditable = 'true';
+        p.tabIndex = -1;
+        p.spellcheck = false;
+        p.setAttribute('autocapitalize', 'off');
+        p.setAttribute('autocorrect', 'off');
+        p.setAttribute('aria-label', 'table cell');
+        p.addEventListener('keydown', onTableSelKeydown);
+        p.addEventListener('copy', function (e) { onTableSelClipboard(e, false); });
+        p.addEventListener('cut', function (e) { onTableSelClipboard(e, true); });
+        p.addEventListener('paste', onTableSelPaste);
+        p.addEventListener('beforeinput', onTableSelBeforeInput);
+        p.addEventListener('compositionend', onTableSelCompositionEnd);
+        p.addEventListener('blur', onTableSelProxyBlur);
+        // outliner の画面と一緒に隠れる所に置く（notes でほかの面に替わったら focus も外れる）
+        var holder = (treeEl && treeEl.closest && treeEl.closest('.outliner-container')) || document.body;
+        holder.appendChild(p);
+        tableSelProxy = p;
+        return p;
+    }
+
+    /** 受け口の中身を選んだセルの文字にして全選択する（空のセルでも copy / cut のイベントが来るように 1 文字は置く）。
+     *  受け口は選んだセルの左上に置く（IME の候補の窓がセルの近くに出る） */
+    function syncTableSelProxy(cellEl) {
+        var p = tableSelProxy;
+        if (!p || !cellEl) return;
+        var txt = tableCellCopyText(cellEl);
+        p.textContent = txt ? txt : ' ';
+        var rc = cellEl.getBoundingClientRect();
+        p.style.left = Math.max(0, Math.round(rc.left)) + 'px';
+        p.style.top = Math.max(0, Math.round(rc.top)) + 'px';
+        if (document.activeElement === p) {
+            try {
+                var r = document.createRange();
+                r.selectNodeContents(p);
+                var s = window.getSelection();
+                s.removeAllRanges();
+                s.addRange(r);
+            } catch (e) { /* noop */ }
+        }
+    }
+
+    function paintTableSel(cellEl) {
+        if (!treeEl) return;
+        var olds = treeEl.querySelectorAll('.is-cell-selected');
+        for (var i = 0; i < olds.length; i++) {
+            if (olds[i] !== cellEl) olds[i].classList.remove('is-cell-selected');
+        }
+        if (cellEl) cellEl.classList.add('is-cell-selected');
+    }
+
+    /** 選択モードを抜ける（枠を外す）。focus は動かさない */
+    function clearTableSel() {
+        tableSel = null;
+        tableSelEl = null;
+        paintTableSel(null);
+    }
+
+    /** セルを選ぶ（選択モード）。opts.scroll = 見える所までスクロール（キーボードで動かしたとき） */
+    function selectTableCell(cellEl, opts) {
+        if (VIEW_MODE !== 'table' || !cellEl || cellEl.parentNode !== treeEl) return;
+        var key = tableCellKey(cellEl);
+        if (!key) return;
+        opts = opts || {};
+        var p = ensureTableSelProxy();
+        tableSel = key;
+        tableSelEl = cellEl;
+        paintTableSel(cellEl);
+        setFocusedNode(key.nodeId);
+        // 画像を選んでいたら外す（outline の列の文字に focus したときと同じ。残すと Delete が画像を消す）
+        if (selectedImageInfo) { clearImageSelection(); }
+        if (document.activeElement !== p) {
+            try { p.focus({ preventScroll: true }); } catch (e) { p.focus(); }
+        }
+        syncTableSelProxy(cellEl);
+        if (opts.scroll && !_suppressFocusScroll) {
+            try { cellEl.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e2) { /* noop */ }
+        }
+    }
+
+    /** D11: table に切り替えたとき・初期化の「最初のノードに focus」= 選択モード（nodeId の行の outline の列。無ければ先頭の行） */
+    function selectTableRowOutlineCell(nodeId) {
+        if (VIEW_MODE !== 'table' || !treeEl) return;
+        var el = (nodeId && findTableCellEl({ nodeId: nodeId, colId: tableOutlinerColId() })) || firstTableRowCell(tableOutlinerColId());
+        if (el) selectTableCell(el);
+    }
+
+    /** table を出るとき: 選択モードを終え、受け口の focus を外す */
+    function endTableSelectMode() {
+        clearTableSel();
+        if (tableSelProxy && document.activeElement === tableSelProxy) {
+            try { tableSelProxy.blur(); } catch (e) { /* noop */ }
+        }
+    }
+
+    /** 描き直したあと（renderTableMode の末尾）: 選んでいたセルに枠を付け直す。そのセルが消えていたら
+     *  focus のある行 → 先頭の行の同じ列へ。focus は奪わない（外部の変更で描き直したときに VS Code の panel を取らない） */
+    function reapplyTableSel() {
+        if (!tableSel) return;
+        var el = currentTableSelCell();
+        if (!el) {
+            el = (focusedNodeId && findTableCellEl({ nodeId: focusedNodeId, colId: tableSel.colId })) || firstTableRowCell(tableSel.colId);
+            if (!el) { clearTableSel(); return; }
+            tableSel = tableCellKey(el);
+            tableSelEl = el;
+            if (tableSel) { setFocusedNode(tableSel.nodeId); }
+        }
+        paintTableSel(el);
+        if (tableSelProxy && document.activeElement === tableSelProxy) { syncTableSelProxy(el); }
+    }
+
+    /** fn（undo / redo・行の削除や移動など、描き直して outline の列に focus を戻す既存の処理）のあと、選択モードに戻す。
+     *  fn がほかの所（subtext・side panel・検索欄など）へ focus を移したときは戻さない */
+    function runKeepingTableSel(fn) {
+        var keep = tableSel ? { nodeId: tableSel.nodeId, colId: tableSel.colId } : null;
+        fn();
+        if (VIEW_MODE !== 'table' || !keep) return;
+        var ae = document.activeElement;
+        var back = !ae || ae === document.body || ae === tableSelProxy
+            || !!(ae.classList && ae.classList.contains('outliner-text') && treeEl.contains(ae));
+        if (!back) return;
+        var el = findTableCellEl(keep)
+            || (focusedNodeId && (findTableCellEl({ nodeId: focusedNodeId, colId: keep.colId })
+                || findTableCellEl({ nodeId: focusedNodeId, colId: tableOutlinerColId() })))
+            || firstTableRowCell(keep.colId);
+        if (el) { selectTableCell(el); } else { clearTableSel(); }
+    }
+
+    function caretRangeAtPoint(x, y) {
+        try {
+            if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
+            if (document.caretPositionFromPoint) {
+                var pos = document.caretPositionFromPoint(x, y);
+                if (pos && pos.offsetNode) {
+                    var r = document.createRange();
+                    r.setStart(pos.offsetNode, pos.offset);
+                    r.collapse(true);
+                    return r;
+                }
+            }
+        } catch (e) { /* noop */ }
+        return null;
+    }
+
+    /** 全角の数字を半角に（IME で打った数字を date に入れる） */
+    function toHalfWidthDigits(s) {
+        return String(s || '').replace(/[０-９]/g, function (ch) { return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0); });
+    }
+
+    /** 編集モードへ（D2 ダブルクリック / D3 Enter・F2 / D4 文字を打つ / IME の打ち始め）。
+     *  opts.point = ダブルクリックの位置にカーソル / opts.text = 末尾に足す文字（outline の列・文字）・入力欄に入れる文字（選択肢）/
+     *  opts.digits = 打った数字から入れ直す（Date）。どれも無ければカーソルは末尾 */
+    function beginTableCellEdit(cellEl, opts) {
+        if (!cellEl) return;
+        opts = opts || {};
+        var kind = tableCellKind(cellEl);
+        clearTableSel();   // 枠を外す（受け口の blur で選択モードへ戻さない）
+        // ノードの選択（Cmd+click / Shift+↑↓）が残ると、outline の文字の入力が止まる（ADRL-0114）。編集を始める = 外す
+        if (selectedNodeIds.size > 0) { clearSelection('table-cell-edit'); }
+        if (kind === 'outline' || kind === 'text') {
+            var ed = (kind === 'outline') ? cellEl.querySelector('.outliner-text') : cellEl;
+            if (!ed) return;
+            var r = opts.point ? caretRangeAtPoint(opts.point.x, opts.point.y) : null;
+            if (r && ed.contains(r.startContainer)) {
+                // クリックした位置にカーソル。contenteditable の中に selection を置くとそこへ focus が移る（Chromium）。
+                // focus の描き直し（マーカーを出す）は selection の位置を引き継ぐ
+                var s = window.getSelection();
+                s.removeAllRanges();
+                s.addRange(r);
+                if (document.activeElement !== ed) { try { ed.focus({ preventScroll: true }); } catch (e1) { ed.focus(); } }
+            } else {
+                try { setCursorToEnd(ed); } catch (e2) { /* noop */ }
+                if (document.activeElement !== ed) { try { ed.focus({ preventScroll: true }); } catch (e3) { ed.focus(); } }
+                try { setCursorToEnd(ed); } catch (e4) { /* noop */ }   // 描き直し（マーカーを出す）のあとも末尾
+            }
+            // 打った文字は既存の input ハンドラを通して model へ（insertText = input イベント）
+            if (opts.text) { try { document.execCommand('insertText', false, opts.text); } catch (e5) { /* noop */ } }
+            return;
+        }
+        if (cellEl._tableCellApi && typeof cellEl._tableCellApi.beginEdit === 'function') {
+            cellEl._tableCellApi.beginEdit(opts);
+        }
+    }
+
+    /** D4: 選択モードで打った文字。outline の列・文字 = 編集を始めて末尾に足す / Date・Date & Time = 打った数字から入れ直す
+     *  （数字以外は何もしない。Space は入力を始めるだけ）/ 選択肢 = セルの中のカーソルに入れて一覧を出す */
+    function typeIntoTableCell(cellEl, text) {
+        var kind = tableCellKind(cellEl);
+        if (kind === 'date') {
+            var dg = toHalfWidthDigits(text).replace(/[^0-9]/g, '');
+            if (dg) { beginTableCellEdit(cellEl, { digits: dg }); }
+            else if (text === ' ') { beginTableCellEdit(cellEl, {}); }
+            return;
+        }
+        if (kind === 'multiselect') {
+            beginTableCellEdit(cellEl, { text: text.trim() ? text : '' });
+            return;
+        }
+        beginTableCellEdit(cellEl, { text: text });
+    }
+
+    /** セルの中身（文字）: D6 の copy と受け口の中身。outline の列 = ノードの文字（マーカー込みの元の文字）/
+     *  date = 表示と同じ形（YYYY-MM-DD / YYYY-MM-DD HH:MM）/ 選択肢 = ラベルを空白でつなぐ */
+    function tableCellCopyText(cellEl) {
+        var kind = tableCellKind(cellEl);
+        var key = tableCellKey(cellEl);
+        if (!kind || !key || !model) return '';
+        var node = model.getNode(key.nodeId);
+        if (!node) return '';
+        if (kind === 'outline') return node.text || '';
+        var col = tableColumnById(key.colId);
+        if (!col) return '';
+        if (kind === 'text') return getCellValue(node.id, col.id, 'text') || '';
+        if (kind === 'date') return String(getCellValue(node.id, col.id, col.type) || '').replace('T', ' ');
+        if (kind === 'multiselect') {
+            var ids = getCellValue(node.id, col.id, 'multiselect') || [];
+            var labels = [];
+            for (var i = 0; i < ids.length; i++) {
+                for (var j = 0; j < (col.options || []).length; j++) {
+                    if (col.options[j].id === ids[i]) { labels.push(col.options[j].label); break; }
+                }
+            }
+            return labels.join(' ');
+        }
+        return '';
+    }
+
+    /** 値を変えたセルの表示を描き直す（選択モードのまま） */
+    function refreshTableCellDisplay(cellEl) {
+        var kind = tableCellKind(cellEl);
+        var key = tableCellKey(cellEl);
+        if (!kind || !key) return;
+        if (kind === 'outline') {
+            var node = model.getNode(key.nodeId);
+            var te = cellEl.querySelector('.outliner-text');
+            if (te && node) te.innerHTML = renderInlineText(node.text || '');
+        } else if (kind === 'text') {
+            cellEl.innerHTML = renderInlineText(getCellValue(key.nodeId, key.colId, 'text') || '');
+        } else if (cellEl._tableCellApi && cellEl._tableCellApi.refresh) {
+            cellEl._tableCellApi.refresh();
+        }
+        if (tableSelProxy && document.activeElement === tableSelProxy) syncTableSelProxy(cellEl);
+    }
+
+    /** D5: セルを空にする（outline の列は文字だけ空にして行（ノード）は残す）。Cmd+Z で戻せる（先に snapshot） */
+    function clearTableCellValue(cellEl) {
+        var kind = tableCellKind(cellEl);
+        var key = tableCellKey(cellEl);
+        if (!kind || !key) return;
+        var node = model.getNode(key.nodeId);
+        if (!node) return;
+        if (kind === 'outline') {
+            if (!node.text) return;
+            saveSnapshot();
+            model.updateText(node.id, '');
+        } else {
+            var col = tableColumnById(key.colId);
+            if (!col) return;
+            var cur = getCellValue(node.id, col.id, col.type);
+            if (kind === 'multiselect' ? !(cur && cur.length) : !cur) return;
+            saveSnapshot();
+            setCellValue(node.id, col.id, kind === 'multiselect' ? [] : '');
+        }
+        refreshTableCellDisplay(cellEl);
+        scheduleSyncToHost();
+    }
+
+    /** D6: 貼り付け = セルの中身を置き換える。Date は日付として読めるときだけ、選択肢は名前で既存の選択肢に合わせる
+     *  （合うものが無ければ何もしない）。Cmd+Z で戻せる（先に snapshot） */
+    function pasteIntoTableCell(cellEl, text) {
+        var kind = tableCellKind(cellEl);
+        var key = tableCellKey(cellEl);
+        if (!kind || !key) return;
+        var node = model.getNode(key.nodeId);
+        if (!node) return;
+        var col = (kind === 'outline') ? null : tableColumnById(key.colId);
+        if (kind !== 'outline' && !col) return;
+        if (kind === 'outline' || kind === 'text') {
+            // 改行は残す（outline の文字・文字のセルとも \n を持てる）。末尾の改行だけ落とす。URL はリンクに（編集中の貼り付けと同じ）
+            var v = convertUrlsToMarkdownLinks(String(text).replace(/\r\n?/g, '\n').replace(/\n+$/, ''));
+            if (kind === 'outline') {
+                if (v === (node.text || '')) return;
+                saveSnapshot();
+                model.updateText(node.id, v);
+                syncPageH1FromNodeText(node.id);
+            } else {
+                if (v === (getCellValue(node.id, col.id, 'text') || '')) return;
+                saveSnapshot();
+                setCellValue(node.id, col.id, v);
+            }
+        } else if (kind === 'date') {
+            var parsed = (cellEl._tableCellApi && cellEl._tableCellApi.parse) ? cellEl._tableCellApi.parse(text) : null;
+            if (parsed === null || parsed === (getCellValue(node.id, col.id, col.type) || '')) return;
+            saveSnapshot();
+            setCellValue(node.id, col.id, parsed);
+        } else if (kind === 'multiselect') {
+            var toks = String(text).split(/[\s,、，]+/);
+            var ids = [];
+            for (var i = 0; i < toks.length; i++) {
+                if (!toks[i]) continue;
+                var opt = findOptionByLabel(col, toks[i]);
+                if (opt && ids.indexOf(opt.id) < 0) ids.push(opt.id);
+            }
+            if (ids.length === 0) return;
+            saveSnapshot();
+            setCellValue(node.id, col.id, ids);
+        } else {
+            return;
+        }
+        refreshTableCellDisplay(cellEl);
+        scheduleSyncToHost();
+    }
+
+    /** 行（ノード）に効くショートカット（Cmd+Shift+↑↓ の移動・Cmd+. の折りたたみ・Cmd+Shift+X のチェック・Cmd+Enter の page 等）は
+     *  その行の outline の列の handleNodeKeydown に渡す（今どおり）。終わったら選択モードに戻す */
+    function forwardTableSelKeyToRow(e) {
+        var nid = tableSel ? tableSel.nodeId : null;
+        var rowEl = nid ? findTableCellEl({ nodeId: nid, colId: tableOutlinerColId() }) : null;
+        var te = rowEl ? rowEl.querySelector('.outliner-text') : null;
+        if (!te) return;
+        runKeepingTableSel(function () { handleNodeKeydown(e, nid, te); });
+    }
+
+    /** Shift+↑↓: 行（ノード）の範囲選択を広げる（outline の列の Shift+↑↓ と同じ。1 回目は今の行だけ）。選ぶセルも上下へ */
+    function extendTableRowSelection(cellEl, dir) {
+        var nid = tableSel.nodeId;
+        if (!selectionAnchorId) {
+            selectionAnchorId = nid;
+            selectRange(nid, nid);
+            return;
+        }
+        var next = tableCellNeighbor(cellEl, dir);
+        var nk = next ? tableCellKey(next) : null;
+        if (!nk) return;
+        selectRange(selectionAnchorId, nk.nodeId);
+        selectTableCell(next, { scroll: true });
+    }
+
+    /** 選択モードのキー（受け口の keydown） */
+    function onTableSelKeydown(e) {
+        if (VIEW_MODE !== 'table' || !tableSel) return;
+        if (e.isComposing) return;   // 受け口で IME の変換中（Date の数字など。確定は compositionend）
+        var cellEl = currentTableSelCell();
+        if (!cellEl) { clearTableSel(); return; }
+        var kind = tableCellKind(cellEl);
+        var key = e.key || '';
+        var mod = e.metaKey || e.ctrlKey;
+        // IME の打ち始め（keyCode 229）・dead key: outline の列・文字・選択肢は keydown の中で編集モードへ移す
+        //（focus を移すと続く変換はセルの中で始まる — CDP の IME で確認）。Date は受け口で変換し、確定した数字で入れ直す
+        if (e.keyCode === 229 || key === 'Process' || key === 'Dead') {
+            if (kind !== 'date') beginTableCellEdit(cellEl, {});
+            return;
+        }
+        if (NON_TEXT_KEYS[key]) return;   // 修飾キー単体・lock・IME のモードキー
+        var dir = (key === 'ArrowUp') ? 'up' : (key === 'ArrowDown') ? 'down'
+            : (key === 'ArrowLeft') ? 'left' : (key === 'ArrowRight') ? 'right' : null;
+        if (dir) {
+            if (e.altKey) return;   // Opt+←→ = Back / Forward（document の keydown）
+            if (mod && e.shiftKey) {
+                // Cmd+Shift+↑↓ = 行の移動（今どおり）
+                if (dir === 'up' || dir === 'down') { forwardTableSelKeyToRow(e); } else { e.preventDefault(); }
+                return;
+            }
+            e.preventDefault();
+            if (e.shiftKey) {
+                if (dir === 'up' || dir === 'down') extendTableRowSelection(cellEl, dir);
+                return;
+            }
+            // D3: 矢印 1 回（Cmd+矢印も同じ）で上下左右のセルへ。端では動かない。単なる矢印はノードの選択を外す（outline と同じ）
+            if (selectedNodeIds.size > 0) clearSelection('table-cell-arrow');
+            var next = tableCellNeighbor(cellEl, dir);
+            if (next) selectTableCell(next, { scroll: true });
+            return;
+        }
+        if (key === 'Tab') {
+            if (mod || e.altKey) return;
+            e.preventDefault();
+            // D3: Tab / Shift+Tab で右 / 左
+            var side = tableCellNeighbor(cellEl, e.shiftKey ? 'left' : 'right');
+            if (side) selectTableCell(side, { scroll: true });
+            return;
+        }
+        if (key === 'Enter') {
+            if (mod) { forwardTableSelKeyToRow(e); return; }   // Cmd+Enter = page を開く / Shift+Cmd+Enter = subtext（今どおり）
+            e.preventDefault();
+            if (!e.shiftKey && !e.altKey) beginTableCellEdit(cellEl, {});   // D3: Enter で編集（カーソルは末尾）
+            return;
+        }
+        if (key === 'F2' && !mod && !e.altKey) {
+            e.preventDefault();
+            beginTableCellEdit(cellEl, {});
+            return;
+        }
+        if (key === 'Escape') {
+            // D8: 選択モードの Esc は今どおり（検索・ノードの選択を外す）。セルは選んだまま
+            e.preventDefault();
+            if (isSelectMode()) clearSelection('Escape');
+            if (currentSearchResult) clearSearch();
+            return;
+        }
+        if ((key === 'Delete' || key === 'Backspace') && !mod && !e.altKey) {
+            if (selectedImageInfo) return;   // 選んだ画像の削除（document の keydown が扱う）
+            e.preventDefault();
+            if (selectedNodeIds.size > 0) { runKeepingTableSel(deleteSelectedNodes); return; }   // 選んだノード（行）の削除は今どおり
+            clearTableCellValue(cellEl);   // D5
+            return;
+        }
+        if (mod) {
+            var k = key.length === 1 ? key.toLowerCase() : key;
+            var code = e.code || '';
+            if (!e.altKey && k === 'z') { e.preventDefault(); runKeepingTableSel(e.shiftKey ? redo : undo); return; }
+            if (!e.altKey && !e.shiftKey && k === 'y') { e.preventDefault(); runKeepingTableSel(redo); return; }
+            if (!e.altKey && !e.shiftKey && (k === 'c' || k === 'x')) {
+                // 選んだノード（行）の copy / cut は今どおり。そうでなければセルの中身（受け口の copy / cut イベント = D6）
+                if (selectedNodeIds.size > 0) { forwardTableSelKeyToRow(e); }
+                return;
+            }
+            if (!e.altKey && !e.shiftKey && k === 'v') return;   // 受け口の paste イベント（D6）
+            if (!e.altKey && !e.shiftKey && k === 'a') { e.preventDefault(); selectAllNodes(); return; }   // 全ノード（行）を選ぶ
+            // 書式（Cmd+B / I / E / Shift+S）は編集モードで。VS Code に渡さない
+            if (!e.altKey && ((!e.shiftKey && (k === 'b' || k === 'i' || k === 'e')) || (e.shiftKey && k === 's'))) { e.preventDefault(); return; }
+            // 行のショートカット: Cmd+. / Cmd+S / Cmd+Shift+X・C / Cmd+Shift+Opt+X・C
+            if ((!e.altKey && !e.shiftKey && (k === '.' || k === 's'))
+                || (e.shiftKey && (code === 'KeyX' || code === 'KeyC' || k === 'x' || k === 'c'))) {
+                forwardTableSelKeyToRow(e);
+                return;
+            }
+            return;   // ほか（Cmd+] / Cmd+F / Cmd+N など）は document の keydown へ
+        }
+        if (e.altKey) return;
+        if (key.length === 1) {
+            // D4: 文字を打つ → 編集を始める
+            e.preventDefault();
+            typeIntoTableCell(cellEl, key);
+        }
+    }
+
+    /** D6: Cmd+C / Cmd+X = セルの中身（文字）のコピー / 切り取り（受け口の copy / cut イベント） */
+    function onTableSelClipboard(e, isCut) {
+        if (VIEW_MODE !== 'table' || !tableSel) return;
+        var cellEl = currentTableSelCell();
+        if (!cellEl || !e.clipboardData) return;
+        e.preventDefault();
+        e.clipboardData.setData('text/plain', tableCellCopyText(cellEl));
+        // OS の clipboard を最新の真実にする（古い内部 clipboard（ノードの copy）が同じ文字で貼り付けを乗っ取らないように）
+        internalClipboard = null;
+        if (isCut) clearTableCellValue(cellEl);
+    }
+
+    /** D6: Cmd+V = セルの中身を置き換える（受け口の paste イベント）。選んだノードがあるとき・outline の列への画像は今どおり */
+    function onTableSelPaste(e) {
+        if (VIEW_MODE !== 'table' || !tableSel) return;
+        var cellEl = currentTableSelCell();
+        if (!cellEl) return;
+        var nid = tableSel.nodeId;
+        var hasImage = false;
+        if (e.clipboardData && e.clipboardData.items) {
+            for (var i = 0; i < e.clipboardData.items.length; i++) {
+                var it = e.clipboardData.items[i];
+                if (it.kind === 'file' && it.type && it.type.indexOf('image/') === 0) { hasImage = true; break; }
+            }
+        }
+        if (selectedNodeIds.size > 0 || (hasImage && tableCellKind(cellEl) === 'outline')) {
+            var rowEl = findTableCellEl({ nodeId: nid, colId: tableOutlinerColId() });
+            var te = rowEl ? rowEl.querySelector('.outliner-text') : null;
+            if (te) {
+                runKeepingTableSel(function () { handleNodePaste(e, nid, te); });
+                return;
+            }
+        }
+        e.preventDefault();
+        var text = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+        if (text) pasteIntoTableCell(cellEl, text);
+    }
+
+    /** 受け口に文字が入る経路の安全網（keydown で扱わなかった入力）。受け口の中身は変えず、セルへ回す */
+    function onTableSelBeforeInput(e) {
+        var t = e.inputType || '';
+        if (t === 'insertCompositionText') return;   // IME の変換中（受け口で組み立て、確定 = compositionend でセルへ移す）
+        e.preventDefault();
+        if (VIEW_MODE !== 'table' || !tableSel) return;
+        if ((t === 'insertText' || t === 'insertReplacementText') && e.data) {
+            var cellEl = currentTableSelCell();
+            if (cellEl) typeIntoTableCell(cellEl, e.data);
+        }
+    }
+
+    /** 受け口で IME の変換が確定した（Date への数字。ほかのセルは打ち始めに編集モードへ移っているので普通は来ない） */
+    function onTableSelCompositionEnd(e) {
+        var data = e.data || '';
+        if (VIEW_MODE !== 'table' || !tableSel) return;
+        var cellEl = currentTableSelCell();
+        if (!cellEl) return;
+        // 受け口の中身は変換の文字のまま残さない（確定の処理が終わってから戻す）
+        setTimeout(function () {
+            if (!tableSelProxy) return;
+            var cur = (tableSel && document.activeElement === tableSelProxy) ? currentTableSelCell() : null;
+            if (cur) { syncTableSelProxy(cur); } else { tableSelProxy.textContent = ' '; }
+        }, 0);
+        if (data) typeIntoTableCell(cellEl, data);
+    }
+
+    /** 受け口が focus を失った: ほかの要素へ移った = 選択モードを抜ける。移り先が無い（余白・bullet 等の focus できない所を
+     *  押した）ときは選択モードのまま受け口に戻す。ウィンドウ / webview ごと focus を失ったときは何もしない（戻れば受け口に戻る） */
+    function onTableSelProxyBlur(e) {
+        if (e.relatedTarget) { clearTableSel(); return; }
+        setTimeout(function () {
+            if (!tableSel || VIEW_MODE !== 'table') return;
+            var ae = document.activeElement;
+            if (ae === tableSelProxy) return;
+            if (!document.hasFocus()) return;
+            if (!ae || ae === document.body || ae === document.documentElement) {
+                try { tableSelProxy.focus({ preventScroll: true }); } catch (er) { /* noop */ }
+                var cur = currentTableSelCell();
+                if (cur) { syncTableSelProxy(cur); }
+                return;
+            }
+            clearTableSel();
+        }, 0);
+    }
+
+    /** D2: 1 回のクリック = 選択（カーソルを置かない）。treeEl の capture 段の mousedown */
+    function onTableCellMousedown(e) {
+        if (VIEW_MODE !== 'table') return;
+        // 右クリック・修飾クリック（Cmd/Ctrl+Click = 行の選択 / Shift+Click = 範囲）は今どおり
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        var cellEl = tableCellOf(e.target);
+        if (!cellEl) return;   // 列ヘッダー・余白など
+        var ctl = tableCellControlOf(e.target, cellEl);
+        if (isTableCellEditing(cellEl)) {
+            // 編集中のセル: 文字の欄の中はカーソル移動、ボタン類はそのまま。余白は focus を動かさない（編集を続ける）
+            if (ctl || isTableEditableTarget(e.target)) return;
+            e.preventDefault();
+            return;
+        }
+        if (ctl && ctl.link) {
+            // リンク: 開く（ダブルクリックの 2 回目では開き直さない）。セルは選ぶ
+            e.preventDefault();
+            e.stopPropagation();
+            selectTableCell(cellEl);
+            if (e.detail <= 1 && host && typeof host.openLink === 'function') { host.openLink(ctl.el.getAttribute('href')); }
+            return;
+        }
+        if (ctl) {
+            // bullet・checkbox・page / file のアイコン・chip の × 等: 今どおり押せる（click は各要素が扱う）。セルは選ぶ。
+            // D&D の掴みは mousedown を止めない（focus は body へ移るが、受け口の blur で取り戻す）
+            selectTableCell(cellEl);
+            if (!ctl.drag) e.preventDefault();
+            return;
+        }
+        // セルの中身: カーソルを置かず（focus も動かさず）選ぶ。単なるクリックはノードの選択を外す（outline と同じ）
+        e.preventDefault();
+        if (selectedNodeIds.size > 0) clearSelection('table-cell-click');
+        selectTableCell(cellEl);
+    }
+
+    /** D2: ダブルクリック = 編集（クリックした位置にカーソル）。タグ・chip のダブルクリック（検索）・ボタン類は今どおり */
+    function onTableCellDblclick(e) {
+        if (VIEW_MODE !== 'table') return;
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        var cellEl = tableCellOf(e.target);
+        if (!cellEl || isTableCellEditing(cellEl)) return;
+        if (tableCellControlOf(e.target, cellEl)) return;
+        if (e.target.closest && e.target.closest('.outliner-tag, .outliner-chip')) return;
+        e.preventDefault();
+        beginTableCellEdit(cellEl, { point: { x: e.clientX, y: e.clientY } });
+    }
+
+    /** date / 選択肢のセルそのもの（入力欄でない所）に focus が来た（Tab 移動・プログラムの focus 等）= 表示のまま → 選択モード */
+    function onTableCellFocusin(e) {
+        if (VIEW_MODE !== 'table') return;
+        var t = e.target;
+        if (!t || t.parentNode !== treeEl) return;
+        var kind = tableCellKind(t);
+        if (kind === 'date' || kind === 'multiselect') selectTableCell(t);
     }
 
     /** Phase F2: 行の状態 (focus/selected/search-match) を non-outline cell に反映 */
@@ -43741,6 +44500,12 @@ var Outliner = (function() {
 
         // Cmd+B / Cmd+I / Cmd+E / Cmd+Shift+S - applyInlineFormat に委譲
         el.addEventListener('keydown', function (e) {
+            // 20261106-1700 D8: Esc で編集モードを抜けて選択モードの同じセルへ（打った内容は残す）。IME の変換中の Esc は IME に任せる
+            if (e.key === 'Escape' && !e.isComposing && e.keyCode !== 229) {
+                e.preventDefault();
+                selectTableCell(el);
+                return;
+            }
             // Cmd/Ctrl + 矢印キー: テーブル内セル移動
             var tableArrow = handleTableCellArrowKey(el, e);
             if (tableArrow === true) {
@@ -43749,6 +44514,26 @@ var Outliner = (function() {
                 return;
             }
             if (tableArrow === 'native') { e.stopPropagation(); return; }
+            // 20261106-1700 D7: 編集モードの Enter = 改行（model に \n を入れる）。contenteditable 任せだと <div> が入り、
+            // input の描き直し（textContent）で改行が消えていた。outline の列の Shift+Enter（handleNodeTextLineBreak）と同じ形
+            if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing && e.keyCode !== 229) {
+                e.preventDefault();
+                var lbSel = window.getSelection();
+                if (lbSel && lbSel.rangeCount && !lbSel.isCollapsed) {
+                    var lbRange = lbSel.getRangeAt(0);
+                    if (el.contains(lbRange.commonAncestorContainer)) { lbRange.deleteContents(); }
+                }
+                var lbOff = 0;
+                try { lbOff = getCursorOffset(el); } catch (er) {}
+                var lbCur = getPlainText(el);
+                var lbNext = lbCur.slice(0, lbOff) + '\n' + lbCur.slice(lbOff);
+                setCellValue(node.id, col.id, lbNext);
+                el.innerHTML = renderEditingText(lbNext);
+                try { setCursorAtOffset(el, lbOff + 1); } catch (er2) {}
+                saveSnapshotDebounced();
+                scheduleSyncToHost();
+                return;
+            }
             // Tab で次セル / Shift+Tab で前セル (簡易)
             if (e.key === 'Tab') {
                 e.preventDefault();
@@ -43853,7 +44638,8 @@ var Outliner = (function() {
 
     // ----- F2.4: multiselect cell (tag-based) -----
     // 各 option = タグ。label は "#tag" または "@tag" 形式 (prefix なしなら # を自動付与)。
-    // chip クリック → dropdown、chip ダブルクリック → 検索ボックスに反映 (outline タグと同じ)。
+    // セルのクリック → 選択、ダブルクリック → 編集（セルの中のカーソル + 打つと一覧 — 20261106-1700 D2 / D10）、
+    // chip ダブルクリック → 検索ボックスに反映 (outline タグと同じ)。
     var MULTISELECT_PALETTE = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'zinc'];
 
     function ensureColumnOptions(col) {
@@ -43912,7 +44698,7 @@ var Outliner = (function() {
         }
     }
 
-    /** date / datetime 列セル: 値あり → text 表示、active (click/focus) → input picker
+    /** date / datetime 列セル: 値あり → text 表示、編集モード（ダブルクリック / Enter / 数字 / 編集のまま矢印で来た）→ 入力欄
      *  値は ISO-ish (YYYY-MM-DD or YYYY-MM-DDTHH:mm) を columnValues に保存。
      *  デフォルト (空 + 非 active): 何も表示しない。年/月/日 placeholder を出さない。 */
     function createDateCellElement(node, col, searchQuery) {
@@ -43921,7 +44707,7 @@ var Outliner = (function() {
         el.dataset.nodeId = node.id;
         el.dataset.colId = col.id;
         el.dataset.colType = col.type;
-        el.tabIndex = 0; // focus 可能に
+        el.tabIndex = 0; // focus 可能に（セルそのものの focus は選択モードに替わる — onTableCellFocusin）
         applyRowStateClasses(el, node, searchQuery);
 
         var isDateTime = (col.type === 'datetime');
@@ -44024,7 +44810,8 @@ var Outliner = (function() {
             el.classList.remove('is-editing');
             display.style.display = '';
             refreshDisplay();
-            if (focusCell) { try { el.focus(); } catch (e) {} }
+            // 20261106-1700 D7 / D8: Enter（確定）・Esc（抜ける）は選択モードの同じセルへ
+            if (focusCell) { selectTableCell(el); }
         }
         /** 打った数字を区切り直し、カーソルを同じ数字の後ろに置く */
         function reformat() {
@@ -44121,6 +44908,7 @@ var Outliner = (function() {
             textInput.value = valueToText(getCellValue(node.id, col.id, col.type));
             textInput.addEventListener('input', function () { reformat(); commitIfComplete(); });
             textInput.addEventListener('keydown', function (e) {
+                if (e.isComposing || e.keyCode === 229) return;   // IME の変換中の Enter / Esc は IME に任せる
                 // ↑↓ はセル移動（数字は変えない）。← は先頭・→ は末尾のときだけ隣のセル（(1) と同じ）
                 var tableArrow = handleTableCellArrowKey(textInput, e);
                 if (tableArrow === true) {
@@ -44163,38 +44951,45 @@ var Outliner = (function() {
             }, 0);
         });
 
-        // クリックで入力を始める。矢印でセルに来たときは表示のまま（focusTableCell）
-        el.addEventListener('click', function (e) {
-            if (inputActive) return;
-            activateInput();
-        });
-
-        // 表示のまま focus 中: 矢印はセル移動、Enter / Space / F2 または数字で入力を始める（数字はそのまま入る）
-        el.addEventListener('keydown', function (e) {
-            if (e.target !== el) return; // 入力欄の keydown は上で扱う
-            var tableArrow = handleTableCellArrowKey(el, e);
-            if (tableArrow === true) {
-                e.preventDefault();
-                e.stopPropagation();
-                return;
-            }
-            if (tableArrow === 'native') { e.stopPropagation(); return; }
-            if (e.key === 'Enter' || e.key === ' ' || e.key === 'F2') {
-                e.preventDefault();
-                e.stopPropagation();
+        // 20261106-1700 D2: 1 回のクリック = 選択（セル選択モード）、ダブルクリック = 入力欄（treeEl の mousedown / dblclick）。
+        // 選択モードのキー（Enter / F2 / Space / 数字 / Delete / Cmd+C 等）は受け口（onTableSelKeydown）が扱い、ここの口を呼ぶ
+        el._tableCellApi = {
+            /** 入力欄を開く（編集モード）。opts.digits = 打った数字から入れ直す（D4）/ opts.caret = 'start'（→↓ で来た — D9）/
+             *  opts.point = ダブルクリックの位置（表示の文字と入力欄の文字は同じ形なので、同じ位置にカーソル）/ 無ければ末尾 */
+            beginEdit: function (opts) {
+                opts = opts || {};
+                var off = null;
+                if (opts.point && !inputActive) {
+                    var pr = caretRangeAtPoint(opts.point.x, opts.point.y);
+                    if (pr && display.contains(pr.startContainer)) {
+                        var pre = document.createRange();
+                        pre.selectNodeContents(display);
+                        pre.setEnd(pr.startContainer, pr.startOffset);
+                        off = pre.toString().length;
+                    }
+                }
                 activateInput();
-                return;
-            }
-            if (/^[0-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
-                e.preventDefault();
-                e.stopPropagation();
-                activateInput();
-                // 打った数字から始める（今の値は置き換え）
-                textInput.value = e.key;
-                try { textInput.setSelectionRange(1, 1); } catch (er) {}
-                commitIfComplete();
-            }
-        });
+                if (!textInput) return;
+                if (opts.digits) {
+                    // 打った数字から始める（今の値は置き換え）
+                    textInput.value = formatDigits(String(opts.digits).replace(/[^0-9]/g, ''));
+                    try { textInput.setSelectionRange(textInput.value.length, textInput.value.length); } catch (er) {}
+                    commitIfComplete();
+                } else if (opts.caret === 'start') {
+                    try { textInput.setSelectionRange(0, 0); } catch (er2) {}
+                } else if (off !== null) {
+                    var o = Math.min(off, textInput.value.length);
+                    try { textInput.setSelectionRange(o, o); } catch (er3) {}
+                }
+            },
+            /** D6 の貼り付け: 日付として読めれば保存する値、読めなければ null（数字の無い文字は読まない = 消さない） */
+            parse: function (txt) {
+                var s = toHalfWidthDigits(txt);
+                if (!/[0-9]/.test(s)) return null;
+                return textToValue(s);
+            },
+            refresh: refreshDisplay
+        };
 
         return el;
     }
@@ -44205,55 +45000,43 @@ var Outliner = (function() {
         el.className = 'outliner-cell-multiselect';
         el.dataset.nodeId = node.id;
         el.dataset.colId = col.id;
-        el.tabIndex = 0;
+        el.tabIndex = 0;   // focus 可能に（セルそのものの focus は選択モードに替わる — onTableCellFocusin）
         applyRowStateClasses(el, node, searchQuery);
-        var selectedOptIds = (getCellValue(node.id, col.id, 'multiselect') || []).slice();
 
-        if (selectedOptIds.length === 0) {
+        /** chip を描き直す（編集中のセルの中の入力欄 = カーソルは残し、その前に並べる） */
+        function renderChips() {
+            var olds = el.querySelectorAll('.outliner-chip');
+            for (var oi = 0; oi < olds.length; oi++) { olds[oi].parentNode.removeChild(olds[oi]); }
+            var before = el.querySelector('.outliner-multiselect-input');
+            var selectedOptIds = (getCellValue(node.id, col.id, 'multiselect') || []).slice();
             // 空セル: 何も表示しない (placeholder 廃止)
-        } else {
-            // chip 表示
             for (var i = 0; i < selectedOptIds.length; i++) {
                 var optId = selectedOptIds[i];
                 var opt = (col.options || []).find(function (o) { return o.id === optId; });
                 if (!opt) continue;
-                el.appendChild(createChip(opt, function (removeOptId) {
+                el.insertBefore(createChip(opt, function (removeOptId) {
                     var current = (getCellValue(node.id, col.id, 'multiselect') || []).slice();
                     var idx = current.indexOf(removeOptId);
                     if (idx >= 0) {
                         saveSnapshot();
                         current.splice(idx, 1);
                         setCellValue(node.id, col.id, current);
-                        renderTableMode();
+                        // このセルだけ描き直す（選択モード・編集中の入力欄を保つ）
+                        renderChips();
                         scheduleSyncToHost();
                     }
-                }));
+                }), before);
             }
         }
+        renderChips();
 
-        // クリック → dropdown 表示
-        el.addEventListener('click', function (e) {
-            if (e.target && e.target.classList && e.target.classList.contains('outliner-chip-remove')) {
-                return;
-            }
-            e.stopPropagation();
-            openMultiselectDropdown(el, node, col);
-        });
-
-        // Cmd+Arrow でセル移動
-        el.addEventListener('keydown', function (e) {
-            var tableArrow = handleTableCellArrowKey(el, e);
-            if (tableArrow === true) {
-                e.preventDefault();
-                e.stopPropagation();
-                return;
-            }
-            if (tableArrow === 'native') { e.stopPropagation(); return; }
-            if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                openMultiselectDropdown(el, node, col);
-            }
-        });
+        // 20261106-1700 D2: 1 回のクリック = 選択（セル選択モード）、ダブルクリック = 編集（treeEl の mousedown / dblclick）。
+        // 選択モードのキー（Enter / F2 / 文字 / Delete / Cmd+C 等）は受け口（onTableSelKeydown）が扱い、ここの口を呼ぶ
+        el._tableCellApi = {
+            /** 編集モード（D10: セルの中のカーソル。opts.text = 打った文字を入れて一覧を出す） */
+            beginEdit: function (opts) { openMultiselectDropdown(el, node, col, opts); },
+            refresh: renderChips
+        };
 
         return el;
     }
@@ -44292,54 +45075,86 @@ var Outliner = (function() {
         return span;
     }
 
-    var activeDropdownEl = null;
-    var activeDropdownReturnFocusEl = null;
+    // 選択肢の編集モード（20261106-1700 D10）: セルの中の入力欄（= カーソル）+ その下の一覧（文字を打つまで出さない）
+    var activeDropdownEl = null;              // 一覧（document.body 直下の fixed）
+    var activeDropdownReturnFocusEl = null;   // 編集しているセル
+    var activeDropdownInput = null;           // セルの中の入力欄
     function closeMultiselectDropdown(opts) {
-        if (activeDropdownEl && activeDropdownEl.parentNode) {
-            activeDropdownEl.parentNode.removeChild(activeDropdownEl);
-        }
+        var dd = activeDropdownEl;
+        var input = activeDropdownInput;
+        var cellEl = activeDropdownReturnFocusEl;
         activeDropdownEl = null;
-        // popup を抜けた時、cell に focus を戻す (ESC / Enter / outside-click 等)
-        var refocusEl = activeDropdownReturnFocusEl;
+        activeDropdownInput = null;
         activeDropdownReturnFocusEl = null;
-        if (refocusEl && (!opts || opts.refocus !== false)) {
-            try { refocusEl.focus(); } catch (e) {}
+        if (dd && dd.__outsideHandler) { document.removeEventListener('mousedown', dd.__outsideHandler, true); }
+        if (dd && dd.parentNode) { dd.parentNode.removeChild(dd); }
+        if (input && input.parentNode) { input.parentNode.removeChild(input); }
+        if (cellEl) { cellEl.classList.remove('is-editing'); }
+        // 抜けたら選択モードの同じセルへ（Esc / Enter — D7 / D10）。外側のクリック等（refocus: false）は戻さない
+        if (cellEl && (!opts || opts.refocus !== false)) {
+            var target = cellEl.isConnected ? cellEl : findTableCellEl(tableCellKey(cellEl));
+            if (target) { selectTableCell(target); }
         }
     }
 
-    function openMultiselectDropdown(cellEl, node, col) {
+    /** 選択肢のセルを編集モードにする（D10）。opts.text = 打った文字（D4: 入力欄に入れて一覧を出す） */
+    function openMultiselectDropdown(cellEl, node, col, opts) {
+        opts = opts || {};
         closeMultiselectDropdown({ refocus: false });
         ensureColumnOptions(col);
-        // popup 抜け後に focus を戻す対象 cell
+        if (tableSel) { clearTableSel(); }   // 編集モード = 選択の枠は出さない
         activeDropdownReturnFocusEl = cellEl;
 
-        var dropdown = document.createElement('div');
-        dropdown.className = 'outliner-multiselect-dropdown';
-        var rect = cellEl.getBoundingClientRect();
-        dropdown.style.position = 'fixed';
-        dropdown.style.left = rect.left + 'px';
-        dropdown.style.top = rect.bottom + 'px';
-        dropdown.style.minWidth = Math.max(rect.width, 200) + 'px';
-        dropdown.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
-
+        // セルの中のカーソル: chip の後ろに枠なしの入力欄を置く
         var input = document.createElement('input');
         input.type = 'text';
         input.className = 'outliner-multiselect-input';
-        input.placeholder = '#tag or @tag';
-        dropdown.appendChild(input);
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        cellEl.appendChild(input);
+        cellEl.classList.add('is-editing');
+        activeDropdownInput = input;
+
+        // 一覧: セルの下に出す。文字を打つまで出さない
+        var dropdown = document.createElement('div');
+        dropdown.className = 'outliner-multiselect-dropdown';
+        dropdown.style.position = 'fixed';
+        dropdown.style.display = 'none';
+        dropdown.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
 
         var list = document.createElement('div');
         list.className = 'outliner-multiselect-list';
         dropdown.appendChild(list);
 
+        function placeDropdown() {
+            var rect = cellEl.getBoundingClientRect();
+            dropdown.style.left = rect.left + 'px';
+            dropdown.style.top = rect.bottom + 'px';
+            dropdown.style.minWidth = Math.max(rect.width, 200) + 'px';
+        }
+        function listShown() { return dropdown.style.display !== 'none'; }
+        /** 付け外しのあと: chip をこのセルの中で描き直す（入力欄 = カーソルは残す） */
+        function refreshCell() {
+            if (cellEl._tableCellApi && cellEl._tableCellApi.refresh) { cellEl._tableCellApi.refresh(); }
+        }
+
         function refreshList() {
             list.innerHTML = '';
-            var filter = (input.value || '').trim().toLowerCase();
+            // refreshList で items が再生成されるので highlight index リセット
+            highlightedIdx = -1;
+            var filterRaw = (input.value || '').trim();
+            // 文字を打つまで一覧は出さない（D10）
+            if (!filterRaw) {
+                dropdown.style.display = 'none';
+                return;
+            }
+            dropdown.style.display = '';
+            placeDropdown();
+            var filter = filterRaw.toLowerCase();
             // フィルタは prefix # / @ を無視して match
             var filterCore = filter.replace(/^[#@]/, '');
             var current = (getCellValue(node.id, col.id, 'multiselect') || []).slice();
             var matched = (col.options || []).filter(function (o) {
-                if (!filter) return true;
                 var labLower = (o.label || '').toLowerCase();
                 return labLower.indexOf(filter) >= 0 || labLower.indexOf(filterCore) >= 0;
             });
@@ -44385,10 +45200,7 @@ var Outliner = (function() {
                         else arr.push(opt.id);
                         setCellValue(node.id, col.id, arr);
                         scheduleSyncToHost();
-                        var newCell = createMultiselectCellElement(node, col);
-                        cellEl.parentNode.replaceChild(newCell, cellEl);
-                        cellEl = newCell;
-                        activeDropdownReturnFocusEl = newCell;
+                        refreshCell();
                         refreshList();
                     });
                     list.appendChild(item);
@@ -44396,8 +45208,7 @@ var Outliner = (function() {
             }
 
             // フィルタにマッチする option が無い時のみ「+ Create」を表示
-            var filterRaw = (input.value || '').trim();
-            if (filterRaw && !findOptionByLabel(col, filterRaw)) {
+            if (!findOptionByLabel(col, filterRaw)) {
                 var willBe = normalizeTagLabel(filterRaw);
                 var createItem = document.createElement('div');
                 createItem.className = 'outliner-multiselect-create';
@@ -44412,16 +45223,11 @@ var Outliner = (function() {
                     setCellValue(node.id, col.id, arr);
                     scheduleSyncToHost();
                     input.value = '';
-                    var newCell = createMultiselectCellElement(node, col);
-                    cellEl.parentNode.replaceChild(newCell, cellEl);
-                    cellEl = newCell;
-                    activeDropdownReturnFocusEl = newCell;
+                    refreshCell();
                     refreshList();
                 });
                 list.appendChild(createItem);
             }
-            // refreshList で items が再生成されるので highlight index リセット
-            highlightedIdx = -1;
         }
 
         // ↓↑Enter キーボードナビ用
@@ -44443,31 +45249,45 @@ var Outliner = (function() {
 
         input.addEventListener('input', refreshList);
         input.addEventListener('keydown', function (e) {
+            if (e.isComposing || e.keyCode === 229) return;   // IME の変換中は IME に任せる
             if (e.key === 'Escape') {
+                // D10: Esc で抜ける（選択モードの同じセルへ）
                 e.preventDefault();
                 closeMultiselectDropdown();
                 return;
             }
-            if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                var items = getNavItems();
-                if (items.length === 0) return;
-                var next = highlightedIdx + 1;
-                if (next >= items.length) next = items.length - 1;
-                setHighlight(next);
-                return;
-            }
-            if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                var prev = highlightedIdx - 1;
-                if (prev < -1) prev = -1;
-                setHighlight(prev);
-                return;
+            if (listShown()) {
+                // 一覧が出ている間: ↑↓ で一覧の中・Enter で付け外し（今どおり）
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    var items = getNavItems();
+                    if (items.length === 0) return;
+                    var next = highlightedIdx + 1;
+                    if (next >= items.length) next = items.length - 1;
+                    setHighlight(next);
+                    return;
+                }
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    var prev = highlightedIdx - 1;
+                    if (prev < -1) prev = -1;
+                    setHighlight(prev);
+                    return;
+                }
+            } else {
+                // 一覧が出ていないときの矢印はほかのセルと同じ（↑↓ は隣のセル、← は先頭・→ は末尾で隣。移った先も編集 — D9）
+                var tableArrow = handleTableCellArrowKey(input, e);
+                if (tableArrow === true) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
+                if (tableArrow === 'native') { e.stopPropagation(); return; }
             }
             if (e.key === 'Enter') {
                 e.preventDefault();
-                var items = getNavItems();
-                if (highlightedIdx >= 0 && items[highlightedIdx]) {
+                var navItems = getNavItems();
+                if (listShown() && highlightedIdx >= 0 && navItems[highlightedIdx]) {
                     // mousedown を dispatch して既存 toggle / create logic を再利用
                     var evt;
                     try {
@@ -44476,29 +45296,46 @@ var Outliner = (function() {
                         evt = document.createEvent('MouseEvents');
                         evt.initMouseEvent('mousedown', true, true, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
                     }
-                    items[highlightedIdx].dispatchEvent(evt);
+                    navItems[highlightedIdx].dispatchEvent(evt);
                 }
-                // popup を閉じて cell に focus 戻す
+                // 閉じて選択モードの同じセルへ（D7）
                 closeMultiselectDropdown();
                 return;
             }
+            if (e.key === 'Tab') {
+                // 抜けて選択モードで右 / 左のセルへ（D3 と同じ向き）
+                e.preventDefault();
+                var side = tableCellNeighbor(cellEl, e.shiftKey ? 'left' : 'right');
+                closeMultiselectDropdown({ refocus: false });
+                selectTableCell((side && side.isConnected) ? side : cellEl);
+            }
+        });
+        // focus がほかへ移ったら閉じる（一覧の項目の mousedown は preventDefault なので入力欄の focus は残る）。
+        // ウィンドウ / webview ごと focus を失ったときは閉じない（date の入力欄と同じ。戻れば続けられる）
+        input.addEventListener('blur', function () {
+            setTimeout(function () {
+                if (activeDropdownInput !== input || document.activeElement === input) return;
+                if (!document.hasFocus()) return;
+                closeMultiselectDropdown({ refocus: false });
+            }, 0);
         });
 
         document.body.appendChild(dropdown);
         activeDropdownEl = dropdown;
+        if (opts.text) { input.value = opts.text; }
+        // すぐ focus する（IME の打ち始めで呼ばれたとき、続く変換がこの入力欄で始まるように）
+        try { input.focus({ preventScroll: true }); } catch (e1) { input.focus(); }
+        try { input.setSelectionRange(input.value.length, input.value.length); } catch (e2) {}
         refreshList();
-        setTimeout(function () { input.focus(); }, 0);
 
-        // 外側クリックで close (cellEl 自身のクリックは既に open の trigger なので除外)
+        // 外側クリックで close（このセル・一覧の中のクリックは閉じない）。外側 click は cell に focus 戻さない
         function outsideHandler(ev) {
-            if (!dropdown.contains(ev.target)) {
-                document.removeEventListener('mousedown', outsideHandler, true);
-                // 外側 click は cell に focus 戻さない (別要素 click 操作の意図を尊重)
-                closeMultiselectDropdown({ refocus: false });
-            }
+            if (dropdown.contains(ev.target) || cellEl.contains(ev.target)) return;
+            closeMultiselectDropdown({ refocus: false });
         }
+        dropdown.__outsideHandler = outsideHandler;
         setTimeout(function () {
-            document.addEventListener('mousedown', outsideHandler, true);
+            if (activeDropdownEl === dropdown) { document.addEventListener('mousedown', outsideHandler, true); }
         }, 0);
     }
 
@@ -47139,6 +47976,14 @@ var Outliner = (function() {
                 break;
 
             case 'Escape':
+                // 20261106-1700 D8: table の編集モードの Esc = 選択モードの同じセルへ（打った内容は残す）。
+                // 検索・ノードの選択を外すのは選択モードの Esc（受け口の onTableSelKeydown）
+                if (VIEW_MODE === 'table') {
+                    e.preventDefault();
+                    var escCell = textEl.closest('.outliner-node');
+                    if (escCell) { selectTableCell(escCell); }
+                    break;
+                }
                 // FR-OSM-03（出口 X1）: 選択モードの解除を**明示分岐に昇格**する。
                 // 従来は上記「選択状態で文字キー等が来たら clearSelection」ブロックの**副作用**で
                 // 消えていただけで、入退出条件が実装上どこにも書かれていなかった（番人も書けない）。
