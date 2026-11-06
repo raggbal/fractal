@@ -469,6 +469,48 @@ function generateNotesFilePanelHtml(options) {
         .notes-file-panel.collapsed ~ .notes-main-wrapper #sidebar.hidden ~ .editor-container .notes-panel-toggle-btn--toolbar { display: flex; }
         /* ③ md Outline ヘッダ左: Outline 開（#sidebar が .hidden でない）のときだけ表示（②と排他 = 単一ボタン） */
         .notes-file-panel.collapsed ~ .notes-main-wrapper #sidebar:not(.hidden) .notes-panel-toggle-btn--outline { display: flex; }
+        /* ── note 面のヘッダー（md の toolbar・md の Outline ヘッダ・outliner の 1 / 2 行目・file viewer・linkedfd（folder view））──
+           行の高さ 36px・中身は上下中央。パネルを閉じたときに左端に出す ≡ と Recent の < > は、大きさ・左端の位置・間隔を
+           4 つの画面で同じ値にする（2026-11-06 ユーザー依頼）。値はここだけで決める */
+        .notes-main-wrapper {
+            --notes-hdr-h: 36px;
+            --notes-hdr-left: 10px;        /* ≡ の左端（ヘッダーの左から） */
+            --notes-hdr-btn-w: 26px;       /* ≡ と < > の箱（md の toolbar のボタンと同じ） */
+            --notes-hdr-btn-h: 25px;
+            --notes-hdr-gap-toggle: 4px;   /* ≡ → < */
+            --notes-hdr-gap-nav: 2px;      /* < → > */
+            --notes-hdr-gap-after: 6px;    /* > → 次（Outline 開閉・タイトル・集中ボタン等） */
+            --notes-hdr-flex-gap: 0px;     /* 入れ物の flex の gap（下で入れ物ごとに上書き。margin から差し引いて間隔をそろえる） */
+        }
+        .notes-main-wrapper .toolbar-fixed--left,
+        .notes-main-wrapper #viewerContainer .viewer-toolbar { --notes-hdr-flex-gap: 2px; }
+        .notes-main-wrapper #folderViewContainer .fv-header { --notes-hdr-flex-gap: 8px; }
+        .notes-layout .notes-main-wrapper button.notes-panel-toggle-btn,
+        .notes-layout .notes-main-wrapper button.notes-header-history-btn {
+            box-sizing: border-box;
+            width: var(--notes-hdr-btn-w); height: var(--notes-hdr-btn-h);
+            min-width: var(--notes-hdr-btn-w); min-height: var(--notes-hdr-btn-h);
+            padding: 0; margin: 0; line-height: 1; flex: 0 0 auto;
+        }
+        .notes-layout .notes-main-wrapper button.notes-panel-toggle-btn { font-size: 15px; margin-right: calc(var(--notes-hdr-gap-toggle) - var(--notes-hdr-flex-gap)); }
+        .notes-layout .notes-main-wrapper button.notes-header-history-btn[data-notes-history-nav="back"] { margin-right: calc(var(--notes-hdr-gap-nav) - var(--notes-hdr-flex-gap)); }
+        .notes-layout .notes-main-wrapper button.notes-header-history-btn[data-notes-history-nav="forward"] { margin-right: calc(var(--notes-hdr-gap-after) - var(--notes-hdr-flex-gap)); }
+        .notes-layout .notes-main-wrapper button.notes-header-history-btn svg { width: 14px; height: 14px; }
+        /* 各ヘッダーの行: 36px・上下中央・≡ の左端 = --notes-hdr-left（下の 1px の線を含めて 36px — md の toolbar と同じ） */
+        .notes-main-wrapper .markdown-container .toolbar-fixed--left { padding-left: var(--notes-hdr-left); }
+        .notes-main-wrapper .markdown-container .sidebar .sidebar-header {
+            height: var(--notes-hdr-h); padding-top: 0; padding-bottom: 0; padding-left: var(--notes-hdr-left);
+            justify-content: flex-start;
+        }
+        .notes-main-wrapper .markdown-container .sidebar .sidebar-header h3 { flex: 1 1 auto; min-width: 0; }
+        .notes-main-wrapper #viewerContainer .viewer-toolbar {
+            box-sizing: border-box; height: var(--notes-hdr-h); padding-top: 0; padding-bottom: 0; padding-left: var(--notes-hdr-left);
+        }
+        .notes-main-wrapper #folderViewContainer .fv-header {
+            box-sizing: border-box; height: var(--notes-hdr-h); padding-top: 0; padding-bottom: 0; padding-left: var(--notes-hdr-left);
+        }
+        /* outliner の 1 行目: パネルを閉じて ≡ が出ているときは、≡ を他の画面と同じ左端に（開いているときはタイトルを本文と同じ gutter から） */
+        .notes-file-panel.collapsed ~ .notes-main-wrapper .outliner-container .outliner-page-title { padding-left: var(--notes-hdr-left); }
         /* パネルを閉じたときの Recent Back / Forward（≡ の右。≡ と同じ出し分け: outliner / md toolbar（Outline 閉）/ md Outline ヘッダ（Outline 開）/ viewer / folder view） */
         .notes-header-history-btn {
             display: none; background: transparent; border: none; border-radius: 4px;

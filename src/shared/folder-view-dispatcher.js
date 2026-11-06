@@ -34,8 +34,9 @@
         const style = document.createElement('style');
         style.id = 'folder-view-panel-toggle-style';
         style.textContent = [
+            // 大きさ・余白・間隔は notes-body-html.js の note 面のヘッダーの共通の値（--notes-hdr-*）。ここは見た目の地と出し分けだけ
             '.fv-header .notes-panel-toggle-btn { display: none; background: transparent; border: none;',
-            '  cursor: pointer; padding: 4px 5px; font-size: 15px; opacity: 0.7; color: inherit; }',
+            '  cursor: pointer; opacity: 0.7; color: inherit; }',
             '.fv-header .notes-panel-toggle-btn:hover { opacity: 1; }',
             '.notes-file-panel.collapsed ~ .notes-main-wrapper .fv-header .notes-panel-toggle-btn { display: flex; }',
         ].join('\n');

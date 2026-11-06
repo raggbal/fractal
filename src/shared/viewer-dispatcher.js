@@ -52,8 +52,9 @@
         const style = document.createElement('style');
         style.id = 'viewer-panel-toggle-style';
         style.textContent = [
+            // 大きさ・余白・間隔は notes-body-html.js の note 面のヘッダーの共通の値（--notes-hdr-*）。ここは見た目の地と出し分け・並び順だけ
             '.viewer-toolbar .notes-panel-toggle-btn { display: none; background: transparent; border: none;',
-            '  cursor: pointer; padding: 4px 5px; font-size: 15px; opacity: 0.7; order: -1; }',
+            '  cursor: pointer; opacity: 0.7; order: -1; }',
             '.viewer-toolbar .notes-panel-toggle-btn:hover { opacity: 1; }',
             '.notes-file-panel.collapsed ~ .notes-main-wrapper .viewer-toolbar .notes-panel-toggle-btn { display: flex; }',
         ].join('\n');

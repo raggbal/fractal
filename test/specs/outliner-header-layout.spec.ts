@@ -2,13 +2,13 @@
  * outliner のヘッダー（2026-11-05 ユーザー依頼）:
  * - 1 行目: ≡（パネル開閉）→ Recent の < >（Notes でパネルを閉じたときだけ）→ タイトル → 右端に undo / redo
  * - 2 行目: 集中ボタン → 検索欄 → ← →（表示の履歴）→ 少し離して outline / table / mindmap 切替 → 右端にタスク系 + menu
- * - スクロールしても 1 行目は消えない。2 行目と同じ高さに縮み、タイトルの文字が小さくなる（行の高さは変えないので本文はずれない）
+ * - 1 行目も 2 行目も 36px で中身は上下中央（Notes の md / file viewer / linkedfd のヘッダーと同じ）。スクロールしても 2 行とも上に残る
  * - undo / redo のアイコンは md の toolbar と同じ LUCIDE_ICONS。← → は Recent の < > と見分ける
  * TC-OHL-01 undo / redo は 1 行目の右端（2 行目の menu の右端とそろう）
  * TC-OHL-02 undo / redo のアイコンが md の toolbar と同じ
  * TC-OHL-03 2 行目: 集中ボタン → 検索欄 → ← → → view 切替（→ から 10px 以上離す）。undo / redo は 2 行目に無い
  * TC-OHL-04 ← → のアイコン（Recent の < > と見分ける）
- * TC-OHL-05 スクロールすると 1 行目は 2 行目と同じ高さで残り、タイトルの文字が小さくなる。上へ戻すと元に戻る。スクロールの位置は揺れない
+ * TC-OHL-05 1 行目・2 行目とも 36px。スクロールしても 1 行目は一番上、2 行目はその直下に残る。スクロールの位置は揺れない
  */
 import { test, expect, Page } from '@playwright/test';
 
@@ -88,41 +88,28 @@ async function scrollAndMeasure(page: Page, top: number) {
         sc.scrollTop = t;
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
         const rect = (sel: string) => document.querySelector(sel)!.getBoundingClientRect().toJSON();
-        const title = rect('.outliner-container .outliner-page-title');
-        const box = sc.getBoundingClientRect();
         return {
             scrollTop: sc.scrollTop,
-            compact: document.querySelector('.outliner-container')!.classList.contains('outliner-title-compact'),
-            visibleTitleH: Math.min(title.bottom, box.bottom) - Math.max(title.top, box.top),
+            boxTop: sc.getBoundingClientRect().top,
+            title: rect('.outliner-container .outliner-page-title'),
             search: rect('.outliner-container .outliner-search-bar'),
             undo: rect('.outliner-container .outliner-undo-btn'),
             input: rect('.outliner-container .outliner-page-title-input'),
-            fontPx: parseFloat(getComputedStyle(document.querySelector('.outliner-container .outliner-page-title-input')!).fontSize),
-            boxTop: box.top,
         };
     }, top);
 }
 
-test('TC-OHL-05 スクロールすると 1 行目は 2 行目と同じ高さで残り、タイトルが小さくなる。上へ戻すと元に戻る', async ({ page }) => {
+test('TC-OHL-05 1 行目・2 行目とも 36px。スクロールしても 1 行目は一番上、2 行目はその直下に残る', async ({ page }) => {
     await setupLongNotesOutliner(page);
     const top0 = await scrollAndMeasure(page, 0);
-    expect(top0.compact).toBe(false);
+    expect(top0.title.height).toBe(36);
+    expect(top0.search.height).toBe(36);
     const down = await scrollAndMeasure(page, 600);
-    expect(down.scrollTop, 'スクロールの位置は揺れない（行の高さを変えないので）').toBe(600);
-    expect(down.compact).toBe(true);
-    // 1 行目は消えずに、2 行目と同じ高さで一番上に残る。2 行目はその直下
-    expect(Math.abs(down.visibleTitleH - down.search.height)).toBeLessThan(1.5);
-    expect(Math.abs(down.search.top - (down.boxTop + down.visibleTitleH))).toBeLessThan(1.5);
-    // undo と タイトルは見える範囲（1 行目の中）にある
-    expect(down.undo.top).toBeGreaterThanOrEqual(down.boxTop - 0.5);
-    expect(down.undo.bottom).toBeLessThanOrEqual(down.search.top + 0.5);
-    expect(down.input.top).toBeGreaterThanOrEqual(down.boxTop - 0.5);
-    expect(down.input.bottom).toBeLessThanOrEqual(down.search.top + 0.5);
-    // タイトルの文字は小さくなる
-    expect(down.fontPx).toBeLessThan(top0.fontPx);
-    // 上へ戻すと元の高さ・大きさ
-    const back = await scrollAndMeasure(page, 0);
-    expect(back.compact).toBe(false);
-    expect(back.fontPx).toBe(top0.fontPx);
-    expect(Math.abs(back.visibleTitleH - top0.visibleTitleH)).toBeLessThan(0.5);
+    expect(down.scrollTop, 'スクロールの位置は揺れない').toBe(600);
+    expect(Math.abs(down.title.top - down.boxTop)).toBeLessThan(0.5);
+    expect(Math.abs(down.search.top - (down.boxTop + 36))).toBeLessThan(0.5);
+    // undo とタイトルは 1 行目の中で見えている（大きさは変わらない）
+    expect(down.undo.top).toBeGreaterThanOrEqual(down.title.top - 0.5);
+    expect(down.undo.bottom).toBeLessThanOrEqual(down.title.bottom + 0.5);
+    expect(down.input.height).toBe(top0.input.height);
 });

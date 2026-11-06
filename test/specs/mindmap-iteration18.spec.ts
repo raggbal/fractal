@@ -219,8 +219,13 @@ test('TC-V7 右側子持ちノードの追従余白がギリギリでなく左�
     // R1 → __title__ → L0 の順に ArrowLeft 2 回で子持ちノード L0 に到達 (ensureNodeVisible 発火)。
     await page.keyboard.press('ArrowLeft'); // → __title__
     await page.waitForTimeout(90);
-    await page.keyboard.press('ArrowLeft'); // → L0 (左側の子持ちノード = 画面外だった)
+    await page.keyboard.press('ArrowLeft'); // → 左側の L0 か L1（title からの近さはほぼ同点 — ヘッダーの高さ等で入れ替わる）
     await page.waitForTimeout(150);
+    // L1 に着いたら ArrowUp で L0（どちらも矢印移動なので ensureNodeVisible が発火する。測るのは L0 の左端の余白）
+    if ((await focusedId(page)) === 'L1') {
+        await page.keyboard.press('ArrowUp');
+        await page.waitForTimeout(150);
+    }
 
     const fidL = await focusedId(page);
     expect(fidL).toBe('L0');

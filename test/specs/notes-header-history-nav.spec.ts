@@ -6,6 +6,7 @@
  * - folder view（linkedfd をメインで開いた画面）: ≡ → < >（同じ ≡ の出し分けに合わせる）
  * パネルを開いている間は出さない（パネル最上段の < > がある）。押せるか（端）はパネルの < > と同じで、押すとパネルの < > と同じ動き。
  * TC-HHN-01 outliner / TC-HHN-02 md（Outline 閉・開）/ TC-HHN-03 viewer / TC-HHN-04 folder view / TC-HHN-05 押したときの動きと端
+ * TC-HHN-06 4 つの画面（md は Outline の開閉の両方）で、ヘッダーの行は 36px、≡ と < > の位置・大きさ・間隔・上下の位置が同じ（2026-11-06 ユーザー依頼）
  */
 import { test, expect, Page } from '@playwright/test';
 
@@ -120,4 +121,57 @@ test('TC-HHN-05 ヘッダーの < > はパネルの < > と同じ動き。端で
     await fwd.click();
     expect(await page.evaluate(() => (window as any).__notesHistoryPanel.getCursor())).toBe(0);
     expect(await pe(fwd)).toBe('none');
+});
+
+test('TC-HHN-06 4 つの画面で ヘッダーの行は 36px、≡ と < > の位置・大きさ・間隔・上下の位置が同じ', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 700 });
+    await setup(page);
+    await page.evaluate(() => {
+        // test の harness の outliner の ≡ は中身が空なので、本番（notesWebviewContent.ts）と同じ ☰ を入れる
+        const t = document.getElementById('notesPanelToggleBtn')!; if (!t.textContent!.trim()) t.innerHTML = '&#9776;';
+    });
+    await collapsePanel(page);
+    const measure = (scopeSel: string, rowSel: string) => page.evaluate(([s, r]) => {
+        const scope = document.querySelector(s)!;
+        const vis = (e: Element | null) => { if (!e) return null; const b = (e as HTMLElement).getBoundingClientRect(); return b.width > 0 ? b : null; };
+        const first = (sel: string) => Array.from(scope.querySelectorAll(sel)).map(vis).find(Boolean) as DOMRect;
+        const row = vis(scope.querySelector(r))!;
+        const pane = (document.querySelector('.notes-main-wrapper') as HTMLElement).getBoundingClientRect();
+        const f = (b: DOMRect) => ({ x: +(b.left - pane.left).toFixed(1), cy: +(b.top + b.height / 2 - row.top).toFixed(1), w: +b.width.toFixed(1), h: +b.height.toFixed(1) });
+        return {
+            rowH: +row.height.toFixed(1),
+            toggle: f(first('.notes-panel-toggle-btn')),
+            back: f(first('.notes-header-history-btn[data-notes-history-nav="back"]')),
+            fwd: f(first('.notes-header-history-btn[data-notes-history-nav="forward"]')),
+        };
+    }, [scopeSel, rowSel]);
+    const all: Record<string, any> = {};
+    all.outliner = await measure('.outliner-container', '.outliner-page-title');
+    all.outlinerRow2H = await page.evaluate(() => (document.querySelector('.outliner-search-bar') as HTMLElement).getBoundingClientRect().height);
+    await page.evaluate(() => { (window as any).__testApi.mdDispatcher.loadMarkdown('# T\n\ntext', '/n/a.md', ''); });
+    await page.waitForSelector('.markdown-container .toolbar');
+    all.md = await measure('.markdown-container', '.toolbar');
+    await page.locator('.markdown-container #openSidebarBtn').click();
+    await expect(page.locator('.markdown-container #sidebar')).not.toHaveClass(/hidden/);
+    all.mdOutlineOpen = await measure('.markdown-container', '.sidebar-header');
+    await page.locator('.markdown-container #closeSidebar').click();
+    await page.evaluate(() => { window.postMessage({ type: 'showNoteViewer', kind: 'html', fileUri: './viewer-fixtures/sample.html', fileName: 'sample.html' }, '*'); });
+    await page.waitForSelector('#viewerContainer .viewer-toolbar', { state: 'visible' });
+    all.viewer = await measure('#viewerContainer', '.viewer-toolbar');
+    await page.evaluate(() => { (window as any).__folderViewDispatcher.showFolderView('fl1', 'Docs'); });
+    await page.waitForSelector('#folderViewContainer .fv-header', { state: 'visible' });
+    all.linkedfd = await measure('#folderViewContainer', '.fv-header');
+
+    expect(all.outlinerRow2H, 'outliner の 2 行目も 36px').toBe(36);
+    const ref = all.md;
+    expect(ref.rowH).toBe(36);
+    for (const k of ['outliner', 'mdOutlineOpen', 'viewer', 'linkedfd']) {
+        const v = all[k];
+        expect(v.rowH, k + ' の行の高さ').toBe(36);
+        for (const b of ['toggle', 'back', 'fwd']) {
+            for (const p of ['x', 'cy', 'w', 'h']) {
+                expect(Math.abs(v[b][p] - ref[b][p]), `${k} の ${b}.${p}（${v[b][p]} / md ${ref[b][p]}）`).toBeLessThan(0.6);
+            }
+        }
+    }
 });
