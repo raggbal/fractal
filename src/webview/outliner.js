@@ -2849,36 +2849,83 @@ var Outliner = (function() {
         else if (dir === 'down' && rowIdx < Math.floor((cells.length - 1) / ncols)) targetIdx = idx + ncols;
         if (targetIdx < 0 || targetIdx >= cells.length) return false;
         var targetEl = cells[targetIdx];
-        focusTableCell(targetEl);
+        focusTableCell(targetEl, dir);
         return true;
     }
 
-    function focusTableCell(cellEl) {
+    /** dir（来た向き）でカーソルの置き場を決める: → で来たら先頭 / ← で来たら末尾 / ↓ で来たら先頭 / ↑ で来たら末尾。
+     *  dir が無い（Tab 等）ときは従来どおり末尾 */
+    function focusTableCell(cellEl, dir) {
         if (!cellEl) return;
+        var toStart = (dir === 'right' || dir === 'down');
+        function place(el) {
+            try { if (toStart) { setCursorToStart(el); } else { setCursorToEnd(el); } } catch (e) {}
+        }
         if (cellEl.classList.contains('outliner-node')) {
             var textEl = cellEl.querySelector('.outliner-text');
             if (textEl) {
                 textEl.focus();
-                try { setCursorToEnd(textEl); } catch (e) {}
+                place(textEl);
             }
         } else if (cellEl.classList.contains('outliner-cell-text')) {
             cellEl.focus();
-            try { setCursorToEnd(cellEl); } catch (e) {}
+            place(cellEl);
         } else if (cellEl.classList.contains('outliner-cell-multiselect')) {
             // multiselect は直接 focus できないので click → dropdown 表示
             cellEl.tabIndex = -1;
             cellEl.focus();
         } else if (cellEl.classList.contains('outliner-cell-date')) {
-            // date / datetime cell: focus → activateInput が走り native picker
+            // date / datetime cell: 表示のまま focus（矢印で通り過ぎられるように、入力欄・カレンダーは開かない。
+            // 入力を始めるのは click / Enter / Space / F2）
             cellEl.focus();
         }
     }
 
-    /** Cmd+↑↓→← を共通でハンドル。返り値 true なら呼び出し側で preventDefault */
+    /** contenteditable のセル（.outliner-cell-text / outline 列の .outliner-text）で、カーソルが
+     *  1 行目（top）・最後の行（bottom）にいるか。折り返しも見た目の行で判定する。
+     *  Selection が範囲選択なら null（矢印は native に任せる）。矩形が取れないときは文字位置（先頭 / 末尾）で代用 */
+    function caretVisualEdges(el) {
+        var sel = window.getSelection ? window.getSelection() : null;
+        if (!sel || sel.rangeCount === 0) return null;
+        var r = sel.getRangeAt(0);
+        if (!r.collapsed || !el.contains(r.startContainer)) return null;
+        var text = el.textContent || '';
+        if (!text.length) return { top: true, bottom: true };
+        var caretRects = r.getClientRects();
+        var caret = caretRects.length ? caretRects[caretRects.length - 1] : null;
+        var all = document.createRange();
+        all.selectNodeContents(el);
+        var rects = all.getClientRects();
+        if (!caret || !rects.length) {
+            var off = getCursorOffset(el);
+            return { top: off === 0, bottom: off >= text.length };
+        }
+        var minTop = Infinity, maxBottom = -Infinity;
+        for (var i = 0; i < rects.length; i++) {
+            if (rects[i].width === 0 && rects[i].height === 0) continue;
+            if (rects[i].top < minTop) minTop = rects[i].top;
+            if (rects[i].bottom > maxBottom) maxBottom = rects[i].bottom;
+        }
+        var cs = getComputedStyle(el);
+        var lh = parseFloat(cs.lineHeight);
+        if (!(lh > 0)) lh = (parseFloat(cs.fontSize) || 13) * 1.3;
+        return { top: caret.top - minTop < lh * 0.5, bottom: maxBottom - caret.bottom < lh * 0.5 };
+    }
+
+    /** table のセル間の矢印キー。
+     *  - Cmd/Ctrl + 矢印: 常にセル移動（従来）
+     *  - 素の矢印（2026-11-06 ユーザー依頼）:
+     *      文字のセル・outline 列 … ↑ = 1 行目にいるとき上のセル / ↓ = 最後の行にいるとき下のセル /
+     *                                ← = 先頭（1 行目の左端）のとき左のセル / → = 末尾（最後の行の右端）のとき右のセル。
+     *                                それ以外はカーソルを動かす（'native'）
+     *      date / datetime の入力欄 … ↑↓ = 年月日・時刻の数字を変えずにセル移動 / ← は先頭・→ は末尾で隣のセル
+     *      date の表示・multiselect のセル（カーソルの無いセル）… 4 方向ともセル移動
+     *  返り値: true = 移動した（呼び出し側で preventDefault）/ 'native' = カーソルを動かすので他の処理をしない /
+     *          false = 扱わない（呼び出し側の従来の処理へ） */
     function handleTableCellArrowKey(el, e) {
         if (VIEW_MODE !== 'table') return false;
-        if (!(e.metaKey || e.ctrlKey)) return false;
         if (e.shiftKey || e.altKey) return false;
+        if (e.isComposing || e.keyCode === 229) return false;
         var dir = null;
         if (e.key === 'ArrowLeft') dir = 'left';
         else if (e.key === 'ArrowRight') dir = 'right';
@@ -2895,6 +2942,33 @@ var Outliner = (function() {
             );
         }
         if (!cellEl) return false;
+        if (e.metaKey || e.ctrlKey) return moveTableCell(cellEl, dir);
+
+        // 素の矢印
+        if (el.tagName === 'INPUT') {
+            // date / datetime の入力欄（1 行の文字の欄）: ↑↓ は数字を変えずにセル移動（隣が無くても数字は変えない）。
+            // ← は先頭・→ は末尾のときだけ隣のセル、それ以外は欄の中でカーソルを動かす
+            if (dir === 'up' || dir === 'down') return moveTableCell(cellEl, dir) || true;
+            var ss = el.selectionStart, se = el.selectionEnd;
+            if (ss !== se) return 'native';
+            if (dir === 'left' && ss === 0) return moveTableCell(cellEl, dir) || 'native';
+            if (dir === 'right' && ss >= (el.value || '').length) return moveTableCell(cellEl, dir) || 'native';
+            return 'native';
+        }
+        var editable = el.isContentEditable ? el : null;
+        if (!editable) {
+            // カーソルの無いセル（date の表示・multiselect）: 4 方向ともセル移動
+            return moveTableCell(cellEl, dir);
+        }
+        var edges = caretVisualEdges(editable);
+        if (!edges) return false;
+        var text = editable.textContent || '';
+        var off = getCursorOffset(editable);
+        var atEdge = (dir === 'up') ? edges.top
+            : (dir === 'down') ? edges.bottom
+            : (dir === 'left') ? (off === 0)
+            : (off >= text.length);
+        if (!atEdge) return (dir === 'up' || dir === 'down') ? 'native' : false;
         return moveTableCell(cellEl, dir);
     }
 
@@ -2994,11 +3068,13 @@ var Outliner = (function() {
         // Cmd+B / Cmd+I / Cmd+E / Cmd+Shift+S - applyInlineFormat に委譲
         el.addEventListener('keydown', function (e) {
             // Cmd/Ctrl + 矢印キー: テーブル内セル移動
-            if (handleTableCellArrowKey(el, e)) {
+            var tableArrow = handleTableCellArrowKey(el, e);
+            if (tableArrow === true) {
                 e.preventDefault();
                 e.stopPropagation();
                 return;
             }
+            if (tableArrow === 'native') { e.stopPropagation(); return; }
             // Tab で次セル / Shift+Tab で前セル (簡易)
             if (e.key === 'Tab') {
                 e.preventDefault();
@@ -3198,71 +3274,232 @@ var Outliner = (function() {
         refreshDisplay();
         el.appendChild(display);
 
-        var input = null;
+        // ── 入力（2026-11-06 ユーザー依頼）──
+        // 数字は文字の欄で打ち、YYYY-MM-DD（datetime は YYYY-MM-DD HH:MM）に自動で区切る。年は 4 桁で止めて月へ進む
+        //（Chromium の type=date は年に 6 桁まで入り、max を付けても月へ進まない — 実測）。
+        // カレンダー / 時刻はボタンで隠した native の date / time の picker を開き、選んだ時点で保存する
+        //（datetime-local は日付だけ・時刻だけの途中では value が空で、閉じると空が保存されて消えていた）。
+        // datetime で時刻が無ければ 00:00。途中・不正な値のまま欄を離れたら元の値に戻す（消さない・壊れた値を書かない）。
+        var textInput = null;
+        var nativeDate = null;
+        var nativeTime = null;
         var inputActive = false;
+        var activating = false; // 入力欄を出してから focus するまで（その間の focusout では閉じない）
+        var DIGITS = isDateTime ? 12 : 8;
+
+        function pad2(n) { return (n < 10 ? '0' : '') + n; }
+        function todayStr() { var d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+        /** 数字の並び → 表示の形（打っている途中も区切る） */
+        function formatDigits(dg) {
+            dg = dg.slice(0, DIGITS);
+            var out = dg.slice(0, 4);
+            if (dg.length > 4) out += '-' + dg.slice(4, 6);
+            if (dg.length > 6) out += '-' + dg.slice(6, 8);
+            if (isDateTime && dg.length > 8) out += ' ' + dg.slice(8, 10);
+            if (isDateTime && dg.length > 10) out += ':' + dg.slice(10, 12);
+            return out;
+        }
+        /** 保存している値 → 欄の文字 */
+        function valueToText(v) {
+            if (!v) return '';
+            return formatDigits(String(v).replace(/[^0-9]/g, ''));
+        }
+        /** 欄の文字 → 保存する値。空なら ''、途中・不正なら null（保存しない） */
+        function textToValue(txt) {
+            var dg = String(txt || '').replace(/[^0-9]/g, '');
+            if (!dg) return '';
+            if (dg.length < 8) return null;
+            var y = +dg.slice(0, 4), mo = +dg.slice(4, 6), d = +dg.slice(6, 8);
+            if (y < 1 || mo < 1 || mo > 12 || d < 1) return null;
+            var dim = new Date(y, mo, 0).getDate();
+            if (d > dim) return null;
+            var date = dg.slice(0, 4) + '-' + dg.slice(4, 6) + '-' + dg.slice(6, 8);
+            if (!isDateTime) return date;
+            if (dg.length === 8) return date + 'T00:00';
+            if (dg.length < 12) return null;
+            var h = +dg.slice(8, 10), mi = +dg.slice(10, 12);
+            if (h > 23 || mi > 59) return null;
+            return date + 'T' + dg.slice(8, 10) + ':' + dg.slice(10, 12);
+        }
+        function store(v) {
+            var cur = getCellValue(node.id, col.id, col.type) || '';
+            if (v === cur) return;
+            setCellValue(node.id, col.id, v);
+            refreshDisplay();
+            saveSnapshotDebounced();
+            scheduleSyncToHost();
+        }
+        /** 打っている途中: そろった・正しい値だけ保存する（途中は保存しない） */
+        function commitIfComplete() {
+            if (!textInput) return;
+            var dg = textInput.value.replace(/[^0-9]/g, '');
+            if (dg.length === DIGITS || dg.length === 0) {
+                var v = textToValue(textInput.value);
+                if (v !== null) store(v);
+            }
+        }
+        function deactivate(focusCell, revert) {
+            if (!inputActive) return;
+            if (textInput && !revert) {
+                var v = textToValue(textInput.value);
+                if (v !== null) store(v); // 途中・不正なら元の値のまま
+            }
+            inputActive = false;
+            while (el.lastChild && el.lastChild !== display) { el.removeChild(el.lastChild); }
+            textInput = null; nativeDate = null; nativeTime = null;
+            el.classList.remove('is-editing');
+            display.style.display = '';
+            refreshDisplay();
+            if (focusCell) { try { el.focus(); } catch (e) {} }
+        }
+        /** 打った数字を区切り直し、カーソルを同じ数字の後ろに置く */
+        function reformat() {
+            var v = textInput.value;
+            var caret = textInput.selectionStart || 0;
+            var digitsBefore = v.slice(0, caret).replace(/[^0-9]/g, '').length;
+            var dg = v.replace(/[^0-9]/g, '').slice(0, DIGITS);
+            var f = formatDigits(dg);
+            if (f !== v) {
+                textInput.value = f;
+                var pos = 0, seen = 0;
+                while (pos < f.length && seen < digitsBefore) { if (/[0-9]/.test(f[pos])) seen++; pos++; }
+                try { textInput.setSelectionRange(pos, pos); } catch (e) {}
+            }
+        }
+        /** 隠した native の picker（カレンダー / 時刻）。選んだ時点で保存する */
+        function makePicker(kind) {
+            var wrap = document.createElement('span');
+            wrap.className = 'outliner-cell-date-picker outliner-cell-date-picker--' + kind;
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.tabIndex = -1;
+            btn.className = 'outliner-cell-date-picker-btn';
+            btn.title = kind === 'date' ? 'Pick a date' : 'Pick a time';
+            btn.innerHTML = kind === 'date'
+                ? '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'
+                : '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+            var nat = document.createElement('input');
+            nat.type = kind;
+            nat.tabIndex = -1;
+            nat.className = 'outliner-cell-date-native';
+            if (kind === 'date') { nat.min = '0001-01-01'; nat.max = '9999-12-31'; }
+            if (kind === 'time') { nat.step = '60'; }
+            function apply() {
+                if (!nat.value || !textInput) return;
+                var cur = textToValue(textInput.value);
+                var curStr = (cur && cur !== null) ? cur : (getCellValue(node.id, col.id, col.type) || '');
+                var datePart = curStr ? curStr.slice(0, 10) : '';
+                var timePart = (isDateTime && curStr && curStr.indexOf('T') > 0) ? curStr.slice(11, 16) : '';
+                var v;
+                if (kind === 'date') { v = isDateTime ? nat.value + 'T' + (timePart || '00:00') : nat.value; }
+                else { v = (datePart || todayStr()) + 'T' + nat.value; }
+                textInput.value = valueToText(v);
+                store(v);
+            }
+            nat.addEventListener('input', apply);
+            nat.addEventListener('change', apply);
+            btn.addEventListener('mousedown', function (e) { e.preventDefault(); }); // 文字の欄の focus を保つ
+            btn.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var cur = textToValue(textInput ? textInput.value : '') || (getCellValue(node.id, col.id, col.type) || '');
+                nat.value = kind === 'date' ? (cur ? cur.slice(0, 10) : '') : ((isDateTime && cur && cur.indexOf('T') > 0) ? cur.slice(11, 16) : '');
+                if (typeof nat.showPicker === 'function') {
+                    try { nat.showPicker(); } catch (er) { /* user gesture 必要なケース */ }
+                }
+            });
+            wrap.appendChild(btn);
+            wrap.appendChild(nat);
+            if (kind === 'date') nativeDate = nat; else nativeTime = nat;
+            return wrap;
+        }
 
         function activateInput() {
             if (inputActive) return;
             inputActive = true;
-            input = document.createElement('input');
-            input.type = isDateTime ? 'datetime-local' : 'date';
-            input.className = 'outliner-cell-date-input';
-            input.value = getCellValue(node.id, col.id, col.type) || '';
-
-            input.addEventListener('change', function () {
-                setCellValue(node.id, col.id, input.value || '');
-                refreshDisplay();
-                saveSnapshotDebounced();
-                scheduleSyncToHost();
-            });
-
-            input.addEventListener('blur', function () {
-                // input を撤去して display に戻す
-                if (input && input.parentNode) input.parentNode.removeChild(input);
-                input = null;
-                inputActive = false;
-                display.style.display = '';
-            });
-
-            input.addEventListener('keydown', function (e) {
-                if (handleTableCellArrowKey(input, e)) {
+            activating = true;
+            textInput = document.createElement('input');
+            textInput.type = 'text';
+            textInput.className = 'outliner-cell-date-input';
+            textInput.inputMode = 'numeric';
+            textInput.autocomplete = 'off';
+            textInput.spellcheck = false;
+            textInput.placeholder = isDateTime ? 'YYYY-MM-DD HH:MM' : 'YYYY-MM-DD';
+            textInput.value = valueToText(getCellValue(node.id, col.id, col.type));
+            textInput.addEventListener('input', function () { reformat(); commitIfComplete(); });
+            textInput.addEventListener('keydown', function (e) {
+                // ↑↓ はセル移動（数字は変えない）。← は先頭・→ は末尾のときだけ隣のセル（(1) と同じ）
+                var tableArrow = handleTableCellArrowKey(textInput, e);
+                if (tableArrow === true) {
                     e.preventDefault();
                     e.stopPropagation();
+                    if (inputActive && !el.contains(document.activeElement)) { deactivate(false); }
                     return;
                 }
-                if (e.key === 'Escape' || e.key === 'Enter') {
-                    e.preventDefault();
-                    input.blur();
-                }
+                if (tableArrow === 'native') { e.stopPropagation(); return; }
+                if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); deactivate(true); return; }
+                if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); deactivate(true, true); return; }
             });
-
+            el.appendChild(textInput);
+            el.appendChild(makePicker('date'));
+            if (isDateTime) el.appendChild(makePicker('time'));
+            el.classList.add('is-editing');
             display.style.display = 'none';
-            el.appendChild(input);
-            // focus + picker 自動表示 (Chromium native picker)
+            // すぐ focus する（続けて打った数字・Enter が欄に入るように）。初期化の focus 等に取られたら次の tick で取り戻す
+            textInput.focus();
+            try { textInput.setSelectionRange(textInput.value.length, textInput.value.length); } catch (e) {}
             setTimeout(function () {
-                if (input) {
-                    input.focus();
-                    if (typeof input.showPicker === 'function') {
-                        try { input.showPicker(); } catch (e) { /* user gesture 必要なケース */ }
-                    }
-                }
+                activating = false;
+                if (!textInput || el.contains(document.activeElement)) return;
+                textInput.focus();
+                try { textInput.setSelectionRange(textInput.value.length, textInput.value.length); } catch (e) {}
             }, 0);
         }
 
-        // クリック / focus で input 化
-        el.addEventListener('click', function (e) {
-            if (e.target === input) return;
-            activateInput();
+        // セルの外へフォーカスが移ったら閉じる。picker でウィンドウ / webview ごとフォーカスを失ったとき
+        //（relatedTarget なし + document が focus を持たない）は閉じない
+        el.addEventListener('focusout', function (e) {
+            if (!inputActive) return;
+            var to = e.relatedTarget;
+            if (to && el.contains(to)) return;
+            setTimeout(function () {
+                if (!inputActive || activating) return;
+                if (el.contains(document.activeElement)) return;
+                if (!document.hasFocus()) return;
+                deactivate(false);
+            }, 0);
         });
-        el.addEventListener('focus', function () {
+
+        // クリックで入力を始める。矢印でセルに来たときは表示のまま（focusTableCell）
+        el.addEventListener('click', function (e) {
+            if (inputActive) return;
             activateInput();
         });
 
-        // Cmd+矢印キー navigation (input 化前 / picker 閉じた直後等で el 自身が focus 中の場合)
+        // 表示のまま focus 中: 矢印はセル移動、Enter / Space / F2 または数字で入力を始める（数字はそのまま入る）
         el.addEventListener('keydown', function (e) {
-            if (handleTableCellArrowKey(el, e)) {
+            if (e.target !== el) return; // 入力欄の keydown は上で扱う
+            var tableArrow = handleTableCellArrowKey(el, e);
+            if (tableArrow === true) {
                 e.preventDefault();
                 e.stopPropagation();
+                return;
+            }
+            if (tableArrow === 'native') { e.stopPropagation(); return; }
+            if (e.key === 'Enter' || e.key === ' ' || e.key === 'F2') {
+                e.preventDefault();
+                e.stopPropagation();
+                activateInput();
+                return;
+            }
+            if (/^[0-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                activateInput();
+                // 打った数字から始める（今の値は置き換え）
+                textInput.value = e.key;
+                try { textInput.setSelectionRange(1, 1); } catch (er) {}
+                commitIfComplete();
             }
         });
 
@@ -3312,11 +3549,13 @@ var Outliner = (function() {
 
         // Cmd+Arrow でセル移動
         el.addEventListener('keydown', function (e) {
-            if (handleTableCellArrowKey(el, e)) {
+            var tableArrow = handleTableCellArrowKey(el, e);
+            if (tableArrow === true) {
                 e.preventDefault();
                 e.stopPropagation();
                 return;
             }
+            if (tableArrow === 'native') { e.stopPropagation(); return; }
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 openMultiselectDropdown(el, node, col);
@@ -5805,11 +6044,16 @@ var Outliner = (function() {
         var node = model.getNode(nodeId);
         if (!node) { return; }
 
-        // Phase F2/F3: table mode で Cmd/Ctrl + 矢印 → セル移動
-        if (VIEW_MODE === 'table' && handleTableCellArrowKey(textEl, e)) {
-            e.preventDefault();
-            e.stopPropagation();
-            return;
+        // Phase F2/F3: table mode の矢印 → セル移動（Cmd/Ctrl + 矢印は常に、素の矢印はセルの端にいるとき）。
+        // 'native' = 端でないのでカーソルを動かす（outline の ↑↓ のノード移動はしない）
+        if (VIEW_MODE === 'table') {
+            var tableArrowNode = handleTableCellArrowKey(textEl, e);
+            if (tableArrowNode === true) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+            if (tableArrowNode === 'native') { return; }
         }
 
         // FR-OSM-04 / ADRL-0114: 選択モードのゲート。printable は no-op（本文を変えない）。

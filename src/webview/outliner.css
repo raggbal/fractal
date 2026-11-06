@@ -1833,6 +1833,24 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     box-shadow: none;
     background: transparent;
 }
+/* 入力中: 文字の欄（YYYY-MM-DD / YYYY-MM-DD HH:MM）+ カレンダー（と時刻）のボタン（outliner.js createDateCellElement） */
+.outliner-cell-date.is-editing { align-items: center; }
+.outliner-cell-date-input { flex: 1 1 auto; min-width: 0; font-variant-numeric: tabular-nums; }
+.outliner-cell-date-picker { position: relative; flex: 0 0 auto; display: inline-flex; margin-left: 2px; }
+.outliner-cell-date-picker-btn {
+    background: transparent; border: none; border-radius: 4px; padding: 1px 3px; cursor: pointer;
+    color: inherit; opacity: 0.5; line-height: 0;
+}
+.outliner-cell-date-picker-btn:hover { opacity: 1; background: var(--outliner-hover-bg); }
+/* 隠した native の picker（ボタンの位置に開く）。見えない・押せない・tab で止まらない */
+.outliner-cell-date-native {
+    position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0;
+    opacity: 0; pointer-events: none;
+}
+/* 矢印でセルに来たとき（表示のまま focus）: どのセルにいるかが分かるよう、枠だけ薄く出す */
+.outliner-cell-date:focus:not(.is-editing) {
+    box-shadow: inset 0 0 0 1px var(--vscode-focusBorder, #007acc);
+}
 
 /* multiselect cell */
 .outliner-cell-multiselect {
