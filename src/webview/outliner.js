@@ -3366,15 +3366,15 @@ var Outliner = (function() {
                 try { textInput.setSelectionRange(pos, pos); } catch (e) {}
             }
         }
-        /** 隠した native の picker（カレンダー / 時刻）。選んだ時点で保存する */
+        /** カレンダー / 時刻の picker。ボタンの上に透明の native の date / time を重ね、その picker の印（indicator）を
+         *  ボタン全体に広げる。クリックするとブラウザが自分で picker を開く（VS Code の webview は cross-origin の iframe なので
+         *  input.showPicker() は SecurityError で開けない — 実機 2026-11-06）。選んだ時点で保存し、文字の欄へ focus を戻す */
         function makePicker(kind) {
             var wrap = document.createElement('span');
             wrap.className = 'outliner-cell-date-picker outliner-cell-date-picker--' + kind;
-            var btn = document.createElement('button');
-            btn.type = 'button';
-            btn.tabIndex = -1;
+            var btn = document.createElement('span');
             btn.className = 'outliner-cell-date-picker-btn';
-            btn.title = kind === 'date' ? 'Pick a date' : 'Pick a time';
+            btn.setAttribute('aria-hidden', 'true');
             btn.innerHTML = kind === 'date'
                 ? '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'
                 : '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
@@ -3382,8 +3382,21 @@ var Outliner = (function() {
             nat.type = kind;
             nat.tabIndex = -1;
             nat.className = 'outliner-cell-date-native';
+            nat.title = kind === 'date' ? 'Pick a date' : 'Pick a time';
             if (kind === 'date') { nat.min = '0001-01-01'; nat.max = '9999-12-31'; }
             if (kind === 'time') { nat.step = '60'; }
+            /** picker を開く前に、今の値を native に入れておく（picker が今の日付・時刻から始まる） */
+            function syncFromText() {
+                var cur = textToValue(textInput ? textInput.value : '') || (getCellValue(node.id, col.id, col.type) || '');
+                nat.value = kind === 'date' ? (cur ? cur.slice(0, 10) : '') : ((isDateTime && cur && cur.indexOf('T') > 0) ? cur.slice(11, 16) : '');
+            }
+            function backToText() {
+                setTimeout(function () {
+                    if (!textInput) return;
+                    textInput.focus();
+                    try { textInput.setSelectionRange(textInput.value.length, textInput.value.length); } catch (e) {}
+                }, 0);
+            }
             function apply() {
                 if (!nat.value || !textInput) return;
                 var cur = textToValue(textInput.value);
@@ -3396,17 +3409,23 @@ var Outliner = (function() {
                 textInput.value = valueToText(v);
                 store(v);
             }
+            nat.addEventListener('pointerdown', syncFromText);
             nat.addEventListener('input', apply);
-            nat.addEventListener('change', apply);
-            btn.addEventListener('mousedown', function (e) { e.preventDefault(); }); // 文字の欄の focus を保つ
-            btn.addEventListener('click', function (e) {
+            nat.addEventListener('change', function () { apply(); backToText(); });
+            // picker を閉じたあと native に focus が残ったとき: ↑↓ はセル移動（数字を変えない）、ほかのキーは文字の欄へ戻す
+            nat.addEventListener('keydown', function (e) {
+                var tableArrow = handleTableCellArrowKey(nat, e);
+                if (tableArrow === true) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (inputActive && !el.contains(document.activeElement)) { deactivate(false); }
+                    return;
+                }
                 e.preventDefault();
                 e.stopPropagation();
-                var cur = textToValue(textInput ? textInput.value : '') || (getCellValue(node.id, col.id, col.type) || '');
-                nat.value = kind === 'date' ? (cur ? cur.slice(0, 10) : '') : ((isDateTime && cur && cur.indexOf('T') > 0) ? cur.slice(11, 16) : '');
-                if (typeof nat.showPicker === 'function') {
-                    try { nat.showPicker(); } catch (er) { /* user gesture 必要なケース */ }
-                }
+                if (e.key === 'Enter') { deactivate(true); return; }
+                if (e.key === 'Escape') { backToText(); return; }
+                backToText();
             });
             wrap.appendChild(btn);
             wrap.appendChild(nat);

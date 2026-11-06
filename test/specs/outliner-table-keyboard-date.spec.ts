@@ -5,7 +5,7 @@
  * (2) Date & Time: 日付だけ選んでも消えない（時刻が空なら 00:00）。欄を離れても・ウィンドウがフォーカスを失っても消えない
  * (3) 日付を数字で打つと年が 4 桁で止まる（6 桁にならない）
  * (4) Date / Date & Time の ↑↓ は年月日・時刻を変えずにセル移動。矢印でセルに来たときは表示のまま（カレンダーを開かない）
- * TC-TKD-01〜06
+ * TC-TKD-01〜06 / TC-TKD-07 カレンダー・時刻のボタンはブラウザの picker の印を直接押す形（VS Code の webview = cross-origin の iframe では showPicker() が使えない）
  */
 import { test, expect, Page } from '@playwright/test';
 
@@ -226,4 +226,41 @@ test('TC-TKD-06 (2) カレンダー / 時刻で選ぶとその場で保存。Dat
     await page.locator(cell('text', 'n1')).click();
     await page.waitForTimeout(50);
     expect(await cellValue(page, 'n3', 'c_date')).toBe('2026-12-24');
+});
+
+test('TC-TKD-07 カレンダー・時刻のボタンは native の picker の印を直接押す（showPicker を使わない）。選んだら文字の欄へ戻る', async ({ page }) => {
+    await setup(page);
+    await page.evaluate(() => {
+        // VS Code の webview（cross-origin の iframe）と同じく showPicker() を禁止する。呼ばれたら印を残す
+        (window as any).__showPickerCalls = 0;
+        (HTMLInputElement.prototype as any).showPicker = function () { (window as any).__showPickerCalls++; throw new DOMException('cross-origin', 'SecurityError'); };
+    });
+    await page.locator(cell('date', 'n2', 'c_dt')).click();
+    for (const kind of ['date', 'time']) {
+        const r = await page.evaluate(({ k }) => {
+            const wrap = document.querySelector('.outliner-cell-date[data-node-id="n2"][data-col-id="c_dt"] .outliner-cell-date-picker--' + k) as HTMLElement;
+            const b = wrap.getBoundingClientRect();
+            const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) as HTMLInputElement;
+            const nat = wrap.querySelector('input') as HTMLInputElement;
+            const ind = getComputedStyle(nat, '::-webkit-calendar-picker-indicator');
+            return { hitIsNative: hit === nat, type: nat.type, pe: getComputedStyle(nat).pointerEvents, disp: getComputedStyle(nat).display, w: nat.getBoundingClientRect().width, indPos: ind.position };
+        }, { k: kind });
+        expect(r.hitIsNative, kind + ' のボタンの真ん中を押すと native の ' + kind + ' に当たる').toBe(true);
+        expect(r.type).toBe(kind);
+        expect(r.pe).not.toBe('none');
+        expect(r.disp).not.toBe('none');
+        expect(r.w).toBeGreaterThan(10);
+        expect(r.indPos, 'picker の印をボタン全体に広げる').toBe('absolute');
+    }
+    // 実際にマウスで押す → native に focus（編集は続く）。picker で選ぶ → 保存して文字の欄へ戻る
+    const wrapDate = page.locator(cell('date', 'n2', 'c_dt') + ' .outliner-cell-date-picker--date');
+    await wrapDate.click();
+    await page.waitForTimeout(50);
+    expect(await page.evaluate(() => (document.activeElement as HTMLInputElement).type)).toBe('date');
+    await expect(page.locator(cell('date', 'n2', 'c_dt') + ' input.outliner-cell-date-input'), '編集は続く').toHaveCount(1);
+    await page.locator(cell('date', 'n2', 'c_dt') + ' .outliner-cell-date-picker--date input').evaluate((el: HTMLInputElement) => { el.value = '2026-07-08'; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+    await page.waitForTimeout(50);
+    expect(await cellValue(page, 'n2', 'c_dt')).toBe('2026-07-08T00:00');
+    await expect(page.locator(cell('date', 'n2', 'c_dt') + ' input.outliner-cell-date-input')).toBeFocused();
+    expect(await page.evaluate(() => (window as any).__showPickerCalls), 'showPicker は呼ばない').toBe(0);
 });

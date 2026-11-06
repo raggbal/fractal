@@ -1838,14 +1838,20 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-cell-date-input { flex: 1 1 auto; min-width: 0; font-variant-numeric: tabular-nums; }
 .outliner-cell-date-picker { position: relative; flex: 0 0 auto; display: inline-flex; margin-left: 2px; }
 .outliner-cell-date-picker-btn {
-    background: transparent; border: none; border-radius: 4px; padding: 1px 3px; cursor: pointer;
+    display: inline-flex; border-radius: 4px; padding: 1px 3px;
     color: inherit; opacity: 0.5; line-height: 0;
 }
-.outliner-cell-date-picker-btn:hover { opacity: 1; background: var(--outliner-hover-bg); }
-/* 隠した native の picker（ボタンの位置に開く）。見えない・押せない・tab で止まらない */
+.outliner-cell-date-picker:hover .outliner-cell-date-picker-btn { opacity: 1; background: var(--outliner-hover-bg); }
+/* ボタンの上に透明の native の date / time を重ね、picker の印（indicator）をボタン全体に広げる。
+   クリックでブラウザが picker を開く（cross-origin の iframe でも開ける。showPicker() は使わない） */
 .outliner-cell-date-native {
-    position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0;
-    opacity: 0; pointer-events: none;
+    position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0;
+    opacity: 0; cursor: pointer; z-index: 1; font-size: 13px; background: transparent; color: transparent;
+}
+.outliner-cell-date-native::-webkit-datetime-edit,
+.outliner-cell-date-native::-webkit-datetime-edit-fields-wrapper { display: none; }
+.outliner-cell-date-native::-webkit-calendar-picker-indicator {
+    position: absolute; inset: 0; width: auto; height: auto; margin: 0; padding: 0; cursor: pointer; opacity: 0;
 }
 /* 矢印でセルに来たとき（表示のまま focus）: どのセルにいるかが分かるよう、枠だけ薄く出す */
 .outliner-cell-date:focus:not(.is-editing) {
