@@ -1,8 +1,9 @@
 {
   "name": "fractal-desktop",
   "version": "0.195.607",
-  "description": "Fractal — WYSIWYG Markdown editor for desktop",
-  "main": "out/main.js",
+  "private": true,
+  "description": "Fractal Notes for desktop — runs the VS Code extension's own Notes code on a vscode API shim (ADR-0013)",
+  "main": "out/main/main.js",
   "author": {
     "name": "imaken",
     "email": "imaken@users.noreply.github.com"
@@ -10,138 +11,89 @@
   "homepage": "https://github.com/raggbal/fractal",
   "license": "MIT",
   "scripts": {
-    "compile": "cd .. && npm run compile && cd electron && tsc -p . && node ../scripts/copy-vendor.js",
-    "start": "npm run compile && ELECTRON_RUN_AS_NODE= electron .",
+    "postinstall": "node node_modules/electron/install.js",
+    "clean": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\"",
+    "build:shim": "npm run clean && tsc -p . && tsc -p tsconfig.renderer.json",
+    "compile": "cd .. && npm run compile && cd electron && npm run build:shim",
+    "build:app-dir": "npm run compile && ELECTRON_RUN_AS_NODE= electron-builder --dir",
     "build:mac": "npm run compile && ELECTRON_RUN_AS_NODE= electron-builder --mac",
-    "build:win": "npm run compile && ELECTRON_RUN_AS_NODE= electron-builder --win"
+    "build:e2e": "npm run compile && npm run pack:e2e",
+    "pack:e2e": "ELECTRON_RUN_AS_NODE= electron-builder --dir --config electron-builder.e2e.config.js",
+    "start": "npm run compile && ELECTRON_RUN_AS_NODE= electron .",
+    "start:fast": "npm run build:shim && ELECTRON_RUN_AS_NODE= electron .",
+    "test:e2e": "npm run build:app-dir && npm run pack:e2e && cd .. && npx playwright test test/e2e-electron-app"
   },
   "dependencies": {
-    "chokidar": "^3.6.0",
-    "electron-store": "^8.2.0"
+    "chokidar": "^4.0.3",
+    "jsonc-parser": "^3.3.1",
+    "vscode-uri": "^3.2.0"
   },
   "devDependencies": {
-    "electron": "^28.3.3",
-    "electron-builder": "^25.1.8",
-    "typescript": "^5.3.0"
+    "@types/node": "^24.19.2",
+    "electron": "45.2.3",
+    "electron-builder": "^26.18.0",
+    "typescript": "~5.9.3"
   },
   "build": {
     "appId": "com.imaken.fractal",
     "productName": "Fractal",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
-      "out/**/*"
+      "out/**/*",
+      "!out/**/*.map",
+      "package.json"
     ],
     "extraResources": [
       {
-        "from": "../src/webview",
-        "to": "webview",
+        "from": "../out",
+        "to": "ext/out",
         "filter": [
-          "editor.js",
-          "editor-utils.js",
-          "styles.css",
-          "outliner.js",
-          "outliner-model.js",
-          "outliner-search.js",
-          "outliner.css"
+          "**/*",
+          "!**/*.map",
+          "!__bundle-smoke-messages.js"
         ]
+      },
+      {
+        "from": "../media",
+        "to": "ext/media"
       },
       {
         "from": "../vendor",
-        "to": "vendor"
+        "to": "ext/vendor"
       },
       {
-        "from": "../out/locales",
-        "to": "locales",
-        "filter": ["*.js"]
-      },
-      {
-        "from": "../out/shared",
-        "to": "out/shared",
-        "filter": [
-          "editor-body-html.js",
-          "notes-body-html.js",
-          "notes-file-panel.js",
-          "notes-file-manager.js",
-          "notes-message-handler.js",
-          "notes-host-bridge.js",
-          "markdown-import.js",
-          "outliner-clipboard-store.js"
-        ]
-      },
-      {
-        "from": "../out/notes-s3-sync.js",
-        "to": "out/notes-s3-sync.js"
+        "from": "../package.json",
+        "to": "ext/package.json"
       }
     ],
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "onlyLoadAppFromAsar": true,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "grantFileProtocolExtraPrivileges": false
+    },
     "mac": {
       "icon": "build/icon.icns",
-      "category": "public.app-category.developer-tools",
+      "category": "public.app-category.productivity",
+      "identity": "-",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "gatekeeperAssess": false,
+      "notarize": false,
       "target": [
-        {
-          "target": "dmg",
-          "arch": ["x64", "arm64"]
-        },
         {
           "target": "zip",
-          "arch": ["x64", "arm64"]
-        }
-      ],
-      "fileAssociations": [
-        {
-          "ext": [
-            "md",
-            "markdown"
-          ],
-          "name": "Markdown Document",
-          "role": "Editor"
-        },
-        {
-          "ext": ["out"],
-          "name": "Outliner Document",
-          "role": "Editor"
+          "arch": [
+            "arm64"
+          ]
         }
       ]
-    },
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "fileAssociations": [
-        {
-          "ext": "md",
-          "name": "Markdown Document"
-        },
-        {
-          "ext": "out",
-          "name": "Outliner Document"
-        }
-      ]
-    },
-    "linux": {
-      "icon": "build/icon.png",
-      "category": "Office",
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "fileAssociations": [
-        {
-          "ext": "md",
-          "name": "Markdown Document",
-          "mimeType": "text/markdown"
-        },
-        {
-          "ext": "out",
-          "name": "Outliner Document",
-          "mimeType": "application/x-outliner"
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
     }
   }
 }

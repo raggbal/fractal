@@ -1,0 +1,19 @@
+// Renderer-side code (sandboxed preloads + the prompt page): DOM types. A sandboxed preload can only
+// require('electron') at runtime, so files here must not import local modules (type-only imports are fine).
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "outDir": "./out/renderer",
+    "rootDir": "./src/renderer",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "sourceMap": true
+  },
+  "include": ["src/renderer/**/*"],
+  "exclude": ["dist/**", "out/**", "node_modules/**"]
+}
