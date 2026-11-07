@@ -2281,9 +2281,9 @@ var Outliner = (function() {
             dropIndicator.style.left = '0';
             dropIndicator.style.top = (rect.top - treeRect.top + treeEl.scrollTop) + 'px';
             dropIndicator.style.height = rect.height + 'px';
-            dropIndicator.style.background = 'rgba(0, 120, 212, 0.1)';
-            dropIndicator.style.border = '1px dashed var(--vscode-focusBorder, #007acc)';
-            dropIndicator.style.borderRadius = '4px';
+            dropIndicator.style.background = 'rgba(var(--fr-accent-rgb), 0.1)'; // 行の文字が透けるよう半透明（selection-bg は不透明）
+            dropIndicator.style.border = '1px dashed var(--fr-color-primary)';
+            dropIndicator.style.borderRadius = '6px';
         }
 
         treeEl.style.position = 'relative';
@@ -5917,7 +5917,7 @@ var Outliner = (function() {
         _selTraceEl.id = 'fr-sel-trace';
         _selTraceEl.style.cssText = 'position:fixed;top:4px;right:4px;z-index:99999;margin:0;padding:6px 8px;' +
             'max-width:52ch;max-height:60vh;overflow:hidden;pointer-events:none;' +
-            'font:10px/1.35 var(--vscode-editor-font-family, monospace);white-space:pre;' +
+            'font:10px/1.35 var(--fr-font-mono, monospace);white-space:pre;' +
             'background:rgba(0,0,0,0.78);color:#8ef;border:1px solid #8ef;border-radius:4px;';
         (document.body || document.documentElement).appendChild(_selTraceEl);
         _selTraceRender();
@@ -9610,10 +9610,10 @@ var Outliner = (function() {
                     });
                 }
             }
-            addMenuItem(contextMenuEl, i18n.outlinerDeletePage || 'Delete Page', function() {
+            markDangerMenuItem(addMenuItem(contextMenuEl, i18n.outlinerDeletePage || 'Delete Page', function() {
                 removePage(nodeId);
                 hideContextMenu();
-            });
+            }));
         } else {
             addMenuItem(contextMenuEl, i18n.outlinerMakePage || 'Make Page', function() {
                 makePage(nodeId);
@@ -9653,13 +9653,13 @@ var Outliner = (function() {
                     hideContextMenu();
                 });
             }
-            addMenuItem(contextMenuEl, i18n.outlinerRemoveFile || 'Remove File', function() {
+            markDangerMenuItem(addMenuItem(contextMenuEl, i18n.outlinerRemoveFile || 'Remove File', function() {
                 saveSnapshot();
                 node.filePath = null;
                 renderTree();
                 scheduleSyncToHost();
                 hideContextMenu();
-            });
+            }));
         }
 
         // --- llms.txt 風に配下を再帰コピー ---
@@ -9826,7 +9826,7 @@ var Outliner = (function() {
         // --- 削除 (スコープヘッダーノードは削除不可) ---
         var isCtxScopeHeader = (currentScope.type === 'subtree' && currentScope.rootId === nodeId);
         if (!isCtxScopeHeader) {
-            addMenuItem(contextMenuEl, i18n.outlinerDeleteNode || 'Delete Node', function() {
+            markDangerMenuItem(addMenuItem(contextMenuEl, i18n.outlinerDeleteNode || 'Delete Node', function() {
                 saveSnapshot();
                 var nextId = model.getNextVisibleId(nodeId) || model.getPreviousVisibleId(nodeId);
                 model.removeNode(nodeId);
@@ -9837,7 +9837,7 @@ var Outliner = (function() {
                 if (nextId && model.getNode(nextId)) { focusNode(nextId); }
                 scheduleSyncToHost();
                 hideContextMenu();
-            }, 'Backspace');
+            }, 'Backspace'));
         }
 
         // --- アプリ内リンクをコピー (Notes mode のみ) ---
@@ -10019,6 +10019,13 @@ var Outliner = (function() {
             handler(e);
         });
         parent.appendChild(item);
+        return item;
+    }
+
+    /** 危険な項目（削除・取り外し）の見た目: 文字 danger・hover danger-soft（menu の共通の形 — docs/design/modern-2026.md §7.6） */
+    function markDangerMenuItem(item) {
+        if (item && item.classList) { item.classList.add('danger'); }
+        return item;
     }
 
     function addMenuSeparator(parent) {
@@ -11122,7 +11129,7 @@ var Outliner = (function() {
             }).join('');
             bindSidePanelTocClicks();
         } else {
-            sidePanelTocEl.innerHTML = '<div class="side-panel-toc-empty" style="padding:12px 16px;color:var(--text-muted,#888);font-size:12px;font-style:italic;">' +
+            sidePanelTocEl.innerHTML = '<div class="side-panel-toc-empty" style="padding:12px 16px;color:var(--fr-color-text-tertiary,#888);font-size:12px;font-style:italic;">' +
                 escapeHtml(i18n.outlineEmpty || 'No headings') + '</div>';
         }
         if (sidePanelTocVisible) { openSidePanelSidebar(); }

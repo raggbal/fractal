@@ -1,6 +1,6 @@
 {
  "note": "pre-existing red baseline. Regenerate with scripts/check-known-red.sh --update <json>",
- "count": 100,
+ "count": 95,
  "tests": [
   {
    "file": "specs/backspace-list.spec.ts",
@@ -201,26 +201,6 @@
   {
    "file": "specs/integration-md-paste-location-matrix.spec.ts",
    "title": "M-L4 cross-note: 同上"
-  },
-  {
-   "file": "specs/integration-minimal-foundation.spec.ts",
-   "title": "TC-05a: light theme uses pastel cream bg"
-  },
-  {
-   "file": "specs/integration-minimal-foundation.spec.ts",
-   "title": "TC-05b: dark theme uses deep navy bg"
-  },
-  {
-   "file": "specs/integration-minimal-foundation.spec.ts",
-   "title": "TC-06: data-fr-theme=\"auto\" + colorScheme=dark → dark tokens"
-  },
-  {
-   "file": "specs/integration-minimal-foundation.spec.ts",
-   "title": "TC-08a: file-panel-btn border-radius uses --fr-radius-sm (=6px)"
-  },
-  {
-   "file": "specs/integration-minimal-foundation.spec.ts",
-   "title": "TC-09: file-panel-tab.active border-bottom uses --fr-color-primary"
   },
   {
    "file": "specs/integration-pinned-tag-context-menu.spec.ts",

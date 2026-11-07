@@ -26,7 +26,7 @@
         // top はタブバー変数（strip 非表示時は 0px で従来どおり全高 — TC-FV-73 が番人）
         viewerContainer.style.cssText = 'display:none; position:absolute; ' +
             'top: var(--notes-tab-bar-height, 0px); left:0; right:0; bottom:0; z-index:50; ' +
-            'background: var(--vscode-editor-background, #fff); flex-direction: column;';
+            'background: var(--fr-color-bg-app, #fff); flex-direction: column;';
         // メインペイン内（outliner/markdown コンテナの兄弟）にマウントする — body 直下だと
         // タブバー・ファイルパネルまで覆う全画面被りになる（実機検収 2026-08-15）。
         // .notes-main-wrapper は position:relative（notes-body-html.js:215）なので inset:0 が

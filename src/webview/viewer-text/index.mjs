@@ -16,17 +16,21 @@ function ensureStyle(doc) {
     const style = doc.createElement('style');
     style.id = 'fv-text-style';
     style.textContent = [
-        '.fv-text { font-family: var(--vscode-editor-font-family, ui-monospace, monospace);',
+        // 書体と大きさは利用者の editor の設定（VS Code の editor.fontFamily / fontSize。Electron は theme.ts が入れる）に従う。
+        // テーマの色ではないので VS Code に追従してよい（P7 は色の決まり — docs/design/modern-2026.md §5.4）。
+        // 拡大の基準（下の baseFs）もこの大きさ
+        '.fv-text { font-family: var(--vscode-editor-font-family, var(--fr-font-mono, ui-monospace, monospace));',
         '  font-size: var(--vscode-editor-font-size, 13px); line-height: 1.5; padding: 8px 0;',
-        '  color: var(--fv-text, var(--vscode-editor-foreground, #333)); }',
+        '  color: var(--fv-text, #18181B); }',
         '.fv-line { display: flex; }',
         // 行番号は実 DOM 行単位 = 折り返し行には番号が付かない（FR-TXV-01）
         '.fv-ln { flex: 0 0 auto; min-width: 5ch; text-align: right; padding: 0 12px 0 8px;',
-        '  user-select: none; color: var(--vscode-editorLineNumber-foreground, #999); }',
+        '  user-select: none; color: var(--fr-color-text-tertiary, #999); font-variant-numeric: tabular-nums; }',
         '.fv-lt { flex: 1 1 auto; min-width: 0; white-space: pre-wrap; word-break: break-all;',
         '  padding-right: 12px; }',
-        '.fv-find-hit { background: rgba(255, 213, 79, 0.6); }',
-        '.fv-find-current { background: rgba(255, 150, 50, 0.95); }',
+        // 一致の強調は md / outliner と同じ 1 組（--fr-color-search-hit / -current）。token の無い面は従来の黄色
+        '.fv-find-hit { background: var(--fr-color-search-hit, rgba(255, 213, 79, 0.6)); }',
+        '.fv-find-current { background: var(--fr-color-search-current, rgba(255, 150, 50, 0.95)); }',
     ].join('\n');
     doc.head.appendChild(style);
 }

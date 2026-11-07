@@ -47,9 +47,10 @@
             '.viewer-side-panel { display: none; position: absolute;',
             '  top: var(--notes-tab-bar-height, 0px); right: 0; bottom: 0;',
             '  width: 50%; min-width: min(288px, 95vw); max-width: 70%;',
-            '  background: var(--fr-color-bg-panel, var(--vscode-editorWidget-background, #f7f7f5));',
-            '  border-left: 1px solid var(--fr-color-border, var(--vscode-panel-border, #ddd));',
-            '  box-shadow: -4px 0 12px rgba(0,0,0,0.08);',
+            // 本文の面（bg-app）+ 左に 1px の divider + 段 3 の影（md の .side-panel と同じ — modern-2026 §7.14）
+            '  background: var(--fr-color-bg-app, #fff);',
+            '  border-left: 1px solid var(--fr-color-divider, #E7E7EA);',
+            '  box-shadow: var(--fr-shadow-3, -4px 0 12px rgba(0,0,0,0.08));',
             // ADRL-0138: md .side-panel（z-index 100）の上に重ねる。既存 popup（200 以上）・lightbox（1000 以上）より下
             '  z-index: 150; flex-direction: column; }',
             '.viewer-side-panel.open { display: flex; }',
@@ -59,7 +60,7 @@
             '.viewer-side-panel-resize-handle { position: absolute; top: 0; left: -3px; width: 5px;',
             '  height: 100%; cursor: col-resize; z-index: 101; background: transparent; }',
             '.viewer-side-panel-resize-handle:hover, .viewer-side-panel-resize-handle.active {',
-            '  background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));',
+            '  background: var(--fr-color-primary, #0A68E6);',
             '  width: 2px; left: -1px; }',
             '.viewer-side-panel-mount { flex: 1 1 auto; position: relative; overflow: auto;',
             '  display: flex; flex-direction: column; min-height: 0; }',

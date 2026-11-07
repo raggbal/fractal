@@ -53,6 +53,8 @@ for (const f of ['viewer-static.min.js', 'stencils.min.js']) {
 const viewerJsPath = path.join(ROOT, 'src', 'webview', 'file-viewer.js');
 const viewerJs = fs.existsSync(viewerJsPath) ? fs.readFileSync(viewerJsPath, 'utf-8') : '/* file-viewer.js not yet implemented (TASK-02) */';
 const viewerCss = fs.readFileSync(path.join(PDFJS_SRC, 'pdf_viewer.css'), 'utf-8');
+// 本番 fileViewerContent.ts と同じく Fractal の token（tokens.css）と data-fr-theme で描く（modern-2026 §7.14）
+const tokensCss = fs.readFileSync(path.join(ROOT, 'src', 'webview', 'tokens.css'), 'utf-8');
 
 // TASK-11（TDD-RO-3）: CSP を本番 fileViewerContent.ts 相当に再現（cspSource → 'self' 読み替え）。
 // script-src 'nonce-…' が無いと TC-FV-41/43/46 の counterfactual（ユーザー script の nonce 有無で
@@ -75,7 +77,7 @@ const csp = [
 
 function buildHtml(csp) {
 return `<!DOCTYPE html>
-<html>
+<html data-fr-theme="auto">
 <head>
 <meta charset="utf-8">
 <!-- 本番 fileViewerContent.ts の CSP を忠実に再現（cspSource → 'self'）。blob iframe はこの CSP を
@@ -83,6 +85,9 @@ return `<!DOCTYPE html>
      （connect-src）・外部 URL への iframe 遷移抑止（frame-src — TC-FV-03）が全てここに依存する -->
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <title>Standalone File Viewer Test</title>
+<style>
+${tokensCss}
+</style>
 <style>
 ${viewerCss}
 html, body { margin: 0; height: 100%; }

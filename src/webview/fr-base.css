@@ -1,8 +1,9 @@
 /*
- * Fractal Minimal Redesign — Base Styles (PoC v1)
+ * Fractal Base Styles — modern-2026
  *
  * Loaded after tokens.css, before fr-components.css.
  * Provides reset, scrollbar, focus, selection, body base.
+ * 設計: docs/design/modern-2026.md §5.6（動き）・§7.15（scrollbar と focus）
  */
 
 @layer fr-base {
@@ -11,49 +12,65 @@
         box-sizing: border-box;
     }
 
-    /* ───────── Scrollbar (8px, light/dark 両対応) ───────── */
+    /* native の checkbox・radio・range を accent の 1 色にそろえる（md の task / outliner の checkbox） */
+    :root {
+        accent-color: var(--fr-color-primary);
+    }
+
+    /* ───────── Scrollbar ─────────
+     * 標準の scrollbar-width / scrollbar-color（Chromium 121 以降はこちらが効く）と、
+     * 古い Chromium（VS Code 1.85 = Chromium 114）向けの ::-webkit-scrollbar を両方置く。
+     * thumb は 2px の透明な縁で中を 6px に見せる */
     ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+        width: 10px;
+        height: 10px;
     }
     ::-webkit-scrollbar-track {
         background: transparent;
     }
     ::-webkit-scrollbar-thumb {
         background: var(--fr-color-scrollbar-thumb);
+        background-clip: padding-box;
+        border: 2px solid transparent;
         border-radius: var(--fr-radius-full);
     }
     ::-webkit-scrollbar-thumb:hover {
         background: var(--fr-color-scrollbar-thumb-hover);
+        background-clip: padding-box;
     }
     ::-webkit-scrollbar-corner {
         background: transparent;
     }
-    /* Firefox */
     * {
         scrollbar-width: thin;
         scrollbar-color: var(--fr-color-scrollbar-thumb) transparent;
     }
 
-    /* ───────── Focus ring (button/input/textarea/select のみ) ─────────
+    /* ───────── Focus ring (button/input/textarea/select のみ・キーボードのときだけ) ─────────
      * 注意: contenteditable / outliner-text 等の text editing 領域には
-     * focus ring を当てない (ユーザー要望: カーソル入った時に強調しない) */
+     * focus ring を当てない (ユーザー要望: カーソル入った時に強調しない)。
+     * 入力欄は縁 + 淡い halo、ボタンは 2px の outline */
     input:focus-visible,
     textarea:focus-visible,
-    select:focus-visible,
-    button:focus-visible {
+    select:focus-visible {
         outline: none;
+        border-color: var(--fr-color-focus-ring);
         box-shadow: var(--fr-shadow-focus);
     }
+    button:focus-visible {
+        outline: 2px solid var(--fr-color-focus-ring);
+        outline-offset: 1px;
+        box-shadow: none;
+    }
 
-    /* ───────── Selection ───────── */
+    /* ───────── Selection（文字の範囲選択 = 青。outliner の node 選択の amber とは別 — ADRL-0115） ───────── */
     ::selection {
-        background: var(--fr-color-primary-soft);
-        color: var(--fr-color-text-primary);
+        background: var(--fr-color-text-selection);
+        color: inherit;
     }
 
     /* ───────── Body base (typography hint — do not override existing styles.css size) ───────── */
-    /* body は styles.css 側で `font-size: var(--font-size)` (PL-05 default 12) を設定。
+    /* body は styles.css 側で `font-size: var(--font-size)` (fractal.fontSize) を設定。
        fr-base はそれを尊重し、color と font-family のみ補強。 */
     body {
         font-family: var(--fr-font-sans);
@@ -62,7 +79,8 @@
     }
 
     /* ───────── Smooth theme transition (BH-04 ちらつき対策) ───────── */
-    /* 切替時の bg / color / border 補間。layout を変える transition は入れない */
+    /* 切替時の bg / color / border 補間。layout を変える transition は入れない。
+       80ms（キーボードで tree を動かしたときに選択の色が遅れて見えないように） */
     body,
     .file-panel-item,
     .file-panel-folder-header,
@@ -73,6 +91,6 @@
     .file-panel-context-menu,
     .file-panel-context-item,
     .outliner-search-input {
-        transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        transition: background-color var(--fr-duration-fast) ease, border-color var(--fr-duration-fast) ease, color var(--fr-duration-fast) ease;
     }
 }

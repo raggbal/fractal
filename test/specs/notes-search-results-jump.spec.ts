@@ -7,8 +7,10 @@
  *   - リンク行の上に結果が覗く隙間を作らない（結果コンテナの上 padding 0）
  *   - 結果の一番上に、結果のある種別（Notes / Outliner / Markdown / Files）へ飛ぶリンク（件数つき）
  *
- * ハーネス: 現ソースの notes-body-html（CSS/HTML）+ markdown-link-parser.js + notes-file-panel.js を about:blank に載せ、
- * host 役のテストが onSearchStart / onSearchPartial を駆動する（notes-panel-notion-header.spec.ts の単体パネルと同型）。
+ * ハーネス: 現ソースの tokens.css + notes-body-html（CSS/HTML）+ markdown-link-parser.js + notes-file-panel.js を
+ * about:blank に載せ、host 役のテストが onSearchStart / onSearchPartial を駆動する（notes-panel-notion-header.spec.ts の
+ * 単体パネルと同型）。tokens.css は本番の webview と同じく panel の CSS より前に読む（色を token で解決して比べるため —
+ * 2026-11 modern-2026。以前は tokens を読まず、CSS の fallback の色を見ていた）。
  */
 import { test, expect, Page } from '@playwright/test';
 import * as fs from 'fs';
@@ -27,9 +29,10 @@ async function bootPanel(page: Page): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { generateNotesFilePanelHtml } = require('../../src/shared/notes-body-html.js');
     const panel = generateNotesFilePanelHtml({ collapsed: false, messages: {} });
+    const tokens = fs.readFileSync(path.join(ROOT, 'src/webview/tokens.css'), 'utf8');
     await page.goto('about:blank');
     await page.setContent(
-        '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' + panel.css + '</style></head>' +
+        '<!DOCTYPE html><html data-fr-theme="light"><head><meta charset="utf-8"><style>' + tokens + '</style><style>' + panel.css + '</style></head>' +
         '<body><div class="notes-layout" style="height:400px">' + panel.html + '</div></body></html>');
     await page.evaluate(() => {
         const w = window as any;
@@ -79,12 +82,25 @@ test('結果のファイル名は青・種別名は灰色 + 下線、xlsx は名
     await runSearch(page);
     const filesHeader = page.locator('#notesSearchResults .file-panel-search-file-header', { hasText: 'Budget.xlsx' });
     await expect(filesHeader).toHaveCount(1);
-    const style = await filesHeader.evaluate((el) => ({
-        color: getComputedStyle(el).color,
-        first: (el.firstElementChild as HTMLElement | null)?.className || '',
-        glyph: (el.firstElementChild as HTMLElement | null)?.textContent || '',
-    }));
-    expect(style.color).toBe('rgb(57, 148, 188)');           // --fr-color-primary-strong の既定 #3994BC（青）
+    const style = await filesHeader.evaluate((el) => {
+        // Fractal の青（--fr-color-primary-strong）を probe の要素で解決した値と比べる（値は tokens.css の 1 か所で決まる —
+        // docs/design/modern-2026.md §10.5。2026-11 に #3994BC → #0256C3 へ。固定値にすると配色を変えるたびに test を直すことになる）
+        const probe = document.createElement('div');
+        probe.style.color = 'var(--fr-color-primary-strong)';
+        document.body.appendChild(probe);
+        const blue = getComputedStyle(probe).color;
+        probe.remove();
+        return {
+            color: getComputedStyle(el).color,
+            blue,
+            first: (el.firstElementChild as HTMLElement | null)?.className || '',
+            glyph: (el.firstElementChild as HTMLElement | null)?.textContent || '',
+        };
+    });
+    // 前提: token が解決できていて、青である（B が R より十分大きい — 値そのものは tokens.css の 1 か所で決まる）
+    const ch = style.blue.match(/\d+/g)!.map(Number);
+    expect(ch[2] - ch[0], `--fr-color-primary-strong が青でない: ${style.blue}`).toBeGreaterThan(60);
+    expect(style.color).toBe(style.blue);                    // ファイル名 = Fractal の青（--fr-color-primary-strong）
     expect(style.first).toBe('file-panel-search-file-glyph');
     expect(style.glyph).toBe('📗');
     // .out の見出しには .out の SVG アイコン（emoji ではない）
@@ -97,8 +113,9 @@ test('結果のファイル名は青・種別名は灰色 + 下線、xlsx は名
         const cs = getComputedStyle(el);
         return { color: cs.color, border: cs.borderBottomWidth + ' ' + cs.borderBottomStyle };
     });
-    expect(await filesHeader.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(57, 148, 188)');
-    expect(cat.color).not.toBe('rgb(57, 148, 188)');
+    expect(await filesHeader.evaluate((el) => getComputedStyle(el).color)).toBe(style.blue);
+    expect(style.blue).not.toBe('rgb(177, 128, 215)');       // VS Code のリンク色（紫）に引きずられない
+    expect(cat.color).not.toBe(style.blue);
     expect(cat.color).not.toBe('rgb(177, 128, 215)');
     expect(cat.border).toBe('2px solid');
     const mdHeader = page.locator('#notesSearchResults .file-panel-search-file-header', { hasText: 'Budget memo' });

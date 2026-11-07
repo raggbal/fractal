@@ -85,9 +85,9 @@
     }
 
     // viewer の見た目は 3 面（standalone/sidepanel/note）どこでも同一になるよう自己完結で注入する。
-    // 色は Fractal のテーマトークン（--fr-*）を第一に使い、無い面（standalone viewer webview）では
-    // VS Code 変数 → ライト既定にフォールバック（実機検収 2026-08-15: --vscode-* 直参照だと
-    // ダーク VS Code で viewer だけ真っ黒になり、ライト基調のアプリ UI と乖離した）
+    // 色は Fractal のテーマトークン（--fr-*）だけを使う。standalone viewer webview も tokens.css を読み
+    // data-fr-theme を持つ（fileViewerContent.ts）。token が無い面ではライト既定にフォールバック
+    //（実機検収 2026-08-15: --vscode-* 直参照だとダーク VS Code で viewer だけ真っ黒になり、ライト基調のアプリ UI と乖離した）
     // TASK-12: 開いている viewer mount → find state（Cmd+F の一元先取り用。destroy で解除）
     const findRegistry = new Map();
     function activeFindState() {
@@ -125,50 +125,65 @@
         const style = document.createElement('style');
         style.id = 'file-viewer-style';
         style.textContent = [
-            ':root { --fv-bg-bar: var(--fr-color-bg-panel, var(--vscode-editorWidget-background, #f7f7f5));',
-            '  --fv-bg-body: var(--fr-color-bg-app, var(--vscode-editor-background, #ececec));',
-            '  --fv-border: var(--fr-color-border, var(--vscode-panel-border, #ddd));',
-            // 第 7 ラウンド①: 実在トークンは --fr-color-text-primary（tokens.css:40 = #1A1B1F —
-            // md の --text-color の実体）。旧 --fr-color-text は存在せず --vscode-foreground
-            // （UI 用薄グレー）へ落下して md より大幅に薄くなっていた（TC-FV-74 が実色を pin）
-            '  --fv-text: var(--fr-color-text-primary, var(--vscode-editor-foreground, var(--vscode-foreground, #333)));',
-            '  --fv-text-muted: var(--fr-color-text-muted, var(--vscode-descriptionForeground, #777));',
-            '  --fv-btn-bg: var(--fr-color-bg-elevated, var(--vscode-button-secondaryBackground, #fff));',
-            '  --fv-btn-hover: var(--fr-color-primary-soft, var(--vscode-button-secondaryHoverBackground, #e8f1fb)); }',
+            // modern-2026（docs/design/modern-2026.md §7.14）: viewer の chrome は本文の面（toolbar も本体も bg-app）、
+            // 線は divider 1 本、PDF / docx / pptx の紙面の後ろだけ bg-canvas（白い紙面の縁が見える最小の灰）。
+            // 色は Fractal の token だけを読む（VS Code のテーマの色 --vscode-* は読まない — P7）。fallback は light の値
+            ':root { --fv-bg-bar: var(--fr-color-bg-app, #FFFFFF);',
+            '  --fv-bg-body: var(--fr-color-bg-app, #FFFFFF);',
+            '  --fv-bg-canvas: var(--fr-color-bg-canvas, #F2F2F4);',
+            '  --fv-border: var(--fr-color-divider, #E7E7EA);',
+            // 第 7 ラウンド①: 実在トークンは --fr-color-text-primary（md の --text-color の実体）。
+            // 旧 --fr-color-text は存在せず fallback へ落下して md より大幅に薄くなっていた（TC-FV-74 が実色を pin）
+            '  --fv-text: var(--fr-color-text-primary, #18181B);',
+            '  --fv-text-muted: var(--fr-color-text-secondary, #52525B);',
+            // 検索欄の地（TC-VFB-08 は「検索欄の地 = --fv-btn-bg」を見る）・hover の塗り
+            '  --fv-btn-bg: var(--fr-color-fill-subtle, rgba(24, 24, 27, 0.04));',
+            '  --fv-btn-hover: var(--fr-color-fill-hover, rgba(24, 24, 27, 0.055)); }',
             // FR-FV-12（再オープン③）: ボタン chrome は md sidepanel の .side-panel-header-btn
-            //（styles.css:1926-1950）の値を自己完結で複製（アイコンボタン化 — 枠付きテキストボタン廃止）
+            //（styles.css）の値を自己完結で複製（アイコンボタン化 — 枠付きテキストボタン廃止）
+            // 36px の行（5 + ボタン 25 + 5 + 下の線 1 — md の toolbar と同じ。note 面では notes-body-html.js が 36px に固定する）
             '.viewer-toolbar { flex: 0 0 auto; display: flex; gap: 2px; align-items: center;',
-            '  padding: 6px 10px; border-bottom: 1px solid var(--fv-border);',
+            '  padding: 5px 10px; border-bottom: 1px solid var(--fv-border);',
             '  background: var(--fv-bg-bar); color: var(--fv-text);',
-            '  font-family: var(--vscode-font-family, -apple-system, sans-serif); }',
+            '  font-family: var(--fr-font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif); }',
             '.viewer-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;',
-            '  white-space: nowrap; font-size: 12px; color: var(--fv-text-muted); margin-right: 6px; }',
+            '  white-space: nowrap; font-size: var(--fr-text-base, 13px); font-weight: 500; color: var(--fv-text-muted); margin-right: 6px; }',
+            // 休み = 色 text-primary × 不透明度 .62（TC-FV-74 は色が text-primary であることを pin）、hover で 1 + fill-hover
+            // 箱は md の toolbar・outliner・sidepanel のヘッダーと同じ 26 × 25（並びの間隔 28px — §7.4）
             '.viewer-toolbar button { flex: 0 0 auto; background: none; border: none; color: var(--fv-text);',
-            '  cursor: pointer; padding: 4px; border-radius: 4px; opacity: 0.6;',
-            '  display: flex; align-items: center; font-size: 12px; line-height: 1; }',
-            '.viewer-toolbar button:hover { opacity: 1; background: var(--hover-bg, rgba(128,128,128,0.15)); }',
+            '  cursor: pointer; padding: 4px; border-radius: var(--fr-radius-sm, 6px); opacity: 0.62;',
+            '  box-sizing: border-box; min-width: 26px; min-height: 25px; justify-content: center;',
+            '  display: flex; align-items: center; font-size: 12px; line-height: 1; font-family: inherit; }',
+            '.viewer-toolbar button:hover { opacity: 1; background: var(--fv-btn-hover); }',
             '.viewer-toolbar button svg { width: 14px; height: 14px; }',
-            '.viewer-find-bar { flex: 0 0 auto; display: flex; gap: 4px; align-items: center; padding: 2px 6px;',
-            '  background: var(--fv-bg, transparent); border-bottom: 1px solid var(--fv-border, rgba(128,128,128,0.25)); }',
-            '.viewer-find-bar input { flex: 0 1 220px; min-width: 80px; font-size: 12px; padding: 2px 6px;',
+            '.viewer-toolbar button svg[fill="none"] { stroke-width: 1.75; }',
+            '.viewer-find-bar { flex: 0 0 auto; display: flex; gap: 4px; align-items: center; padding: 3px 8px;',
+            '  background: var(--fv-bg-bar); border-bottom: 1px solid var(--fv-border); }',
+            '.viewer-find-bar input { flex: 0 1 220px; min-width: 80px; font-size: 12px; padding: 3px 8px;',
             // 入力欄は viewer の chrome と同じ fractal トークン（--vscode-input-* は VS Code が暗いテーマだと
-            // fractal が白でも黒い箱になっていた — 2026-10-23）
-            '  background: var(--fv-btn-bg); color: var(--fv-text);',
-            '  border: 1px solid var(--fv-border); border-radius: 3px; outline: none; }',
-            '.viewer-find-bar input:focus { border-color: var(--fr-color-primary, var(--vscode-focusBorder, #9CC8DC)); }',
-            '.viewer-find-count { font-size: 11px; opacity: 0.75; min-width: 40px; text-align: center; }',
+            // fractal が白でも黒い箱になっていた — 2026-10-23）。休みは地だけ（縁で囲まない）、focus で縁 + halo
+            '  background: var(--fv-btn-bg); color: var(--fv-text); font-family: inherit;',
+            '  border: 1px solid transparent; border-radius: var(--fr-radius-sm, 6px); outline: none; }',
+            '.viewer-find-bar input:focus { border-color: var(--fr-color-focus-ring, #0A68E6);',
+            '  box-shadow: var(--fr-shadow-focus, none); }',
+            '.viewer-find-count { font-size: 11px; color: var(--fr-color-text-tertiary, #64646C); font-variant-numeric: tabular-nums;',
+            '  min-width: 40px; text-align: center; }',
             '.viewer-find-bar button { background: none; border: none; cursor: pointer; opacity: 0.7; padding: 2px 4px;',
-            '  color: var(--fv-text); border-radius: 3px; }',
-            '.viewer-find-bar button:hover { opacity: 1; background: var(--hover-bg, rgba(128,128,128,0.15)); }',
-            '.viewer-script-toggle[aria-pressed="true"] { opacity: 1; background: var(--fv-btn-hover); }',
-            '.viewer-zoom-in, .viewer-zoom-out, .viewer-zoom-reset { min-width: 24px; font-weight: 600; font-size: 13px;',
+            '  color: var(--fv-text); border-radius: var(--fr-radius-sm, 6px); }',
+            '.viewer-find-bar button:hover { opacity: 1; background: var(--fv-btn-hover); }',
+            // ON = primary-soft + primary-strong（不透明度 1）
+            '.viewer-script-toggle[aria-pressed="true"] { opacity: 1; background: var(--fr-color-primary-soft, #E3EEFF);',
+            '  color: var(--fr-color-primary-strong, #0256C3); }',
+            '.viewer-zoom-in, .viewer-zoom-out, .viewer-zoom-reset { min-width: 26px; font-weight: 600; font-size: 13px;',
             '  justify-content: center; }',
             '.viewer-body { flex: 1 1 auto; position: relative; overflow: auto; min-height: 0;',
             '  background: var(--fv-bg-body); }',
             // html は「ブラウザで見た時」が正 — iframe は常に白ベース
             '.viewer-html-frame { width: 100%; height: 100%; border: none; background: #fff; }',
-            // pdf はページ紙面が浮くニュートラル背景 + pdf_viewer.css の page 影を活かす
-            '.viewer-pdf-container { background: var(--fv-bg-body); }',
+            // pdf はページ紙面が浮くニュートラル背景（bg-canvas）。紙面の縁は 1px の divider + 段 1 の影
+            //（.page は 9px の透明な border を持つので、影は中の .canvasWrapper に付ける）
+            '.viewer-pdf-container { background: var(--fv-bg-canvas); }',
+            '.viewer-pdf-container .pdfViewer .canvasWrapper { box-shadow: 0 0 0 1px var(--fr-color-divider, #E7E7EA), var(--fr-shadow-1, none); }',
             // FR-VZP-03: ドラッグパンのカーソル（text span 上は選択カーソルを維持）
             '.viewer-pdf-container { cursor: grab; }',
             '.viewer-pdf-container.fv-panning { cursor: grabbing; }',
@@ -188,8 +203,8 @@
             '.viewer-pdf-container .textLayer :is(span, br) { letter-spacing: normal;',
             '  word-spacing: normal; text-transform: none; font-weight: normal; font-style: normal;',
             '  padding: 0; margin: 0; }',
-            '.viewer-error { padding: 20px; color: var(--fr-color-danger, var(--vscode-errorForeground, #c33));',
-            '  font-family: var(--vscode-font-family, sans-serif); font-size: 13px; white-space: pre-wrap; }',
+            '.viewer-error { padding: 20px; color: var(--fr-color-danger, #C81E1E);',
+            '  font-family: var(--fr-font-sans, sans-serif); font-size: 13px; white-space: pre-wrap; }',
         ].join('\n');
         document.head.appendChild(style);
     }

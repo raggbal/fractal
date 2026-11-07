@@ -51,8 +51,9 @@ test('TC-W1 (#A7 load-bearing) 改行なし長文で編集中に横幅がリア�
     await page.keyboard.press('Space');
     await page.waitForTimeout(60);
     const before = await foRect(page, 'n1');
-    // 改行なし・280px 上限には未達の長さ
-    await page.keyboard.type('これは折り返さずに横に伸びる一文です');
+    // 改行なし・280px 上限には未達の長さ（和文は 1 字 = 1em。modern-2026 で和文の UI 書体（Hiragino Sans 等）を
+    // 明示したので、旧 18 字（-apple-system の fallback で 1 字 ≒ 12px だった）は 13px × 18 + 余白で上限に届く → 15 字に）
+    await page.keyboard.type('これは折り返さずに横に伸びる文');
     await page.waitForTimeout(120);
     const after = await foRect(page, 'n1');
     const nowrap = await hasNowrap(page, 'n1');

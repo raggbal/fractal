@@ -31,12 +31,18 @@ function ensureStyle(doc) {
     const style = doc.createElement('style');
     style.id = 'fv-drawio-style';
     style.textContent = [
-        '.viewer-drawio-page { max-width: 180px; font: inherit; font-size: 12px; }',
-        '.viewer-drawio-layer-menu { position: fixed; z-index: 1000; min-width: 160px; max-height: 60vh; overflow: auto;',
-        '  padding: 4px 0; background: var(--fv-bg-bar, #fff); border: 1px solid var(--fv-border, #ccc);',
-        '  border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-size: 12px; }',
-        '.viewer-drawio-layer-menu label { display: flex; align-items: center; gap: 6px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }',
-        '.viewer-drawio-layer-menu label:hover { background: rgba(128,128,128,0.12); }',
+        // select は入力欄と同じ地（fill-subtle・縁なし・角 6px）
+        '.viewer-drawio-page { max-width: 180px; font: inherit; font-size: 12px; height: 26px; padding: 0 6px;',
+        '  border: 1px solid transparent; border-radius: var(--fr-radius-sm, 6px);',
+        '  background: var(--fr-color-fill-subtle, transparent); color: var(--fv-text, inherit); }',
+        // レイヤーの menu は menu の共通の形（modern-2026 §7.6: 地 bg-elevated・縁 1px・角 10px・影 2・項目 角 6px）
+        '.viewer-drawio-layer-menu { position: fixed; z-index: 1000; min-width: 180px; max-height: 60vh; overflow: auto;',
+        '  padding: 4px; background: var(--fr-color-bg-elevated, #fff); color: var(--fr-color-text-primary, inherit);',
+        '  border: 1px solid var(--fr-color-border, #ccc);',
+        '  border-radius: var(--fr-radius-lg, 10px); box-shadow: var(--fr-shadow-2, 0 4px 12px rgba(0,0,0,0.15)); font-size: 13px; }',
+        '.viewer-drawio-layer-menu label { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: var(--fr-radius-sm, 6px);',
+        '  cursor: pointer; white-space: nowrap; }',
+        '.viewer-drawio-layer-menu label:hover { background: var(--fr-color-fill-hover, rgba(128,128,128,0.12)); }',
     ].join('\n');
     doc.head.appendChild(style);
 }

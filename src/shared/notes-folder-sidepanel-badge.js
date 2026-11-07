@@ -22,8 +22,8 @@
         var style = document.createElement('style');
         style.id = STYLE_ID;
         style.textContent = [
-            '.side-panel-linkedfolder-badge { margin-left: 6px; font-size: 11px; opacity: 0.75;',
-            '  color: var(--outliner-fg); white-space: nowrap; flex: 0 0 auto; }',
+            '.side-panel-linkedfolder-badge { margin-left: 6px; font-size: 11px;',
+            '  color: var(--fr-color-text-secondary); white-space: nowrap; flex: 0 0 auto; }',
         ].join('\n');
         document.head.appendChild(style);
     }

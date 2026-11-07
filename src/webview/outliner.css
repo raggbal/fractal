@@ -9,38 +9,18 @@
  * (layer order: fr-legacy < fr-tokens < fr-base < fr-components < fr-chrome) */
 @layer fr-legacy {
     :root {
-        --outliner-bg: var(--vscode-editor-background, #1e1e1e);
-        --outliner-fg: var(--vscode-editor-foreground, #cccccc);
+        /* tokens.css（@layer fr-tokens）は --outliner-bg / --outliner-fg / --outliner-border / --outliner-hover-bg
+         * などの色をすべて定義する（3 つの webview とテストのハーネスは必ず tokens.css を先に読む）。
+         * ここには tokens.css に無い寸法と、outliner だけの選択・一致の色を置く。
+         * VS Code のテーマの色（--vscode-*）は読まない（docs/design/modern-2026.md P7） */
         --outliner-indent: 1.35em;
         --outliner-bullet-size: 5px;
         --outliner-line-height: 1.35;
         --outliner-font-size: __FONT_SIZE__px;
-        --outliner-border: var(--vscode-panel-border, #333);
-        --outliner-hover-bg: var(--vscode-list-hoverBackground, rgba(255,255,255,0.05));
-        --outliner-focus-bg: var(--vscode-list-activeSelectionBackground, rgba(0,120,212,0.15));
-        --outliner-tag-color: #569cd6;
-        --outliner-tag-bg: rgba(86,156,214,0.15);
-        --outliner-page-icon-color: #3b82f6;
-        --outliner-search-bg: var(--vscode-input-background, #3c3c3c);
-        --outliner-search-border: var(--vscode-input-border, #555);
-        --outliner-search-fg: var(--vscode-input-foreground, #ccc);
         --outliner-match-bg: rgba(255,200,0,0.2);
-        --outliner-placeholder: var(--vscode-input-placeholderForeground, #888);
-        --outliner-checkbox-accent: #569cd6;
-        --outliner-text-focus-bg: rgba(255,255,255,0.03);
-        --outliner-code-bg: rgba(255,255,255,0.08);
-        --outliner-tag-hover-bg: rgba(86,156,214,0.3);
-        --outliner-scrollbar-thumb: rgba(255,255,255,0.15);
-        --outliner-scrollbar-thumb-hover: rgba(255,255,255,0.25);
-        --outliner-text: var(--vscode-editor-foreground, #cccccc);
-        --outliner-hover: var(--vscode-list-hoverBackground, rgba(255,255,255,0.05));
-        --outliner-active: var(--vscode-list-activeSelectionBackground, rgba(0,120,212,0.15));
-        --outliner-subtext: #999;
-        --outliner-subtext-color: #888;
-        --outliner-error-color: #d00;
-        --outliner-accent-fg: #fff;
+        /* ADRL-0115: node 選択は amber（light と dark で別の alpha・検索の 0.4 より薄い）。::selection は青 */
         --outliner-selection-bg: rgba(255, 193, 7, 0.30);
-        --outliner-selection-text-bg: rgba(125, 196, 223, 0.45);
+        --outliner-selection-text-bg: var(--fr-color-text-selection);
     }
 }
 
@@ -60,7 +40,7 @@ body {
     height: 100vh;
     background: var(--outliner-bg);
     color: var(--outliner-fg);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-family: var(--fr-font-sans);
     font-size: var(--outliner-font-size);
     line-height: var(--outliner-line-height);
     overflow: hidden;
@@ -84,8 +64,8 @@ body {
 .outliner-page-title-input {
     flex: 1;
     min-width: 0;
-    font-size: 1.35em;
-    font-weight: 600;
+    font-size: 1.4em;
+    font-weight: 700;
     border: none;
     background: transparent;
     color: var(--outliner-fg);
@@ -93,6 +73,13 @@ body {
     padding: 4px 0;
     font-family: inherit;
     line-height: 1.17;
+}
+
+/* タイトルは編集中の文字の面: focus の ring も halo も出さない（fr-base の input:focus-visible を打ち消す） */
+.outliner-page-title-input:focus,
+.outliner-page-title-input:focus-visible {
+    outline: none;
+    box-shadow: none;
 }
 
 .outliner-page-title-input::placeholder {
@@ -131,7 +118,8 @@ body.outliner-sync-locked {
     display: none;
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.45);
+    /* 白い文字を載せるので強い覆い（--fr-color-overlay だと白い本文の上で文字が読めない） */
+    background: var(--fr-color-overlay-strong);
     z-index: 9999;
     pointer-events: all;
     align-items: center;
@@ -139,7 +127,7 @@ body.outliner-sync-locked {
     flex-direction: column;
     gap: 16px;
     color: #fff;
-    font-family: var(--vscode-font-family, system-ui);
+    font-family: var(--fr-font-sans);
     font-size: 14px;
 }
 body.outliner-sync-locked .outliner-s3-sync-overlay {
@@ -149,7 +137,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     width: 48px;
     height: 48px;
     border: 4px solid rgba(255, 255, 255, 0.2);
-    border-top-color: #fff;
+    border-top-color: var(--fr-color-primary);
     border-radius: 50%;
     animation: outliner-s3-sync-spin 0.9s linear infinite;
 }
@@ -174,21 +162,32 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-search-mode-toggle {
     background: transparent;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-sm);
     color: var(--outliner-search-fg);
     cursor: pointer;
     padding: 4px 5px;
+    box-sizing: border-box;
+    min-width: 26px;   /* header の icon ボタンの箱（26 × 25 — §7.4） */
+    min-height: 25px;
     margin-right: 4px;
     line-height: 1;
-    opacity: 0.5;
+    opacity: 0.62;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: background-color var(--fr-duration-fast) ease, opacity var(--fr-duration-fast) ease;
 }
 .outliner-search-mode-toggle:hover {
     opacity: 1;
     background: var(--outliner-hover-bg);
+}
+/* 1・2 行目の icon: 14px・線は細め（Lucide の outline。SVG の文字列は触らず CSS で太さだけ変える） */
+.outliner-search-bar > button svg,
+.outliner-title-actions button svg {
+    width: 14px;
+    height: 14px;
+    stroke-width: 1.75;
 }
 
 
@@ -215,6 +214,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     outline: none;
     font-family: inherit;
 }
+.outliner-search-input:hover:not(:focus) {
+    background: var(--fr-color-fill-hover);
+}
 .outliner-search-clear-btn {
     position: absolute;
     right: 4px;
@@ -233,7 +235,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 }
 
 .outliner-search-input:focus {
-    border-color: var(--vscode-focusBorder, #007acc);
+    background: var(--fr-color-bg-app);
+    border-color: var(--fr-color-focus-ring);
+    box-shadow: var(--fr-shadow-focus);
 }
 
 .outliner-search-input::placeholder {
@@ -251,17 +255,22 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-menu-btn {
     background: transparent;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-sm);
     color: var(--outliner-search-fg);
     cursor: pointer;
     padding: 4px 5px;
-    margin-left: 4px;
+    /* header の icon ボタンの箱は md の toolbar と同じ 26 × 25、間隔 2px（並びの間隔 28px — §7.4） */
+    box-sizing: border-box;
+    min-width: 26px;
+    min-height: 25px;
+    margin-left: 2px;
     line-height: 1;
-    opacity: 0.5;
+    opacity: 0.62;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: background-color var(--fr-duration-fast) ease, opacity var(--fr-duration-fast) ease;
 }
 .outliner-nav-back-btn:hover:not(:disabled),
 .outliner-nav-forward-btn:hover:not(:disabled),
@@ -308,32 +317,34 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     margin-left: auto;
 }
 
-/* --- Menu Dropdown --- */
+/* --- Menu Dropdown（⋮）— menu の共通の形（docs/design/modern-2026.md §7.6） --- */
 .outliner-menu-dropdown {
     position: absolute;
     top: 100%;
-    background: var(--outliner-bg, var(--vscode-editor-background, #1e1e1e));
-    border: 1px solid var(--outliner-border);
-    border-radius: 4px;
-    box-shadow: 0 2px 7px rgba(0, 0, 0, 0.3);
+    background: var(--fr-color-bg-elevated);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    box-shadow: var(--fr-shadow-2);
     z-index: 1000;
-    min-width: 162px;
-    padding: 4px 0;
+    min-width: 180px;
+    padding: 4px;
 }
 .outliner-menu-dropdown .menu-item {
     display: block;
     width: 100%;
-    padding: 5px 11px;
+    padding: 5px 10px;
     background: transparent;
     border: none;
-    color: var(--outliner-fg, var(--vscode-editor-foreground, #ccc));
-    font-size: 12px;
+    border-radius: var(--fr-radius-sm);
+    color: var(--fr-color-text-primary);
+    font-size: var(--fr-text-base);
+    line-height: 16px;
     text-align: left;
     cursor: pointer;
     font-family: inherit;
 }
 .outliner-menu-dropdown .menu-item:hover {
-    background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.1));
+    background: var(--fr-color-fill-hover);
 }
 
 /* --- Scope search indicator --- */
@@ -342,12 +353,12 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     flex-shrink: 0;
 }
 .outliner-scope-search-tag {
-    font-size: 10px;
-    padding: 1px 7px;
-    border-radius: 9px;
-    background: var(--outliner-accent-fg, #007aff);
-    color: #fff;
-    opacity: 0.7;
+    font-size: var(--fr-text-xs);
+    font-weight: 500;
+    padding: 1px 8px;
+    border-radius: var(--fr-radius-full);
+    background: var(--fr-color-primary-soft);
+    color: var(--fr-color-primary-strong);
     white-space: nowrap;
     display: inline-block;
 }
@@ -357,8 +368,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     display: none;
     flex-shrink: 0;
     padding: 5px var(--outliner-gutter);
-    font-size: 11px;
-    color: var(--outliner-fg);
+    font-size: var(--fr-text-sm);
+    color: var(--fr-color-text-secondary);
     overflow-x: auto;
     white-space: nowrap;
     align-items: center;
@@ -445,10 +456,10 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     top: calc(100% + 2px);
     left: 0;
     right: 0;
-    background: var(--outliner-bg);
-    border: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
-    border-radius: 5px;
-    box-shadow: 0 4px 11px rgba(0,0,0,0.12);
+    background: var(--fr-color-bg-elevated);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    box-shadow: var(--fr-shadow-2);
     padding: 6px 8px;
     display: flex;
     flex-wrap: wrap;
@@ -462,14 +473,16 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     color: var(--outliner-tag-color);
     background: var(--outliner-tag-bg);
     padding: 1px 6px;
-    border-radius: 3px;
-    font-size: 11px;
+    border-radius: var(--fr-radius-xs);
+    font-size: var(--fr-text-xs);
+    font-weight: 500;
     line-height: 1.5;
     user-select: none;
     white-space: nowrap;
 }
 .outliner-tag-suggest-item:hover {
     background: var(--outliner-tag-hover-bg);
+    color: var(--outliner-tag-hover-color);
 }
 
 /* breadcrumb: sticky 不要 (tree と同時にスクロールしてよい) */
@@ -518,8 +531,24 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     background: var(--outliner-selection-bg);
 }
 
+/* outline の面の focus 行・選択行は角を 6px で丸める（table の面はセルが grid なので角を付けない）。
+ * 隣り合う選択行は 1 つの塊に見せる（間の角を 0 に。DOM が平らなので兄弟の選択子で書ける） */
+.outliner-tree:not([data-view-mode="table"]) > .outliner-node.is-focused,
+.outliner-tree:not([data-view-mode="table"]) > .outliner-node.is-selected,
+.outliner-tree:not([data-view-mode="table"]) > .outliner-node.is-search-match {
+    border-radius: var(--fr-radius-sm);
+}
+.outliner-tree:not([data-view-mode="table"]) > .outliner-node.is-selected:has(+ .outliner-node.is-selected) {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+.outliner-tree:not([data-view-mode="table"]) > .outliner-node.is-selected + .outliner-node.is-selected {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
 .outliner-node.is-selected .outliner-text {
-    color: var(--vscode-editor-selectionForeground, inherit);
+    color: inherit;
 }
 
 .outliner-container ::selection {
@@ -597,9 +626,12 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-child-count {
     position: absolute;
     right: -4px;
-    top: 2px;
-    font-size: 8px;
-    color: var(--outliner-placeholder);
+    top: 0;
+    font-size: var(--fr-text-2xs);
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--fr-color-text-secondary);
     pointer-events: none;
 }
 
@@ -743,7 +775,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-subtext {
     display: none;
     font-size: 0.68em;
-    color: var(--outliner-placeholder);
+    color: var(--outliner-subtext);
     line-height: 1.26;
     padding: 0 4px 2px;
     outline: none;
@@ -781,15 +813,22 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-tag {
     color: var(--outliner-tag-color);
     background: var(--outliner-tag-bg);
-    border-radius: 3px;
+    border-radius: var(--fr-radius-xs);
     padding: 0 4px;
     margin: 0 1px;
     cursor: pointer;
     font-size: 0.81em;
+    font-weight: 500;
 }
 
-.outliner-tag:hover {
+.outliner-tag:hover,
+/* focus 行・選択した mindmap の node の地（selection-bg）は tag の地と同じ primary-soft なので、その上では
+   一段濃い pill（primary-soft-hover。soft との段差 light 1.17:1 / dark 1.21:1）+ その地で読める文字にして pill を残す */
+.outliner-node.is-focused .outliner-tag,
+.outliner-cell-text.is-focused .outliner-tag,
+.mindmap-node-box.is-selected .outliner-tag {
     background: var(--outliner-tag-hover-bg);
+    color: var(--outliner-tag-hover-color);
 }
 
 /* --- Inline elements (outline 列 + table mode の text cell 共通) --- */
@@ -799,13 +838,15 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-text code, .outliner-cell-text code {
     background: var(--outliner-code-bg);
     padding: 1px 4px;
-    border-radius: 3px;
-    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    border-radius: var(--fr-radius-xs);
+    font-family: var(--fr-font-mono);
     font-size: 0.81em;
 }
 .outliner-text a, .outliner-cell-text a {
     color: var(--outliner-tag-color);
     text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
     cursor: pointer;
 }
 /* tag span は outline / cell どちらでも共通の見た目 */
@@ -813,11 +854,12 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     color: var(--outliner-tag-color);
     background: var(--outliner-tag-bg);
     padding: 1px 5px;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-xs);
     cursor: pointer;
     font-size: 0.81em;
+    font-weight: 500;
 }
-.outliner-cell-text .outliner-tag:hover { background: var(--outliner-tag-hover-bg); }
+.outliner-cell-text .outliner-tag:hover { background: var(--outliner-tag-hover-bg); color: var(--outliner-tag-hover-color); }
 .outliner-text a.link-fractal-node::before,
 .outliner-text a.link-fractal-page::before,
 .outliner-text a.link-internal-md::before {
@@ -899,15 +941,16 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     pointer-events: none;
 }
 
-/* --- Make Page button (context menu style) --- */
+/* --- Make Page button (context menu style) — menu の共通の形（docs/design/modern-2026.md §7.6） --- */
 .outliner-context-menu {
     position: fixed;
-    background: var(--outliner-search-bg);
-    border: 1px solid var(--outliner-border);
-    border-radius: 5px;
-    padding: 4px 0;
-    min-width: 144px;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    padding: 4px;
+    min-width: 180px;
+    box-shadow: var(--fr-shadow-2);
     z-index: 1000;
 }
 
@@ -915,18 +958,20 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 5px 14px;
+    padding: 5px 10px;
     cursor: pointer;
-    font-size: 12px;
-    gap: 11px;
+    font-size: var(--fr-text-base);
+    line-height: 16px;
+    gap: 12px;
+    border-radius: var(--fr-radius-sm);
 }
 
 .outliner-context-menu-item:hover:not(.disabled) {
-    background: var(--outliner-hover-bg);
+    background: var(--fr-color-fill-hover);
 }
 
 .outliner-context-menu-item.disabled {
-    opacity: 0.45;
+    color: var(--fr-color-text-muted);
     cursor: not-allowed;
 }
 
@@ -935,20 +980,27 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     white-space: nowrap;
 }
 
+/* shortcut: 右寄せ・地なし。hover した行では secondary（dark の hover 行で tertiary は 4.5:1 に届かない — §4.3） */
 .context-menu-shortcut {
-    font-size: 10px;
-    color: #999;
-    background: rgba(255,255,255,0.08);
-    border-radius: 3px;
-    padding: 1px 5px;
+    font-size: var(--fr-text-sm);
+    color: var(--fr-color-text-tertiary);
     white-space: nowrap;
     flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
 }
+.outliner-context-menu-item:hover:not(.disabled) .context-menu-shortcut {
+    color: var(--fr-color-text-secondary);
+}
+/* 危険な項目（Delete Node / Delete Page / Remove File）: 文字 danger、hover は danger-soft（fill-hover の上の danger は
+   dark で 4.28:1 に落ちるので — §4.3）。note tree・linkedfd・table の列 menu と同じ見た目（§7.6） */
+.outliner-context-menu-item.danger { color: var(--fr-color-danger); }
+.outliner-context-menu-item.danger:hover:not(.disabled) { background: var(--fr-color-danger-soft); }
 
+/* 浮く面の中の区切りは border（divider は dark の浮く面 #2A2A2E の上で 1.06:1 になり見えない — §3.3） */
 .outliner-context-menu-separator {
     height: 1px;
-    background: var(--outliner-border);
-    margin: 4px 0;
+    background: var(--fr-color-border);
+    margin: 4px 6px;
 }
 
 /* --- Drop indicator --- */
@@ -957,7 +1009,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     left: 0;
     right: 0;
     height: 2px;
-    background: var(--vscode-focusBorder, #007acc);
+    background: var(--fr-color-primary, #0A68E6);
+    border-radius: 1px;
     pointer-events: none;
     z-index: 100;
 }
@@ -968,14 +1021,15 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
  * is-focused 行の水色背景（tree box と同幅）が点線を上塗りして focus 行だけ枠が消えていた。
  * ::after は最後の子として全 node 行の上に重なる（pointer-events:none で D&D 非干渉）。 */
 .outliner-tree-drop-zone-active {
-    background-color: rgba(0, 120, 212, 0.04);
+    background-color: var(--fr-color-fill-subtle);
     position: relative;
 }
 .outliner-tree-drop-zone-active::after {
     content: '';
     position: absolute;
     inset: 0;
-    border: 2px dashed var(--vscode-focusBorder, #007acc);
+    border: 2px dashed var(--fr-color-primary, #0A68E6);
+    border-radius: var(--fr-radius-md, 8px);
     pointer-events: none;
     z-index: 100;
 }
@@ -1034,7 +1088,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-sm);
     background: none;
     border: none;
     color: var(--outliner-fg);
@@ -1095,82 +1149,29 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
  * ============================================= */
 
 /*
- * Outliner theme overrides
- * (sprint 20260509-185557-minimal-settings-foundation: 7 themes 撤廃 → 3 mode 統合)
+ * Outliner theme overrides (dark)
  *
- * --outliner-* 変数の light 値は :root (本ファイル冒頭) で定義済 (VSCode 変数 fallback)。
- * 新 minimal pastel light/dark の値は src/webview/tokens.css の `:root[data-fr-theme]` で
- * legacy alias (`--outliner-bg` 等) として再定義され、cascade で上書きする。
- *
- * dark theme override は data-fr-theme="dark" + auto+prefers-color-scheme dark で発火。
- * (旧 [data-theme="dark"] block の値を継承)
+ * --outliner-* の色は src/webview/tokens.css（@layer fr-tokens）が light / dark / auto の 3 ブロックで定義する。
+ * ここ（layer の外）に置くのは outliner だけの 3 つ — node 選択の amber（ADRL-0115。light と dark で別の alpha）、
+ * ::selection（青のまま）、絞り込みで一致した行。それ以外の色をここで上書きすると、dark の outliner だけ
+ * notes の panel と色が違う継ぎ目になる（以前は VS Code Dark+ の値が勝っていた — docs/design/modern-2026.md §3.12）。
  */
 [data-fr-theme="dark"] {
-    --outliner-bg: #1e1e1e;
-    --outliner-fg: #d4d4d4;
-    --outliner-border: #3c3c3c;
-    --outliner-hover-bg: rgba(255,255,255,0.05);
-    --outliner-focus-bg: rgba(0,120,212,0.15);
-    --outliner-search-bg: #252526;
-    --outliner-search-border: #3c3c3c;
-    --outliner-search-fg: #d4d4d4;
-    --outliner-placeholder: #888;
-    --outliner-tag-color: #569cd6;
-    --outliner-tag-bg: rgba(86,156,214,0.15);
-    --outliner-tag-hover-bg: rgba(86,156,214,0.3);
-    --outliner-text-focus-bg: rgba(255,255,255,0.03);
-    --outliner-code-bg: rgba(255,255,255,0.08);
-    --outliner-scrollbar-thumb: rgba(255,255,255,0.15);
-    --outliner-scrollbar-thumb-hover: rgba(255,255,255,0.25);
-    --outliner-checkbox-accent: #569cd6;
-    --outliner-match-bg: rgba(255,200,0,0.2);
-    --outliner-page-icon-color: #4ec9b0;
-    --outliner-text: #d4d4d4;
-    --outliner-hover: rgba(255,255,255,0.05);
-    --outliner-active: rgba(0,120,212,0.2);
     --outliner-selection-bg: rgba(255, 202, 40, 0.22);
-    --outliner-selection-text-bg: rgba(125, 196, 223, 0.45);
-    --outliner-subtext: #888;
-    --outliner-subtext-color: #888;
-    --outliner-error-color: #f44747;
-    --outliner-accent-fg: #fff;
+    --outliner-selection-text-bg: var(--fr-color-text-selection);
+    --outliner-match-bg: rgba(255,200,0,0.2);
 }
 @media (prefers-color-scheme: dark) {
     [data-fr-theme="auto"] {
-        --outliner-bg: #1e1e1e;
-        --outliner-fg: #d4d4d4;
-        --outliner-border: #3c3c3c;
-        --outliner-hover-bg: rgba(255,255,255,0.05);
-        --outliner-focus-bg: rgba(0,120,212,0.15);
-        --outliner-search-bg: #252526;
-        --outliner-search-border: #3c3c3c;
-        --outliner-search-fg: #d4d4d4;
-        --outliner-placeholder: #888;
-        --outliner-tag-color: #569cd6;
-        --outliner-tag-bg: rgba(86,156,214,0.15);
-        --outliner-tag-hover-bg: rgba(86,156,214,0.3);
-        --outliner-text-focus-bg: rgba(255,255,255,0.03);
-        --outliner-code-bg: rgba(255,255,255,0.08);
-        --outliner-scrollbar-thumb: rgba(255,255,255,0.15);
-        --outliner-scrollbar-thumb-hover: rgba(255,255,255,0.25);
-        --outliner-checkbox-accent: #569cd6;
-        --outliner-match-bg: rgba(255,200,0,0.2);
-        --outliner-page-icon-color: #4ec9b0;
-        --outliner-text: #d4d4d4;
-        --outliner-hover: rgba(255,255,255,0.05);
-        --outliner-active: rgba(0,120,212,0.2);
         --outliner-selection-bg: rgba(255, 202, 40, 0.22);
-        --outliner-selection-text-bg: rgba(125, 196, 223, 0.45);
-        --outliner-subtext: #888;
-        --outliner-subtext-color: #888;
-        --outliner-error-color: #f44747;
-        --outliner-accent-fg: #fff;
+        --outliner-selection-text-bg: var(--fr-color-text-selection);
+        --outliner-match-bg: rgba(255,200,0,0.2);
     }
 }
 
-/* Search jump highlight */
+/* Search jump highlight（飛んだ先の 2 秒の flash — md の段落・note tree の行と同じ token） */
 .outliner-search-jump-highlight {
-    background: rgba(255, 200, 0, 0.25) !important;
+    background: var(--fr-color-jump-flash) !important;
     transition: background 2s ease-out;
 }
 
@@ -1213,50 +1214,53 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     position: relative;
 }
 .outliner-pinned-tag-btn {
-    padding: 2px 7px;
-    border: 1px solid var(--outliner-search-border, rgba(128,128,128,0.3));
-    border-radius: 11px;
-    background: var(--outliner-search-bg, transparent);
+    padding: 2px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--fr-radius-full);
+    background: var(--fr-color-fill-subtle);
     cursor: pointer;
-    font-size: 10px;
-    color: var(--outliner-tag-color, #0969da);
+    font-size: var(--fr-text-xs);
+    font-weight: 500;
+    color: var(--fr-color-text-secondary);
     white-space: nowrap;
     line-height: 1.26;
 }
 .outliner-pinned-tag-btn:hover {
-    border-color: var(--vscode-focusBorder, #007acc);
+    background: var(--fr-color-fill-hover);
+    color: var(--fr-color-text-primary);
 }
 .outliner-pinned-tag-btn.is-active {
-    background: var(--vscode-focusBorder, #007acc);
-    color: var(--outliner-accent-fg, #fff);
-    border-color: var(--vscode-focusBorder, #007acc);
+    background: var(--fr-color-primary-soft);
+    color: var(--fr-color-primary-strong);
+    border-color: transparent;
 }
 
 /* ── Pinned Tags Dialog ── */
 .pinned-tags-overlay {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.3);
+    background: var(--fr-color-overlay);
     z-index: 200;
     display: flex;
     align-items: center;
     justify-content: center;
 }
 .pinned-tags-dialog {
-    background: var(--outliner-bg, #fff);
-    border: 1px solid var(--outliner-border, #ddd);
-    border-radius: 7px;
-    padding: 14px;
-    min-width: 270px;
-    max-width: 360px;
-    box-shadow: 0 7px 22px rgba(0,0,0,0.2);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-xl);
+    padding: 20px;
+    min-width: 300px;
+    max-width: 380px;
+    box-shadow: var(--fr-shadow-4);
 }
 .pinned-tags-dialog-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 11px;
-    font-size: 13px;
+    margin-bottom: 12px;
+    font-size: var(--fr-text-md);
     font-weight: 600;
 }
 .pinned-tags-close {
@@ -1285,11 +1289,11 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     opacity: 0.4;
 }
 .pinned-tag-row.drag-over-above {
-    border-top: 2px solid var(--vscode-focusBorder, #007acc);
+    border-top: 2px solid var(--fr-color-primary);
     margin-top: -2px;
 }
 .pinned-tag-row.drag-over-below {
-    border-bottom: 2px solid var(--vscode-focusBorder, #007acc);
+    border-bottom: 2px solid var(--fr-color-primary);
     margin-bottom: 2px;
 }
 .pinned-tag-drag-handle {
@@ -1306,12 +1310,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 }
 .pinned-tag-input {
     flex: 1;
-    padding: 4px 7px;
-    border: 1px solid var(--outliner-search-border, rgba(128,128,128,0.3));
-    border-radius: 4px;
-    background: var(--outliner-search-bg, transparent);
+    padding: 5px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--fr-radius-sm);
+    background: var(--fr-color-fill-subtle);
     color: inherit;
-    font-size: 12px;
+    font-size: var(--fr-text-sm);
+    outline: none;
 }
 .pinned-tag-delete {
     border: none;
@@ -1330,37 +1335,48 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 }
 .pinned-tag-add-input {
     flex: 1;
-    padding: 4px 7px;
-    border: 1px solid var(--outliner-search-border, rgba(128,128,128,0.3));
-    border-radius: 4px;
-    background: var(--outliner-search-bg, transparent);
+    padding: 5px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--fr-radius-sm);
+    background: var(--fr-color-fill-subtle);
     color: inherit;
-    font-size: 12px;
+    font-size: var(--fr-text-sm);
+    outline: none;
 }
+.pinned-tag-input:focus,
+.pinned-tag-add-input:focus {
+    background: var(--fr-color-bg-elevated);
+    border-color: var(--fr-color-focus-ring);
+    box-shadow: var(--fr-shadow-focus);
+}
+/* 副ボタン: 地 bg-elevated + 縁 border-strong。hover で fill-hover を重ねる */
 .pinned-tag-add-btn {
-    padding: 4px 11px;
-    border: 1px solid var(--outliner-search-border, rgba(128,128,128,0.3));
-    border-radius: 4px;
-    background: var(--outliner-search-bg, transparent);
+    padding: 5px 12px;
+    border: 1px solid var(--fr-color-border-strong);
+    border-radius: var(--fr-radius-sm);
+    background: var(--fr-color-bg-elevated);
     cursor: pointer;
-    font-size: 11px;
-    color: inherit;
+    font-size: var(--fr-text-sm);
+    font-weight: 500;
+    color: var(--fr-color-text-primary);
 }
 .pinned-tag-add-btn:hover {
-    border-color: var(--vscode-focusBorder, #007acc);
+    background-image: linear-gradient(var(--fr-color-fill-hover), var(--fr-color-fill-hover));
 }
 .outliner-daily-btn {
     padding: 4px 9px;
-    border: 1px solid var(--outliner-search-border);
-    border-radius: 4px;
-    background: var(--outliner-search-bg);
+    border: 1px solid transparent;
+    border-radius: var(--fr-radius-sm);
+    background: var(--fr-color-fill-subtle);
     cursor: pointer;
-    font-size: 11px;
-    color: inherit;
+    font-size: var(--fr-text-xs);
+    font-weight: 500;
+    color: var(--fr-color-text-secondary);
     line-height: 1.08;
 }
 .outliner-daily-btn:hover {
-    border-color: var(--vscode-focusBorder, #007acc);
+    background: var(--fr-color-fill-hover);
+    color: var(--fr-color-text-primary);
 }
 .outliner-daily-btn-sm {
     padding: 4px 5px;
@@ -1376,11 +1392,11 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     top: 100%;
     left: var(--outliner-gutter);
     z-index: 100;
-    background: var(--outliner-bg);
-    border: 1px solid var(--outliner-border);
-    border-radius: 5px;
-    box-shadow: 0 4px 11px rgba(0,0,0,0.15);
-    padding: 7px;
+    background: var(--fr-color-bg-elevated);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    box-shadow: var(--fr-shadow-2);
+    padding: 8px;
     width: 198px;
 }
 .outliner-daily-picker-header {
@@ -1407,8 +1423,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
     text-align: center;
-    font-size: 9px;
-    opacity: 0.5;
+    font-size: var(--fr-text-2xs);
+    color: var(--fr-color-text-tertiary);
     margin-bottom: 4px;
 }
 .outliner-daily-picker-grid {
@@ -1422,15 +1438,16 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     cursor: pointer;
     padding: 4px;
     text-align: center;
-    font-size: 11px;
-    border-radius: 4px;
+    font-size: var(--fr-text-xs);
+    font-variant-numeric: tabular-nums;
+    border-radius: var(--fr-radius-sm);
     color: inherit;
 }
 .outliner-daily-picker-day:hover { background: var(--outliner-hover); }
-.outliner-daily-picker-day.today { font-weight: 700; }
+.outliner-daily-picker-day.today { font-weight: 700; color: var(--fr-color-primary-strong); }
 .outliner-daily-picker-day.selected {
-    background: var(--vscode-focusBorder, #007acc);
-    color: var(--outliner-accent-fg, #fff);
+    background: var(--fr-color-primary);
+    color: var(--fr-color-primary-fg);
 }
 .outliner-daily-picker-empty { /* spacer cell */ }
 
@@ -1470,7 +1487,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     width: 54px;
     height: 54px;
     object-fit: cover;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-sm);
     cursor: pointer;
     border: 2px solid transparent;
     transition: border-color 0.15s, opacity 0.15s;
@@ -1484,10 +1501,10 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 /* FR-OIP-02 (sprint 20260812-110538): border-color のみでは選択が判別しづらい →
    accent outline + 半透明 shadow で明確化 */
 .outliner-image-thumb.is-selected {
-    border-color: var(--outliner-accent-fg, #2196F3);
-    outline: 2px solid var(--outliner-accent-fg, #2196F3);
+    border-color: var(--fr-color-primary);
+    outline: 2px solid var(--fr-color-primary);
     outline-offset: 1px;
-    box-shadow: 0 0 0 4px rgba(33, 150, 243, 0.25);
+    box-shadow: 0 0 0 4px var(--fr-color-focus-halo);
 }
 
 .outliner-image-thumb.is-dragging {
@@ -1495,11 +1512,11 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 }
 
 .outliner-image-thumb.drop-before {
-    border-left: 3px solid var(--outliner-accent-fg, #2196F3);
+    border-left: 3px solid var(--fr-color-primary);
 }
 
 .outliner-image-thumb.drop-after {
-    border-right: 3px solid var(--outliner-accent-fg, #2196F3);
+    border-right: 3px solid var(--fr-color-primary);
 }
 
 /* Image overlay (lightbox) */
@@ -1510,7 +1527,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.7);
+    background: var(--fr-color-overlay-strong);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1544,11 +1561,12 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     top: 72px;
     right: 36px;
     z-index: 1000;
-    background: var(--toolbar-bg, var(--vscode-editor-background, #1e1e1e));
-    border: 1px solid var(--border-color, var(--vscode-panel-border, #333));
-    border-radius: 5px;
-    padding: 9px;
-    box-shadow: 0 4px 11px rgba(0, 0, 0, 0.25);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    padding: 8px;
+    box-shadow: var(--fr-shadow-3);
     min-width: 315px;
     font-family: inherit;
 }
@@ -1562,40 +1580,43 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-search-replace-box input[type="text"] {
     flex: 1;
     padding: 5px 9px;
-    border: 1px solid var(--border-color, #555);
-    border-radius: 4px;
-    background: var(--bg-color, var(--vscode-input-background, #3c3c3c));
-    color: var(--text-color, var(--vscode-input-foreground, #ccc));
-    font-size: 12px;
+    border: 1px solid transparent;
+    border-radius: var(--fr-radius-sm);
+    background: var(--fr-color-fill-subtle);
+    color: var(--fr-color-text-primary);
+    font-size: var(--fr-text-sm);
     outline: none;
 }
 .outliner-search-replace-box input[type="text"]:focus {
-    border-color: var(--link-color, var(--vscode-focusBorder, #007acc));
+    background: var(--fr-color-bg-elevated);
+    border-color: var(--fr-color-focus-ring);
+    box-shadow: var(--fr-shadow-focus);
 }
 .outliner-search-replace-box .search-count {
-    font-size: 11px;
-    color: var(--text-color, #ccc);
+    font-size: var(--fr-text-xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--fr-color-text-tertiary);
     min-width: 36px;
     text-align: center;
 }
 .outliner-search-replace-box button {
     padding: 4px 7px;
-    border: 1px solid var(--border-color, #555);
-    border-radius: 4px;
-    background: var(--bg-color, var(--vscode-input-background, #3c3c3c));
-    color: var(--text-color, #ccc);
+    border: 1px solid transparent;
+    border-radius: var(--fr-radius-sm);
+    background: transparent;
+    color: var(--fr-color-text-primary);
     cursor: pointer;
-    font-size: 11px;
+    font-size: var(--fr-text-xs);
     line-height: 1;
 }
 .outliner-search-replace-box button:hover {
-    background: var(--selection-bg, var(--vscode-list-hoverBackground, rgba(255,255,255,0.08)));
+    background: var(--fr-color-fill-hover);
 }
 .outliner-search-replace-box .search-options {
     display: flex;
     gap: 11px;
-    font-size: 10px;
-    color: var(--text-color, #ccc);
+    font-size: var(--fr-text-xs);
+    color: var(--fr-color-text-secondary);
 }
 .outliner-search-replace-box .search-options label {
     display: flex;
@@ -1610,12 +1631,12 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 /* Match highlights inside outliner nodes */
 .outliner-text .outliner-search-hit,
 .outliner-subtext .outliner-search-hit {
-    background-color: rgba(255, 255, 0, 0.4);
+    background-color: var(--fr-color-search-hit);
     border-radius: 2px;
 }
 .outliner-text .outliner-search-hit-current,
 .outliner-subtext .outliner-search-hit-current {
-    background-color: rgba(255, 165, 0, 0.6);
+    background-color: var(--fr-color-search-current);
     border-radius: 2px;
 }
 
@@ -1655,6 +1676,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     border-bottom: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
     /* 列間の縦線: 列ヘッダーの右端のみ */
     border-right: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
+    font-size: var(--fr-text-sm);
     font-weight: 600;
     user-select: none;
     display: flex;
@@ -1664,6 +1686,10 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 }
 .outliner-tree[data-view-mode="table"] .outliner-col-header:active {
     cursor: grabbing;
+}
+/* hover は地の上に fill-hover を重ねる（地は sticky のため !important の不透明色のまま） */
+.outliner-tree[data-view-mode="table"] .outliner-col-header:hover {
+    background-image: linear-gradient(var(--fr-color-fill-hover), var(--fr-color-fill-hover));
 }
 .outliner-tree[data-view-mode="table"] .outliner-col-header[data-col-type="outliner"] {
     cursor: default;
@@ -1698,7 +1724,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     left: 50%;
     transform: translateX(-50%);
     width: 0;
-    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    background: var(--fr-color-primary);
     pointer-events: none;
     transition: width 0.1s ease;
 }
@@ -1856,7 +1882,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 /* table のセル選択モード（spec 20261106-1700 D1）: 選んだセルに枠（カーソルは出さない）。
    outline の列・文字・Date・Date & Time・選択肢のどのセルも同じ。編集モード（カーソルあり）では枠を外す（outliner.js） */
 .outliner-tree[data-view-mode="table"] > .is-cell-selected {
-    box-shadow: inset 0 0 0 2px var(--vscode-focusBorder, #007acc);
+    box-shadow: inset 0 0 0 2px var(--fr-color-primary);
     /* 矢印で動かしてスクロールしたとき、sticky の検索欄 + 列ヘッダーの下に隠れないように */
     scroll-margin-top: 4.5em;
 }
@@ -1893,45 +1919,50 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     box-shadow: none;
 }
 .outliner-cell-multiselect-placeholder {
-    color: var(--vscode-descriptionForeground, rgba(127, 127, 127, 0.6));
+    color: var(--fr-color-text-tertiary);
     font-style: italic;
-    font-size: 11px;
+    font-size: var(--fr-text-xs);
 }
 
 .outliner-chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 2px 7px;
-    border-radius: 11px;
-    font-size: 11px;
+    padding: 1px 8px;
+    border-radius: var(--fr-radius-full);
+    font-size: var(--fr-text-xs);
+    font-weight: 500;
     user-select: none;
     line-height: 1.26;
 }
+/* × は 12px・休み .8 → hover 1（§7.10。押せる部品なので chip の地に対して 3:1 以上 — light の 8 色で 3.43–4.23。
+   .6 だと 2.42–2.85 に落ちる。G2 が outliner.css のこの値を読んで確かめる）。行の高さは chip の文字（11px）のまま */
 .outliner-chip-remove {
     cursor: pointer;
-    opacity: 0.6;
-    font-size: 10px;
+    opacity: 0.8;
+    font-size: var(--fr-text-sm, 12px);
+    line-height: 1;
 }
 .outliner-chip-remove:hover { opacity: 1; }
 
-/* 8 色 palette */
-.outliner-chip-color-red    { background: rgba(244, 67, 54, 0.18); color: #ff8a80; }
-.outliner-chip-color-orange { background: rgba(255, 152, 0, 0.18); color: #ffb74d; }
-.outliner-chip-color-yellow { background: rgba(255, 235, 59, 0.20); color: #fff176; }
-.outliner-chip-color-green  { background: rgba(76, 175, 80, 0.18); color: #81c784; }
-.outliner-chip-color-blue   { background: rgba(33, 150, 243, 0.18); color: #64b5f6; }
-.outliner-chip-color-purple { background: rgba(156, 39, 176, 0.18); color: #ba68c8; }
-.outliner-chip-color-pink   { background: rgba(233, 30, 99, 0.18); color: #f06292; }
-.outliner-chip-color-zinc   { background: rgba(120, 120, 120, 0.18); color: #bdbdbd; }
+/* 8 色 palette — light / dark で別の組（tokens.css の --fr-chip-*）。地は不透明（選択行の amber や
+   focus 行の青に重なっても比が変わらない）。class 名と色の名前は outliner.js が使うので変えない */
+.outliner-chip-color-red    { background: var(--fr-chip-red-bg);    color: var(--fr-chip-red-fg); }
+.outliner-chip-color-orange { background: var(--fr-chip-orange-bg); color: var(--fr-chip-orange-fg); }
+.outliner-chip-color-yellow { background: var(--fr-chip-yellow-bg); color: var(--fr-chip-yellow-fg); }
+.outliner-chip-color-green  { background: var(--fr-chip-green-bg);  color: var(--fr-chip-green-fg); }
+.outliner-chip-color-blue   { background: var(--fr-chip-blue-bg);   color: var(--fr-chip-blue-fg); }
+.outliner-chip-color-purple { background: var(--fr-chip-purple-bg); color: var(--fr-chip-purple-fg); }
+.outliner-chip-color-pink   { background: var(--fr-chip-pink-bg);   color: var(--fr-chip-pink-fg); }
+.outliner-chip-color-zinc   { background: var(--fr-chip-zinc-bg);   color: var(--fr-chip-zinc-fg); }
 
 /* multiselect dropdown（一覧。20261106-1700 D10: 編集モードで文字を打ったときだけ出す） */
 .outliner-multiselect-dropdown {
-    background: var(--outliner-bg);
-    color: var(--outliner-fg);
-    border: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
-    border-radius: 4px;
-    box-shadow: 0 4px 11px rgba(0,0,0,0.3);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    box-shadow: var(--fr-shadow-2);
     z-index: 200;
     padding: 4px;
     max-height: 288px;
@@ -1965,15 +1996,15 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-multiselect-item, .outliner-multiselect-create {
     display: flex;
     align-items: center;
-    gap: 5px;
-    padding: 4px 5px;
+    gap: 6px;
+    padding: 4px 6px;
     cursor: pointer;
-    border-radius: 3px;
-    font-size: 11px;
+    border-radius: var(--fr-radius-sm);
+    font-size: var(--fr-text-xs);
 }
 .outliner-multiselect-item:hover, .outliner-multiselect-create:hover,
 .outliner-multiselect-item.is-highlighted, .outliner-multiselect-create.is-highlighted {
-    background: var(--fr-color-selection-bg, var(--outliner-hover-bg, rgba(127, 127, 127, 0.15)));
+    background: var(--fr-color-fill-hover);
 }
 .outliner-multiselect-checkbox {
     font-family: monospace;
@@ -1996,89 +2027,115 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     color: var(--outliner-error-color, #d32f2f);
 }
 .outliner-multiselect-create {
-    color: var(--outliner-tag-color, var(--outliner-fg));
+    color: var(--fr-color-primary-strong);
     font-style: italic;
 }
 
 /* column context menu */
+/* column context menu — menu の共通の形（docs/design/modern-2026.md §7.6） */
 .outliner-col-ctx-menu {
-    background: var(--outliner-bg);
-    color: var(--outliner-fg);
-    border: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
-    border-radius: 4px;
-    box-shadow: 0 4px 11px rgba(0,0,0,0.18);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    box-shadow: var(--fr-shadow-2);
     z-index: 200;
-    padding: 4px 0;
-    min-width: 144px;
+    padding: 4px;
+    min-width: 180px;
 }
 .outliner-col-ctx-item {
-    padding: 5px 11px;
+    padding: 5px 10px;
     cursor: pointer;
-    font-size: 12px;
-    color: var(--outliner-fg);
+    font-size: var(--fr-text-base);
+    line-height: 16px;
+    border-radius: var(--fr-radius-sm);
+    color: var(--fr-color-text-primary);
 }
 .outliner-col-ctx-item:hover {
-    background: var(--outliner-hover-bg, rgba(127, 127, 127, 0.18));
+    background: var(--fr-color-fill-hover);
 }
-.outliner-col-ctx-remove { color: var(--outliner-error-color, #d32f2f); }
+.outliner-col-ctx-remove { color: var(--fr-color-danger); }
+.outliner-col-ctx-item.outliner-col-ctx-remove:hover { background: var(--fr-color-danger-soft); }
 .outliner-col-ctx-sep {
     height: 1px;
-    background: var(--outliner-border, rgba(127,127,127,0.3));
-    margin: 4px 0;
+    background: var(--fr-color-border);   /* 浮く面の中の区切り（§3.3） */
+    margin: 4px 6px;
 }
 
 /* add-column dialog */
+/* add-column dialog — dialog の共通の形（docs/design/modern-2026.md §7.8）: 内側 20px・title 14px / 600・
+   入力欄 28px / 13px・ボタン 28px / 13px / 500（md の export / rename・S3 の確認・pinned tags の dialog と同じ値）。
+   列名の変更・mindmap の group 名・task の範囲の popup もこの class を使う */
 .outliner-add-col-dialog {
-    background: var(--outliner-bg);
-    color: var(--outliner-fg);
-    border: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
-    border-radius: 5px;
-    box-shadow: 0 7px 22px rgba(0,0,0,0.2);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-xl);
+    box-shadow: var(--fr-shadow-4);
     z-index: 300;
-    padding: 14px;
-    min-width: 252px;
+    padding: 20px;
+    min-width: 280px;
     display: flex;
     flex-direction: column;
-    gap: 7px;
+    gap: 10px;
+    font-family: var(--fr-font-sans);
+    font-size: var(--fr-text-base);
 }
-.outliner-add-col-label { font-weight: 600; color: var(--outliner-fg); }
+.outliner-add-col-label { font-size: var(--fr-text-md); font-weight: 600; color: var(--fr-color-text-primary); }
 .outliner-add-col-name, .outliner-add-col-type {
     width: 100%;
-    background: var(--outliner-search-bg, var(--outliner-bg));
-    color: var(--outliner-fg);
-    border: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
-    padding: 5px 7px;
-    border-radius: 3px;
+    height: 28px;
+    background: var(--fr-color-fill-subtle);
+    color: var(--fr-color-text-primary);
+    border: 1px solid transparent;
+    padding: 0 8px;
+    border-radius: var(--fr-radius-sm);
     box-sizing: border-box;
-    font-size: 12px;
+    font-size: var(--fr-text-base);
+    font-family: inherit;
+    outline: none;
+}
+.outliner-add-col-name:focus, .outliner-add-col-type:focus {
+    background: var(--fr-color-bg-elevated);
+    border-color: var(--fr-color-focus-ring);
+    box-shadow: var(--fr-shadow-focus);
 }
 .outliner-add-col-buttons {
     display: flex;
-    gap: 7px;
+    gap: 8px;
     justify-content: flex-end;
+    margin-top: 4px;
 }
 .outliner-add-col-buttons button {
-    padding: 5px 13px;
-    border-radius: 3px;
+    height: 28px;
+    padding: 0 14px;
+    border-radius: var(--fr-radius-sm);
     border: 1px solid transparent;
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--fr-text-base);
+    font-family: inherit;
     background: transparent;
-    color: var(--outliner-fg);
+    color: var(--fr-color-text-primary);
     font-weight: 500;
 }
+/* 副ボタン（左）: 地 bg-elevated + 縁 border-strong */
 .outliner-add-col-buttons button:first-child {
-    border-color: var(--outliner-border, rgba(127,127,127,0.4));
+    background: var(--fr-color-bg-elevated);
+    border-color: var(--fr-color-border-strong);
 }
-/* primary action button: solid な tag color を使い、--outliner-active (半透明) を避ける */
+.outliner-add-col-buttons button:first-child:hover {
+    background-image: linear-gradient(var(--fr-color-fill-hover), var(--fr-color-fill-hover));
+}
+/* 主ボタン（右）: primary の塗り + 白文字（5.08:1）。hover は primary-hover */
 .outliner-add-col-buttons button:last-child {
-    background: var(--outliner-tag-color, #2196F3);
-    color: #ffffff;
-    font-weight: 600;
-    border-color: var(--outliner-tag-color, #2196F3);
+    background: var(--fr-color-primary);
+    color: var(--fr-color-primary-fg);
+    font-weight: 500;
+    border-color: var(--fr-color-primary);
 }
 .outliner-add-col-buttons button:last-child:hover {
-    filter: brightness(1.08);
+    background: var(--fr-color-primary-hover);
+    border-color: var(--fr-color-primary-hover);
 }
 
 /* FR-RR-05: リソースアクセス範囲外の控えめなフッター帯（outliner モード） */

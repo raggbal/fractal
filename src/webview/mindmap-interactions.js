@@ -1865,9 +1865,10 @@ var MindmapInteractions = (function() {
             menu.className = 'mindmap-context-menu';
             menu.style.left = x + 'px';
             menu.style.top = y + 'px';
-            function item(label, fn) {
+            function item(label, fn, danger) {
                 var it = document.createElement('div');
-                it.className = 'mindmap-ctx-item';
+                // 危険な項目（Delete Group）は文字 danger・hover danger-soft（menu の共通の形 — modern-2026 §7.6）
+                it.className = 'mindmap-ctx-item' + (danger ? ' danger' : '');
                 it.textContent = label;
                 it.addEventListener('click', function() { fn(); closeContextMenu(); });
                 menu.appendChild(it);
@@ -1885,7 +1886,7 @@ var MindmapInteractions = (function() {
                 }
                 markGroupSelected(null);
                 scheduleSync(); rerender();
-            });
+            }, true);
             return menu;
         }
 

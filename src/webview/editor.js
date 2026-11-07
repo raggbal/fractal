@@ -1047,23 +1047,15 @@ class EditorInstance {
 
         editorContextMenuEl = document.createElement('div');
         editorContextMenuEl.className = 'editor-context-menu';
-        // Compute theme-aware colors from CSS variables (fallback for non-themed contexts)
-        var cs = getComputedStyle(document.documentElement);
-        var menuBg = cs.getPropertyValue('--bg-color').trim() || '#252526';
-        var menuFg = cs.getPropertyValue('--text-color').trim() || '#cccccc';
-        var menuBorder = cs.getPropertyValue('--border-color').trim() || '#454545';
-        editorContextMenuEl.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;background:' + menuBg + ';border:1px solid ' + menuBorder + ';border-radius:6px;padding:4px 0;min-width:160px;box-shadow:0 4px 16px rgba(0,0,0,0.3);z-index:10000;font-size:13px;color:' + menuFg + ';';
+        // 色・角・影・hover は styles.css の .editor-context-menu*（menu の共通の形 — docs/design/modern-2026.md §7.6）。
+        // ここは位置と重なり順だけを書く
+        editorContextMenuEl.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:10000;';
         // Prevent native context menu on our custom menu
         editorContextMenuEl.addEventListener('contextmenu', function(ev) { ev.preventDefault(); ev.stopPropagation(); });
 
         function addCtxItem(label, handler, shortcut, disabled) {
             var item = document.createElement('div');
             item.className = 'editor-context-menu-item' + (disabled ? ' disabled' : '');
-            item.style.cssText = 'padding:6px 20px 6px 12px;cursor:' + (disabled ? 'default' : 'pointer') + ';display:flex;align-items:center;justify-content:space-between;gap:16px;white-space:nowrap;' + (disabled ? 'opacity:0.4;' : '');
-            if (!disabled) {
-                item.addEventListener('mouseenter', function() { item.style.background = (cs.getPropertyValue('--link-color').trim() || '#094771'); item.style.color = '#ffffff'; });
-                item.addEventListener('mouseleave', function() { item.style.background = ''; item.style.color = ''; });
-            }
             var labelSpan = document.createElement('span');
             labelSpan.className = 'context-menu-label';
             labelSpan.textContent = label;
@@ -1071,7 +1063,6 @@ class EditorInstance {
             if (shortcut) {
                 var kbdSpan = document.createElement('span');
                 kbdSpan.className = 'context-menu-shortcut';
-                kbdSpan.style.cssText = 'font-size:11px;opacity:0.6;margin-left:24px;';
                 kbdSpan.textContent = shortcut;
                 item.appendChild(kbdSpan);
             }
@@ -1084,8 +1075,6 @@ class EditorInstance {
         function addCtxSeparator() {
             var sep = document.createElement('div');
             sep.className = 'editor-context-menu-separator';
-            // theme-aware: menuBorder と同じ色 (light theme でも目立たない灰色になる)
-            sep.style.cssText = 'height:1px;background:' + menuBorder + ';opacity:0.5;margin:4px 0;';
             editorContextMenuEl.appendChild(sep);
         }
 
@@ -1229,22 +1218,23 @@ class EditorInstance {
     // 使えるよう window に公開する（editor.js + outliner.js は同一 document ロード）。
     function openExportDialog(onExecute) {
         if (exportDialogEl) { try { exportDialogEl.remove(); } catch (e) {} exportDialogEl = null; }
-        var cs = getComputedStyle(document.documentElement);
-        var bg = cs.getPropertyValue('--bg-color').trim() || '#252526';
-        var fg = cs.getPropertyValue('--text-color').trim() || '#cccccc';
-        var border = cs.getPropertyValue('--border-color').trim() || '#454545';
-        var accent = cs.getPropertyValue('--link-color').trim() || '#0e639c';
+        // dialog の共通の形（docs/design/modern-2026.md §7.8）: 地 bg-elevated・縁 1px・角 14px・影 4・主ボタン = primary。
+        // 値は token を inline で参照する（読んだ瞬間の値を焼かないのでテーマ切替にも追従する）
+        var bg = 'var(--fr-color-bg-elevated)';
+        var fg = 'var(--fr-color-text-primary)';
+        var border = 'var(--fr-color-border)';
+        var accent = 'var(--fr-color-primary)';
 
         var overlay = document.createElement('div');
         overlay.className = 'md-export-dialog-overlay';
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:20000;display:flex;align-items:center;justify-content:center;';
+        overlay.style.cssText = 'position:fixed;inset:0;background:var(--fr-color-overlay);z-index:20000;display:flex;align-items:center;justify-content:center;';
 
         var modal = document.createElement('div');
         modal.className = 'md-export-dialog';
-        modal.style.cssText = 'background:' + bg + ';color:' + fg + ';border:1px solid ' + border + ';border-radius:8px;padding:16px;min-width:320px;max-width:480px;box-shadow:0 8px 24px rgba(0,0,0,0.4);font-size:13px;';
+        modal.style.cssText = 'background:' + bg + ';color:' + fg + ';border:1px solid ' + border + ';border-radius:var(--fr-radius-xl);padding:20px;min-width:320px;max-width:480px;box-shadow:var(--fr-shadow-4);font-size:13px;';
 
         var title = document.createElement('div');
-        title.style.cssText = 'margin-bottom:12px;font-weight:600;';
+        title.style.cssText = 'margin-bottom:12px;font-size:14px;font-weight:600;';
         title.textContent = 'Export bundle';
         modal.appendChild(title);
 
@@ -1286,8 +1276,9 @@ class EditorInstance {
             var b = document.createElement('button');
             b.type = 'button';
             b.textContent = label;
-            b.style.cssText = 'padding:5px 14px;border-radius:4px;font-size:13px;cursor:pointer;border:1px solid ' + border + ';' +
-                (primary ? 'background:' + accent + ';color:#ffffff;border-color:' + accent + ';' : 'background:transparent;color:' + fg + ';');
+            // 主 = primary の塗り + 白文字（5.08:1）/ 副 = bg-elevated + 縁 border-strong（並びは 副 → 主）
+            b.style.cssText = 'height:28px;padding:0 14px;border-radius:var(--fr-radius-sm);font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;border:1px solid var(--fr-color-border-strong);' +
+                (primary ? 'background:' + accent + ';color:var(--fr-color-primary-fg);border-color:' + accent + ';' : 'background:' + bg + ';color:' + fg + ';');
             return b;
         }
         var cancelBtn = btn(i18n.actionPanelCancel || 'Cancel', false);
@@ -1319,29 +1310,31 @@ class EditorInstance {
     if (typeof window !== 'undefined') { window.openExportDialog = openExportDialog; }
     function showRenameLinkModal(currentText, onResult, opts) {
         hideRenameLinkModal();
-        var cs = getComputedStyle(document.documentElement);
-        var bg = cs.getPropertyValue('--bg-color').trim() || '#252526';
-        var fg = cs.getPropertyValue('--text-color').trim() || '#cccccc';
-        var border = cs.getPropertyValue('--border-color').trim() || '#454545';
-        var accent = cs.getPropertyValue('--link-color').trim() || '#0e639c';
+        // dialog の共通の形（docs/design/modern-2026.md §7.8）: 地 bg-elevated・縁 1px・角 14px・影 4・主ボタン = primary。
+        // 値は token を inline で参照する（読んだ瞬間の値を焼かないのでテーマ切替にも追従する）
+        var bg = 'var(--fr-color-bg-elevated)';
+        var fg = 'var(--fr-color-text-primary)';
+        var border = 'var(--fr-color-border)';
+        var accent = 'var(--fr-color-primary)';
 
         var overlay = document.createElement('div');
         overlay.className = 'rename-link-modal-overlay';
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:20000;display:flex;align-items:center;justify-content:center;';
+        overlay.style.cssText = 'position:fixed;inset:0;background:var(--fr-color-overlay);z-index:20000;display:flex;align-items:center;justify-content:center;';
 
         var modal = document.createElement('div');
         modal.className = 'rename-link-modal';
-        modal.style.cssText = 'background:' + bg + ';color:' + fg + ';border:1px solid ' + border + ';border-radius:8px;padding:16px;min-width:320px;max-width:560px;box-shadow:0 8px 24px rgba(0,0,0,0.4);font-size:13px;';
+        modal.style.cssText = 'background:' + bg + ';color:' + fg + ';border:1px solid ' + border + ';border-radius:var(--fr-radius-xl);padding:20px;min-width:320px;max-width:560px;box-shadow:var(--fr-shadow-4);font-size:13px;';
 
         var title = document.createElement('div');
-        title.style.cssText = 'margin-bottom:10px;font-weight:600;';
+        title.style.cssText = 'margin-bottom:10px;font-size:14px;font-weight:600;';
         title.textContent = (opts && opts.titleText) || i18n.promptRenameLink || 'Enter new link name';
         modal.appendChild(title);
 
         var input = document.createElement('input');
         input.type = 'text';
         input.value = currentText || '';
-        input.style.cssText = 'width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid ' + border + ';border-radius:4px;background:' + bg + ';color:' + fg + ';font-size:13px;outline:none;';
+        // 入力欄（§7.5）: 地 fill-subtle・縁は透明（focus の halo は fr-base の input:focus-visible）
+        input.style.cssText = 'width:100%;box-sizing:border-box;height:28px;padding:0 8px;border:1px solid transparent;border-radius:var(--fr-radius-sm);background:var(--fr-color-fill-subtle);color:' + fg + ';font-size:13px;font-family:inherit;outline:none;';
         modal.appendChild(input);
 
         var btnRow = document.createElement('div');
@@ -1351,8 +1344,9 @@ class EditorInstance {
             var b = document.createElement('button');
             b.type = 'button';
             b.textContent = label;
-            b.style.cssText = 'padding:5px 14px;border-radius:4px;font-size:13px;cursor:pointer;border:1px solid ' + border + ';' +
-                (primary ? 'background:' + accent + ';color:#ffffff;border-color:' + accent + ';' : 'background:transparent;color:' + fg + ';');
+            // 主 = primary の塗り + 白文字（5.08:1）/ 副 = bg-elevated + 縁 border-strong（並びは 副 → 主）
+            b.style.cssText = 'height:28px;padding:0 14px;border-radius:var(--fr-radius-sm);font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;border:1px solid var(--fr-color-border-strong);' +
+                (primary ? 'background:' + accent + ';color:var(--fr-color-primary-fg);border-color:' + accent + ';' : 'background:' + bg + ';color:' + fg + ';');
             return b;
         }
         var cancelBtn = btn(i18n.actionPanelCancel || 'Cancel', false);
@@ -4124,9 +4118,15 @@ class EditorInstance {
         if (typeof mermaid === 'undefined') return false;
         if (mermaidInitialized) return true;
         
-        // Determine theme based on current editor theme
-        const theme = document.documentElement.dataset.theme;
-        const mermaidTheme = (theme === 'night' || theme === 'dark') ? 'dark' : 'default';
+        // Determine theme based on current editor theme（data-fr-theme が正。auto は OS の配色に従う —
+        // 以前は data-theme だけを見ていて、auto + OS の dark で明るい図が暗い面に出ていた）
+        const theme = document.documentElement.dataset.frTheme || document.documentElement.dataset.theme;
+        const osDark = theme === 'auto' && typeof window.matchMedia === 'function'
+            && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const mermaidTheme = (theme === 'night' || theme === 'dark' || osDark) ? 'dark' : 'default';
+        // 画面の図をどの theme で描いたかを PDF の清書（pdf-export-webview.js）に知らせる。
+        // PDF は白い紙なので、'dark' で描いた図はそこで light の theme で描き直す
+        if (typeof window !== 'undefined') { window.__fractalMermaidTheme = mermaidTheme; }
         
         logger.log('Initializing mermaid with theme:', mermaidTheme);
         mermaid.initialize({
@@ -6815,22 +6815,32 @@ class EditorInstance {
     }
     function positionDrawioOpenBtn(img) {
         var rect = img.getBoundingClientRect();
-        // 右上から左へ [Copy Path] [Open in VS Code] [Open in External] の順に配置
-        var openTop = rect.top + 4;
-        var openLeft = rect.right - drawioOpenBtn.offsetWidth - 4;
-        drawioOpenBtn.style.top = openTop + 'px';
-        drawioOpenBtn.style.left = openLeft + 'px';
-        // Open in VS Code を Open in External の左に gap 4px で
-        var vscodeLeft = openLeft - drawioOpenVscodeBtn.offsetWidth - 4;
-        drawioOpenVscodeBtn.style.top = openTop + 'px';
-        drawioOpenVscodeBtn.style.left = vscodeLeft + 'px';
-        // Copy Path をさらに左に gap 4px で
-        var copyLeft = vscodeLeft - drawioCopyPathBtn.offsetWidth - 4;
-        drawioCopyPathBtn.style.top = openTop + 'px';
-        drawioCopyPathBtn.style.left = copyLeft + 'px';
-        // Open in Viewer を左端に gap 4px で
-        drawioOpenViewerBtn.style.top = openTop + 'px';
-        drawioOpenViewerBtn.style.left = (copyLeft - drawioOpenViewerBtn.offsetWidth - 4) + 'px';
+        var GAP = 4;
+        // 画像の右上から左へ [Open in External] [Open in VS Code] [Copy Path] [Open in Viewer] の順に gap 4px で並べる。
+        // 画像の幅（と画面の幅）に収まらない分は次の行へ折り返す — 画像の左端を越えて note tree / Outline の上に
+        // 出さない（ボタンは position:fixed・z-index 1000 なので、はみ出すと隣の面を覆う）
+        var vw = window.innerWidth || document.documentElement.clientWidth || rect.right;
+        var right = Math.min(rect.right, vw) - GAP;
+        var minLeft = Math.max(rect.left, 0) + GAP;
+        var x = right;
+        var y = rect.top + GAP;
+        var rowH = 0;
+        [drawioOpenBtn, drawioOpenVscodeBtn, drawioCopyPathBtn, drawioOpenViewerBtn].forEach(function(btn) {
+            var w = btn.offsetWidth;
+            var h = btn.offsetHeight;
+            if (x < right && x - w < minLeft) {   // この行にもう入らない（行の先頭のボタンは必ず置く）→ 次の行
+                x = right;
+                y += rowH + GAP;
+                rowH = 0;
+            }
+            // 1 個で画像より広いときは画像の左端にそろえる（画面の外には出さない）
+            var left = Math.max(minLeft, x - w);
+            left = Math.max(GAP, Math.min(left, vw - w - GAP));
+            btn.style.top = y + 'px';
+            btn.style.left = left + 'px';
+            x = left - GAP;
+            rowH = Math.max(rowH, h);
+        });
     }
     function showDrawioOpenBtnFor(img) {
         if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
@@ -17785,7 +17795,8 @@ class EditorInstance {
         const chars = text.length;
         const lines = markdown.split('\n').length;
 
-        wordCount.textContent = words + ' ' + i18n.words + ' · ' + chars + ' ' + i18n.characters + ' · ' + lines + ' ' + i18n.lines;
+        // 数字と単位の間は改行しない空白（\u00A0）。幅が足りないときは「· 」の後ろだけで折り返す（styles.css の .word-count）
+        wordCount.textContent = words + '\u00A0' + i18n.words + ' · ' + chars + '\u00A0' + i18n.characters + ' · ' + lines + '\u00A0' + i18n.lines;
     }
 
     function updateStatus() {
@@ -19997,7 +20008,7 @@ class EditorInstance {
             bindSidePanelTocClicks();
         } else {
             // 空 placeholder を表示 (sidebar 自体は開いたまま)
-            sidePanelToc.innerHTML = '<div class="side-panel-toc-empty" style="padding:12px 16px;color:var(--text-muted,#888);font-size:12px;font-style:italic;">' +
+            sidePanelToc.innerHTML = '<div class="side-panel-toc-empty" style="padding:12px 16px;color:var(--fr-color-text-tertiary,#888);font-size:12px;font-style:italic;">' +
                 escapeHtml(i18n.outlineEmpty || 'No headings') + '</div>';
         }
         if (sidePanelTocVisible) {
@@ -20315,7 +20326,8 @@ class EditorInstance {
         targetBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
         var origBg = targetBlock.style.backgroundColor;
         targetBlock.style.transition = 'background-color 0.3s';
-        targetBlock.style.backgroundColor = 'rgba(255, 200, 0, 0.25)';
+        // 飛んだ先の flash は outliner の行・note tree の行と同じ amber（--fr-color-jump-flash — 検索の一致の黄色とは別）
+        targetBlock.style.backgroundColor = 'var(--fr-color-jump-flash)';
         setTimeout(function() {
             targetBlock.style.backgroundColor = origBg;
         }, 2000);
@@ -20392,7 +20404,7 @@ class EditorInstance {
             if (hitEl && hitEl !== blockEl) {
                 var origInlineBg = hitEl.style.backgroundColor;
                 hitEl.style.transition = 'background-color 0.3s';
-                hitEl.style.backgroundColor = 'rgba(255, 200, 0, 0.55)';
+                hitEl.style.backgroundColor = 'var(--fr-color-jump-flash-strong)';
                 setTimeout(function() { hitEl.style.backgroundColor = origInlineBg; }, 2500);
             }
             void rect;
@@ -20403,7 +20415,7 @@ class EditorInstance {
         // ブロック全体も淡くハイライト
         var origBg = blockEl.style.backgroundColor;
         blockEl.style.transition = 'background-color 0.3s';
-        blockEl.style.backgroundColor = 'rgba(255, 200, 0, 0.25)';
+        blockEl.style.backgroundColor = 'var(--fr-color-jump-flash)';
         setTimeout(function() { blockEl.style.backgroundColor = origBg; }, 2500);
     }
 
@@ -20750,7 +20762,7 @@ class EditorInstance {
         if (!dragCursor) {
             dragCursor = document.createElement('div');
             dragCursor.className = 'drag-cursor';
-            dragCursor.style.cssText = 'position:fixed;width:2px;height:20px;background:#0969da;pointer-events:none;z-index:9999;display:none;';
+            dragCursor.style.cssText = 'position:fixed;width:2px;height:20px;background:var(--fr-color-primary);border-radius:1px;pointer-events:none;z-index:9999;display:none;';
             document.body.appendChild(dragCursor);
         }
     }

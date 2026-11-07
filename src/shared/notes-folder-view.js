@@ -70,36 +70,50 @@
         style.id = 'folder-view-style';
         // NFR-FLV-08（再オープン①）: 視覚は Outliner / md 面の既存トークンのみ（色・サイズの直書き禁止）。
         // 統一先の実測 = research-source.md 再調査 6（--outliner-bg / --fr-color-selection-bg /
-        // --outliner-search-bg / bullet 三角 5px/4px / ツールバーボタン 4px 5px opacity .5）
+        // --outliner-search-bg / bullet 三角 5px/4px / ツールバーボタン 4px 5px）
+        // modern-2026（docs/design/modern-2026.md §7.14）: ヘッダーは本文の面 + 下に divider 1 本、行は panel の端から
+        // 6px 内側・角 6px、menu は共通の形（地 bg-elevated・角 10px・影 2・項目 26px / 角 6px / hover fill-hover）。
+        // VS Code のテーマの色（--vscode-*）は読まない
         style.textContent = [
-            '#folderViewContainer { overflow: hidden; background: var(--outliner-bg); color: var(--outliner-fg); }',
+            '#folderViewContainer { overflow: hidden; background: var(--outliner-bg); color: var(--outliner-fg); font-family: var(--fr-font-sans); }',
             '.fv-header { display:flex; align-items:center; gap:8px; padding:8px 12px;',
-            '  border-bottom:1px solid var(--fr-color-border); flex:0 0 auto; }',
-            '.fv-title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }',
+            '  border-bottom:1px solid var(--fr-color-divider); flex:0 0 auto; }',
+            '.fv-title { font-weight:600; font-size: var(--fr-text-base, 13px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }',
             // Search box = .outliner-search-input と同一メトリクス・同一トークン
             // 幅 = outliner-search-input-wrapper と同一（225px 固定・focus で flex:1 に拡張・0.2s ease）
             '.fv-search { flex:0 0 auto; width:225px; min-width:60px; font-size:12px; padding:5px 9px;',
             '  border:1px solid transparent; border-radius:5px; transition: width 0.2s ease;',
-            '  background: var(--outliner-search-bg); color: var(--outliner-fg); }',
-            '.fv-search:focus { outline:none; border-color: var(--vscode-focusBorder); flex:1 1 auto; width:auto; }',
-            // ボタン = outliner ツールバーボタンと同一
-            '.fv-refresh { background:transparent; border:none; border-radius:4px; cursor:pointer;',
-            '  color: var(--outliner-fg); padding:4px 5px; opacity:0.5; }',
+            '  background: var(--outliner-search-bg); color: var(--outliner-fg); font-family: inherit; }',
+            '.fv-search::placeholder { color: var(--fr-color-text-tertiary); }',
+            '.fv-search:focus { outline:none; border-color: var(--fr-color-focus-ring); box-shadow: var(--fr-shadow-focus);',
+            '  background: var(--fr-color-bg-app); flex:1 1 auto; width:auto; }',
+            // ボタン = outliner ツールバーボタンと同一（角 6px・休み .62・hover fill-hover）
+            // header の icon ボタンの箱は md の toolbar・outliner・viewer と同じ 26 × 25（§7.4。note 面の --notes-hdr-btn-*）
+            '.fv-refresh, .fv-hidden-toggle { display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box;',
+            '  min-width: var(--notes-hdr-btn-w, 26px); min-height: var(--notes-hdr-btn-h, 25px); }',
+            '.fv-refresh { background:transparent; border:none; border-radius: var(--fr-radius-sm, 6px); cursor:pointer;',
+            '  color: var(--outliner-fg); padding:4px 5px; opacity:0.62; }',
             '.fv-refresh:hover { opacity:1; background: var(--outliner-hover-bg); }',
-            '.fv-hidden-toggle { background:transparent; border:none; border-radius:4px; cursor:pointer; opacity:0.55; }',
+            '.fv-refresh svg, .fv-hidden-toggle svg { stroke-width: 1.75; }',
+            '.fv-hidden-toggle { background:transparent; border:none; border-radius: var(--fr-radius-sm, 6px); cursor:pointer; opacity:0.62; color: var(--outliner-fg); }',
             '.fv-hidden-toggle:hover { opacity:1; background: var(--outliner-hover-bg); }',
-            '.fv-hidden-toggle.active { opacity:1; color: var(--vscode-textLink-foreground); }',
+            '.fv-hidden-toggle.active { opacity:1; color: var(--fr-color-primary-strong); background: var(--fr-color-primary-soft); }',
             '.fv-file-icon { cursor:pointer; }',
             '.fv-tree { flex:1 1 auto; overflow:auto; padding:6px 0; outline:none; }',
-            '.fv-row { display:flex; align-items:center; gap:4px; padding:2px 8px; cursor:default;',
-            '  line-height:20px; white-space:nowrap; }',
+            // 行の塗りは panel の端から 6px 内側・角 6px。寄せるのは塗りだけ（透明な左右の縁 + background-clip）—
+            // margin で寄せると端の 6px が行でなく一覧（.fv-tree）になり、drop が root へ・右クリックが空き領域の menu になる。
+            // 状態の塗りは background-color で書く（background の一括指定は clip を border-box に戻す）
+            '.fv-row { display:flex; align-items:center; gap:4px; padding:2px 8px; margin:0; cursor:default;',
+            '  border-left:6px solid transparent; border-right:6px solid transparent; background-clip:padding-box;',
+            '  line-height:20px; white-space:nowrap; border-radius: calc(var(--fr-radius-sm, 6px) + 6px) / var(--fr-radius-sm, 6px);',
+            '  font-size: var(--fr-text-base, 13px); }',
             // hover は背景色を変えない（= folder view 背景と同じ）— ユーザー裁定 2026-08-18
             //（白 = --outliner-hover-bg も水色 = selection トークンも却下。選択行のみ色が付く）
-            '.fv-row:hover { background: var(--outliner-bg); }',
+            '.fv-row:hover { background-color: var(--outliner-bg); }',
             // 2026-09-04 R16 rev2（ユーザー裁定）: linkedfd / note tree の複数選択は **青系 --fr-color-selection-bg**
             //（outliner の黄色系に一度揃えたが「ツリーで黄色はうざい」→ 青へ戻す。outliner は編集面で focus 行が青のため
             // 範囲選択は黄色のまま = 面の役割差として受容）。色の直書き fallback は NFR-FLV-08 = TC-FLV-57 ⑤ で禁止
-            '.fv-row.fv-selected { background: var(--fr-color-selection-bg); }',
+            '.fv-row.fv-selected { background-color: var(--fr-color-selection-bg); }',
             // 開閉 = outliner bullet と同一（折りたたみ = CSS 三角 5px/4px・展開 = 5px dot。テキスト矢印廃止）
             // click 領域を拡大（18px + 行全高）し三角/dot を中心配置（クリック点ズレの再修正 2026-08-18）
             '.fv-chevron { width:18px; flex:0 0 18px; align-self:stretch; display:flex; align-items:center; justify-content:center; cursor:pointer; }',
@@ -109,21 +123,28 @@
             '.fv-name { overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:4px; }',
             '.fv-file-icon { flex:0 0 auto; font-size:12px; line-height:1; }',
             '.fv-row.fv-dir > .fv-name { font-weight:500; }',
-            '.fv-rename-input { font: inherit; color: var(--outliner-fg); background: var(--outliner-search-bg);',
-            '  border:1px solid var(--vscode-focusBorder); border-radius:3px; padding:0 2px; min-width:80px; }',
-            '.fv-note { padding:4px 12px; font-size:12px; opacity:0.65; }',
-            '.fv-menu { position:fixed; z-index:1000; min-width:180px; padding:4px 0;',
-            '  background: var(--fr-color-bg-elevated); border:1px solid var(--fr-color-border);',
-            '  border-radius:6px; box-shadow: var(--fr-shadow-sm, none); }',
-            '.fv-menu-item { padding:5px 14px; font-size:12.5px; cursor:pointer; }',
-            '.fv-menu-item:hover { background: var(--outliner-hover-bg); }',
+            '.fv-rename-input { font: inherit; color: var(--outliner-fg); background: var(--fr-color-bg-app);',
+            '  border:1px solid var(--fr-color-focus-ring); border-radius: var(--fr-radius-xs, 4px); padding:0 4px; min-width:80px;',
+            '  box-shadow: var(--fr-shadow-focus); outline:none; }',
+            '.fv-note { padding:4px 12px; font-size:12px; color: var(--fr-color-text-tertiary); }',
+            '.fv-menu { position:fixed; z-index:1000; min-width:180px; padding:4px;',
+            '  background: var(--fr-color-bg-elevated); color: var(--fr-color-text-primary); border:1px solid var(--fr-color-border);',
+            '  border-radius: var(--fr-radius-lg, 10px); box-shadow: var(--fr-shadow-2); font-family: var(--fr-font-sans); }',
+            '.fv-menu-item { padding:5px 10px; line-height:16px; font-size: var(--fr-text-base, 13px); border-radius: var(--fr-radius-sm, 6px); cursor:pointer; }',
+            '.fv-menu-item:hover { background: var(--fr-color-fill-hover); }',
             '.fv-menu-item.danger { color: var(--fr-color-danger); }',
+            '.fv-menu-item.danger:hover { background: var(--fr-color-danger-soft); }',
             // FR-SND-02 rev2: サブメニュー起点（▶ は ::after で描く）/ disabled 表示（click は通知のため生かす）
-            '.fv-menu-item-submenu::after { content:"\\25B6"; float:right; margin-left:12px; opacity:0.6; font-size:10px; }',
-            '.fv-menu-item.disabled { opacity:0.5; }',
+            // 右端の chevron-right（Lucide・12px・tertiary）。mask で描くので色は currentColor（直書きしない）
+            '.fv-menu-item-submenu { display:flex; align-items:center; gap:12px; }',
+            '.fv-menu-item-submenu::after { content:""; flex:0 0 12px; width:12px; height:12px; margin-left:auto;',
+            '  color: var(--fr-color-text-tertiary); background: currentColor;',
+            '  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27black%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27m9 18 6-6-6-6%27/%3E%3C/svg%3E") center / 12px 12px no-repeat;',
+            '  mask: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27black%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27m9 18 6-6-6-6%27/%3E%3C/svg%3E") center / 12px 12px no-repeat; }',
+            '.fv-menu-item.disabled { color: var(--fr-color-text-muted); }',
             // D&D 視覚 2 系統（TASK-09 — highlight + root 強調。トークンのみ）
-            '.fv-row.fv-drop-into { background: var(--fr-color-selection-bg); }',
-            '.fv-tree.fv-drop-root { outline: 2px dashed var(--vscode-focusBorder); outline-offset: -2px; }',
+            '.fv-row.fv-drop-into { background-color: var(--fr-color-selection-bg); box-shadow: inset 0 0 0 1px var(--fr-color-primary); }',
+            '.fv-tree.fv-drop-root { outline: 2px dashed var(--fr-color-primary); outline-offset: -2px; }',
         ].join('\n');
         document.head.appendChild(style);
     }

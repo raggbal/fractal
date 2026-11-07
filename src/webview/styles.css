@@ -6,12 +6,13 @@
  * --code-text / --border-color / --blockquote-color / --blockquote-border /
  * --sidebar-bg / --sidebar-border / --toolbar-bg / --selection-bg は
  * `src/webview/tokens.css` で `[data-fr-theme]` ベースに統一定義されている。
- * このファイルでは font-size / font-family のみ固有定義。
+ * このファイルでは font-size のみ固有定義（書体は tokens.css の --fr-font-sans / --fr-font-mono の 1 か所）。
+ * 設計: docs/design/modern-2026.md
  */
 :root {
     --font-size: __FONT_SIZE__px;
-    --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-    --font-mono: 'Menlo', 'Consolas', 'Liberation Mono', 'DejaVu Sans Mono', monospace;
+    --font-family: var(--fr-font-sans);
+    --font-mono: var(--fr-font-mono);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -48,7 +49,7 @@ body {
 .sidebar-resizer:hover,
 .sidebar-resizer.dragging {
     /* v0.207.43: notes-resize-handle と同 token + 同太さ (2px) に統一 */
-    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    background: var(--fr-color-primary);
     width: 2px;
     right: -1px;
 }
@@ -63,35 +64,45 @@ body {
 .sidebar-toggle { background: none; border: none; font-size: 16px; cursor: pointer; color: var(--text-color); opacity: 0.6; }
 .sidebar-toggle:hover { opacity: 1; }
 .outline { flex: 1; overflow-y: auto; padding: 7px 0; }
+/* md の Outline（目次）: 行の塗りは panel の端から 6px 内側・角 6px（文字の位置は従来どおり = padding を 6px 減らす）。
+   内側に寄せるのは塗りだけ — 左右 6px の透明な縁 + background-clip: padding-box（margin で寄せると端の 6px が押せない帯になる）。
+   縁の内側の角が 6px になるよう、外の角は 横 12px / 縦 6px。状態の塗りは background-color で書く（background の一括指定は clip を戻す） */
 .outline-item {
     display: block;
-    padding: 5px 14px;
-    color: var(--text-color);
+    margin: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    background-clip: padding-box;
+    padding: 5px 8px;
+    border-radius: calc(var(--fr-radius-sm) + 6px) / var(--fr-radius-sm);
+    color: var(--fr-color-text-secondary);
     text-decoration: none;
     font-size: 12px;
     cursor: pointer;
 }
-.outline-item:hover { background: var(--selection-bg); }
-.outline-item[data-level="1"] { padding-left: 22px; font-weight: 600; }
-.outline-item[data-level="2"] { padding-left: 32px; }
-.outline-item[data-level="3"] { padding-left: 43px; font-size: 12px; }
-.outline-item[data-level="4"] { padding-left: 54px; font-size: 11px; }
-.outline-item[data-level="5"] { padding-left: 65px; font-size: 11px; color: var(--text-muted); }
-.outline-item[data-level="6"] { padding-left: 68px; font-size: 10px; color: var(--text-muted); }
+.outline-item:hover { background-color: var(--fr-color-fill-hover); color: var(--fr-color-text-primary); }
+.outline-item[data-level="1"] { padding-left: 16px; font-weight: 600; color: var(--fr-color-text-primary); }
+.outline-item[data-level="2"] { padding-left: 26px; }
+.outline-item[data-level="3"] { padding-left: 37px; font-size: 12px; }
+.outline-item[data-level="4"] { padding-left: 48px; font-size: 11px; }
+.outline-item[data-level="5"] { padding-left: 59px; font-size: 11px; color: var(--fr-color-text-tertiary); }
+.outline-item[data-level="6"] { padding-left: 62px; font-size: 10px; color: var(--fr-color-text-tertiary); }
 
 .toolbar .menu-btn { margin-right: 4px; }
 .toolbar .menu-btn.hidden { display: none; }
+/* 左右 10px（Outline のヘッダーの文字の左端と同じ） */
 .sidebar-footer {
-    padding: 7px 14px;
-    border-top: 1px solid var(--border-color);
-    font-size: 10px;
-    color: var(--text-color);
-    opacity: 0.7;
+    padding: 7px 10px;
+    border-top: 1px solid var(--fr-color-divider);
+    font-size: 11px;
+    color: var(--fr-color-text-secondary);
+    font-variant-numeric: tabular-nums;
 }
+/* 語数・文字数・行数は切らずに折り返す（11px で幅が足りないときは「· 」の後ろで 2 行目へ。数字と単位の間は
+   editor.js が改行しない空白でつなぐ）。以前は 1 行に詰めて末尾を … で切っていた */
 .sidebar-footer .word-count {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 .sidebar-footer .sidebar-status-imagedir,
 .sidebar-footer .sidebar-status-filedir,
@@ -101,20 +112,20 @@ body {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 9px;
-    opacity: 0.6;
+    font-size: 10px;
+    color: var(--fr-color-text-tertiary);
 }
 .sidebar-footer .imagedir-label,
 .sidebar-footer .filedir-label,
 .side-panel-imagedir .imagedir-label,
 .side-panel-filedir .filedir-label {
-    font-size: 9px;
+    font-size: 10px;
 }
 .sidebar-footer .imagedir-path,
 .sidebar-footer .filedir-path,
 .side-panel-imagedir .imagedir-path,
 .side-panel-filedir .filedir-path {
-    font-size: 9px;
+    font-size: 10px;
 }
 /* v0.207.44: outliner page heuristic 検出時の固定表示 (編集不可) */
 .sidebar-status-imagedir.is-locked,
@@ -129,11 +140,11 @@ body {
 .sidebar-status-imagedir.is-editable,
 .sidebar-status-filedir.is-editable {
     cursor: pointer;
-    opacity: 0.85;
+    color: var(--fr-color-text-secondary);
 }
 .sidebar-status-imagedir.is-editable:hover,
 .sidebar-status-filedir.is-editable:hover {
-    opacity: 1;
+    color: var(--fr-color-text-primary);
     text-decoration: underline;
 }
 .sidebar-status-imagedir.is-locked .imagedir-path,
@@ -148,8 +159,9 @@ body {
 }
 .side-panel-word-count {
     padding: 4px 11px 2px;
-    font-size: 9px;
-    opacity: 0.6;
+    font-size: 10px;
+    color: var(--fr-color-text-tertiary);
+    font-variant-numeric: tabular-nums;
 }
 
 .editor-container { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
@@ -159,7 +171,7 @@ body {
     align-items: center;
     padding: 0;
     background: var(--toolbar-bg);
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--fr-color-divider);
     height: 36px;
 }
 /* Fixed left/right sections */
@@ -192,30 +204,32 @@ body {
 .toolbar-inner::-webkit-scrollbar { display: none; } /* Chrome/Safari */
 /* Scroll navigation buttons */
 .toolbar-scroll-btn {
-    width: 25px;
+    width: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--toolbar-bg, #f6f8fa) !important;
+    background: var(--toolbar-bg) !important;
     border: none;
     cursor: pointer;
-    color: var(--text-color);
+    color: var(--fr-color-text-secondary);
     z-index: 10;
     font-size: 13px;
-    font-weight: bold;
+    font-weight: 600;
     padding: 0;
     opacity: 1;
     flex-shrink: 0;
 }
 .toolbar-scroll-btn:hover {
-    background: var(--selection-bg) !important;
+    color: var(--fr-color-text-primary);
+    background-image: linear-gradient(var(--fr-color-fill-hover), var(--fr-color-fill-hover)) !important;
 }
 .toolbar-scroll-btn.hidden { display: none; }
+/* はみ出しの端: 濃い影でなく、本文の面から薄く溶かす */
 .toolbar-scroll-btn--left {
-    box-shadow: 4px 0 7px -2px rgba(0,0,0,0.2);
+    box-shadow: 6px 0 8px -6px rgba(17, 17, 20, 0.18);
 }
 .toolbar-scroll-btn--right {
-    box-shadow: -4px 0 7px -2px rgba(0,0,0,0.2);
+    box-shadow: -6px 0 8px -6px rgba(17, 17, 20, 0.18);
 }
 /* Toolbar groups */
 .toolbar-group {
@@ -229,8 +243,8 @@ body {
     content: '';
     display: block;
     width: 1px;
-    height: 18px;
-    background: var(--border-color);
+    height: 16px;
+    background: var(--fr-color-divider);
     margin: 0 5px;
     flex-shrink: 0;
 }
@@ -245,7 +259,7 @@ body {
     border: none;
     padding: 5px 6px;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-sm);
     color: var(--text-color);
     display: flex;
     align-items: center;
@@ -253,15 +267,17 @@ body {
     flex-shrink: 0;
     min-width: 25px;
     min-height: 25px;
+    transition: background-color var(--fr-duration-fast) ease, opacity var(--fr-duration-fast) ease;
 }
-.toolbar button:hover { background: var(--selection-bg); }
+.toolbar button:hover { background: var(--fr-color-fill-hover); }
+.toolbar button:active { background: var(--fr-color-fill-active); }
 .toolbar button svg {
     width: 14px;
     height: 14px;
     flex-shrink: 0;
 }
-/* Lucide stroke-based icons */
-.toolbar button svg[fill="none"] { fill: none; }
+/* Lucide stroke-based icons（線は CSS で細く — SVG の文字列は変えない） */
+.toolbar button svg[fill="none"] { fill: none; stroke-width: 1.75; }
 /* Legacy fill-based icons (e.g. VS Code logo) */
 .toolbar button svg:not([fill="none"]) { fill: currentColor; }
 
@@ -297,41 +313,44 @@ body {
     align-items: center;
     gap: 11px;
     padding: 7px 11px;
-    background: var(--code-bg, #f6f8fa);
-    border-bottom: 1px solid var(--border-color, #d0d7de);
+    background: var(--fr-color-bg-panel);
+    border-bottom: 1px solid var(--fr-color-divider);
     position: sticky;
     top: 0;
     z-index: 50;
     font-size: 12px;
 }
+/* 副ボタン: 地 bg-elevated + 縁 border-strong。hover で fill-hover を重ねる */
 .fractal-translation-header .fractal-translation-back,
 .fractal-translation-header .fractal-translation-copy {
-    background: transparent;
-    border: 1px solid var(--border-color, #d0d7de);
-    color: var(--text-color, #24292f);
-    padding: 4px 9px;
-    border-radius: 4px;
+    background: var(--fr-color-bg-elevated);
+    border: 1px solid var(--fr-color-border-strong);
+    color: var(--fr-color-text-primary);
+    padding: 4px 10px;
+    border-radius: var(--fr-radius-sm);
     cursor: pointer;
     font-size: 11px;
+    font-weight: 500;
     font-family: inherit;
 }
 .fractal-translation-header .fractal-translation-back:hover,
 .fractal-translation-header .fractal-translation-copy:hover {
-    background: var(--selection-bg, #b6d7ff);
+    background-image: linear-gradient(var(--fr-color-fill-hover), var(--fr-color-fill-hover));
 }
 .fractal-translation-header .fractal-translation-label {
     flex: 1;
-    color: var(--text-color, #24292f);
+    color: var(--fr-color-text-primary);
     font-weight: 500;
 }
 
 /* v0.207.24: 翻訳 popup (translate button click 時に出現、source/target select + Execute) */
 .fractal-translate-popup {
     position: absolute;
-    background: var(--bg-color, #ffffff);
-    border: 1px solid var(--fr-color-border, var(--border-color, #d0d7de));
-    border-radius: var(--fr-radius-lg, 10px);
-    box-shadow: var(--fr-shadow-2, 0 4px 11px rgba(0,0,0,0.15));
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    box-shadow: var(--fr-shadow-2);
     padding: 10px;
     z-index: var(--fr-z-popup, 400);
     min-width: 240px;
@@ -348,57 +367,67 @@ body {
 .fractal-translate-popup .ftp-source,
 .fractal-translate-popup .ftp-target {
     flex: 1;
-    padding: 4px 7px;
-    border: 1px solid var(--fr-color-border, var(--border-color, #d0d7de));
-    border-radius: var(--fr-radius-sm, 6px);
-    background: var(--fr-color-bg-elevated, var(--bg-color, #fff));
-    color: var(--fr-color-text-primary, var(--text-color, inherit));
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid transparent;
+    border-radius: var(--fr-radius-sm);
+    background: var(--fr-color-fill-subtle);
+    color: var(--fr-color-text-primary);
     font-size: 12px;
     font-family: inherit;
     outline: none;
 }
 .fractal-translate-popup .ftp-source:focus,
 .fractal-translate-popup .ftp-target:focus {
-    border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
-    box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
+    background: var(--fr-color-bg-elevated);
+    border-color: var(--fr-color-focus-ring);
+    box-shadow: var(--fr-shadow-focus);
 }
 .fractal-translate-popup .ftp-arrow {
-    color: var(--fr-color-text-tertiary, #888);
+    color: var(--fr-color-text-tertiary);
     font-size: 14px;
     flex-shrink: 0;
 }
+/* 主ボタン: primary の塗り + 白文字（5.08:1）。hover は primary-hover・押下は primary-active */
 .fractal-translate-popup .ftp-execute {
-    padding: 6px 10px;
+    height: 28px;
+    padding: 0 12px;
     border: none;
-    border-radius: var(--fr-radius-sm, 6px);
-    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
-    color: var(--fr-color-primary-fg, #fff);
+    border-radius: var(--fr-radius-sm);
+    background: var(--fr-color-primary);
+    color: var(--fr-color-primary-fg);
     cursor: pointer;
     font-size: 12px;
     font-weight: 500;
     font-family: inherit;
 }
 .fractal-translate-popup .ftp-execute:hover {
-    opacity: 0.9;
+    background: var(--fr-color-primary-hover);
+}
+.fractal-translate-popup .ftp-execute:active {
+    background: var(--fr-color-primary-active);
 }
 .fractal-translate-popup .ftp-execute:focus-visible {
-    outline: none;
-    box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
+    outline: 2px solid var(--fr-color-focus-ring);
+    outline-offset: 1px;
+    box-shadow: none;
 }
 
 /* 翻訳結果保存 button (sidepanel only, fractal-translation-header 内) */
 .fractal-translation-header .fractal-translation-save {
-    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
-    border: 1px solid var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
-    color: var(--fr-color-primary-fg, #fff);
-    padding: 4px 9px;
-    border-radius: 4px;
+    background: var(--fr-color-primary);
+    border: 1px solid var(--fr-color-primary);
+    color: var(--fr-color-primary-fg);
+    padding: 4px 10px;
+    border-radius: var(--fr-radius-sm);
     cursor: pointer;
     font-size: 11px;
+    font-weight: 500;
     font-family: inherit;
 }
 .fractal-translation-header .fractal-translation-save:hover {
-    opacity: 0.9;
+    background: var(--fr-color-primary-hover);
+    border-color: var(--fr-color-primary-hover);
 }
 .fractal-translation-header .fractal-translation-save:disabled {
     opacity: 0.5;
@@ -444,10 +473,12 @@ body {
     white-space: pre-wrap;
     word-wrap: break-word;
     position: relative;
+    /* 和文の本文は 1.6 以上が読みやすい（docs/design/modern-2026.md §5.4。B 案の 1.44 から戻す — §11 Q6） */
+    line-height: 1.6;
 }
 .editor.drag-over {
-    background: var(--selection-bg);
-    outline: 2px dashed var(--link-color);
+    background: var(--fr-color-selection-bg);
+    outline: 2px dashed var(--fr-color-primary);
     outline-offset: -9px;
 }
 .editor img {
@@ -476,18 +507,26 @@ body {
     color: var(--text-color);
     background: var(--bg-color);
 }
+/* 編集中の文字の面には focus の ring も halo も出さない（fr-base の textarea:focus-visible を打ち消す） */
+.source-editor:focus,
+.source-editor:focus-visible {
+    outline: none;
+    box-shadow: none;
+}
 
 /* Search & Replace Box */
+/* 浮く toolbar と同じ板（右上の固定のまま — docs/design/modern-2026.md §7.7） */
 .search-replace-box {
     position: fixed;
     top: 54px;
     right: 36px;
     z-index: 1000;
-    background: var(--toolbar-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 5px;
-    padding: 9px;
-    box-shadow: 0 4px 11px rgba(0, 0, 0, 0.15);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    padding: 8px;
+    box-shadow: var(--fr-shadow-3);
     min-width: 315px;
 }
 /* サイドパネル内: 検索ボックスはeditor-wrapperの外に配置済みなのでabsoluteで固定 */
@@ -509,39 +548,42 @@ body {
 .search-replace-box input[type="text"] {
     flex: 1;
     padding: 5px 9px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--bg-color);
-    color: var(--text-color);
+    border: 1px solid transparent;
+    border-radius: var(--fr-radius-sm);
+    background: var(--fr-color-fill-subtle);
+    color: var(--fr-color-text-primary);
     font-size: 12px;
     outline: none;
 }
 .search-replace-box input[type="text"]:focus {
-    border-color: var(--link-color);
+    background: var(--fr-color-bg-elevated);
+    border-color: var(--fr-color-focus-ring);
+    box-shadow: var(--fr-shadow-focus);
 }
 .search-replace-box .search-count {
     font-size: 11px;
-    color: var(--text-color);
+    font-variant-numeric: tabular-nums;
+    color: var(--fr-color-text-tertiary);
     min-width: 36px;
     text-align: center;
 }
 .search-replace-box button {
     padding: 4px 7px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--bg-color);
-    color: var(--text-color);
+    border: 1px solid transparent;
+    border-radius: var(--fr-radius-sm);
+    background: transparent;
+    color: var(--fr-color-text-primary);
     cursor: pointer;
     font-size: 11px;
 }
 .search-replace-box button:hover {
-    background: var(--selection-bg);
+    background: var(--fr-color-fill-hover);
 }
 .search-replace-box .search-options {
     display: flex;
     gap: 11px;
-    font-size: 10px;
-    color: var(--text-color);
+    font-size: 11px;
+    color: var(--fr-color-text-secondary);
 }
 .search-replace-box .search-options label {
     display: flex;
@@ -553,70 +595,74 @@ body {
     margin: 0;
 }
 .search-highlight {
-    background-color: rgba(255, 255, 0, 0.4);
+    background-color: var(--fr-color-search-hit);
     border-radius: 2px;
 }
 .search-highlight-current {
-    background-color: rgba(255, 165, 0, 0.6);
+    background-color: var(--fr-color-search-current);
     border-radius: 2px;
 }
 
-}
-
-/* Editor context menu (right-click) */
+/* Editor context menu (right-click) — menu の共通の形（docs/design/modern-2026.md §7.6。light な menu）。
+   以前はこの規則の前に余分な `}` があって規則ごと捨てられ、editor.js の inline の色（hover = link 色の塗り +
+   白文字）だけが効いていた。色はここで決め、editor.js は位置だけを書く */
 .editor-context-menu {
     position: fixed;
-    background: var(--vscode-menu-background, #252526);
-    border: 1px solid var(--vscode-menu-border, #454545);
-    border-radius: 5px;
-    padding: 4px 0;
-    min-width: 144px;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    background: var(--fr-color-bg-elevated);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    padding: 4px;
+    min-width: 180px;
+    box-shadow: var(--fr-shadow-2);
     z-index: 1000;
-    font-size: 12px;
-    color: var(--vscode-menu-foreground, #cccccc);
+    font-size: var(--fr-text-base);
+    color: var(--fr-color-text-primary);
 }
 .editor-context-menu-item {
-    padding: 5px 18px 5px 11px;
+    padding: 5px 10px;
+    line-height: 16px;
+    border-radius: var(--fr-radius-sm);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 14px;
+    gap: 16px;
     white-space: nowrap;
 }
 .editor-context-menu-item:hover:not(.disabled) {
-    background: var(--vscode-menu-selectionBackground, #094771);
-    color: var(--vscode-menu-selectionForeground, #ffffff);
+    background: var(--fr-color-fill-hover);
 }
 .editor-context-menu-item.disabled {
-    opacity: 0.4;
+    color: var(--fr-color-text-muted);
     cursor: default;
 }
+/* 浮く面の中の区切りは border（divider は dark の浮く面の上で 1.06:1 になり見えない — §3.3） */
 .editor-context-menu-separator {
     height: 1px;
-    background: var(--vscode-menu-separatorBackground, #454545);
-    margin: 4px 0;
+    background: var(--fr-color-border);
+    margin: 4px 6px;
 }
 .editor-context-menu .context-menu-shortcut {
-    font-size: 10px;
-    opacity: 0.6;
-    margin-left: 22px;
+    font-size: var(--fr-text-sm);
+    color: var(--fr-color-text-tertiary);
+    margin-left: 24px;
+}
+.editor-context-menu-item:hover:not(.disabled) .context-menu-shortcut {
+    color: var(--fr-color-text-secondary);
 }
 
-/* External change toast notification */
+/* External change toast notification（反転の小片: light でも暗い — §7.8） */
 .external-change-toast {
     position: fixed;
     top: 11px;
     right: 11px;
-    background: var(--toolbar-bg, #f6f8fa);
-    color: var(--text-color, #24292f);
-    border: 1px solid var(--border-color, #d0d7de);
-    border-left: 3px solid var(--link-color, #0969da);
-    border-radius: 5px;
-    padding: 9px 13px;
-    font-size: 11px;
-    box-shadow: 0 2px 7px rgba(0,0,0,0.15);
+    background: var(--fr-color-bg-inverse);
+    color: var(--fr-color-text-inverse);
+    border: none;
+    border-radius: var(--fr-radius-lg);
+    padding: 8px 12px;
+    font-size: 12px;
+    box-shadow: var(--fr-shadow-3);
     z-index: 10001;
     opacity: 0;
     transform: translateX(100%);
@@ -633,17 +679,25 @@ body {
     line-height: 1.26;
 }
 
+/* 見出しは大きさ・太さ・上の余白で区切る（H1・H2 の下線はやめる — docs/design/modern-2026.md §5.4 / §11 Q4）。
+   この editor は md の空行を空の段落として描く（見出しの前には普通 1 行の空きがある）ので、上の余白は
+   §5.4 の値（1.2em / 1.5em / 1.3em）より控えめにして、空行と足し算で間が開きすぎないようにする */
 .editor h1, .editor h2, .editor h3, .editor h4, .editor h5, .editor h6 {
     color: var(--heading-color);
     margin: 0.5em 0;
     font-weight: 600;
-    line-height: 1.13;
+    line-height: 1.4;
 }
-.editor h1 { font-size: 1.8em; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3em; }
-.editor h2 { font-size: 1.35em; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3em; }
-.editor h3 { font-size: 1.13em; }
-.editor p, .editor div.paragraph { margin: 0.5em 0; min-height: 1.44em; }
+.editor h1 { font-size: 1.75em; font-weight: 700; line-height: 1.25; margin: 0.6em 0 0.5em; }
+.editor h2 { font-size: 1.4em; line-height: 1.3; margin: 0.75em 0 0.45em; }
+.editor h3 { font-size: 1.17em; line-height: 1.35; margin: 0.7em 0 0.4em; }
+.editor h4 { font-size: 1em; }
+.editor h5 { font-size: 0.92em; color: var(--fr-color-text-secondary); }
+.editor h6 { font-size: 0.85em; color: var(--fr-color-text-tertiary); }
+.editor > h1:first-child, .editor > h2:first-child, .editor > h3:first-child { margin-top: 0; }
+.editor p, .editor div.paragraph { margin: 0.5em 0; min-height: 1.6em; }
 .editor a { color: var(--link-color); text-decoration: none; }
+.editor a:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
 .editor a.link-fractal-node::before,
 .editor a.link-fractal-page::before,
 .editor a.link-internal-md::before {
@@ -774,19 +828,22 @@ body {
 .editor del, .editor s { text-decoration: line-through; }
 .editor code {
     font-family: var(--font-mono);
-    font-size: 0.81em;
+    font-size: 0.86em;
     background: var(--code-bg);
-    padding: 0.2em 0.4em;
-    border-radius: 4px;
+    color: var(--code-text);
+    padding: 0.1em 0.35em;
+    border-radius: var(--fr-radius-xs);
 }
 .editor pre {
-    background: var(--code-bg);
-    padding: 29px 14px 14px 14px;
-    border-radius: 5px;
+    background: var(--fr-color-code-block-bg);
+    border: 1px solid var(--fr-color-divider);
+    padding: 28px 16px 14px;
+    border-radius: var(--fr-radius-md);
     overflow-x: auto;
     margin: 0.9em 0;
     font-family: var(--font-mono);
-    font-size: 0.79em;
+    font-size: 0.86em;
+    line-height: 1.55;
     white-space: pre;
     word-wrap: normal;
 }
@@ -827,78 +884,93 @@ body {
 .editor pre[data-mode="edit"] code {
     /* No outline - cursor is visible */
 }
+/* code block の見出し（言語・Copy・展開・折り返し）: 帯をやめ、block の右上 4px 内側に ghost の小ボタン。
+   言語の名前はいつも出し、ボタンは block の hover と :focus-within のときに出す（§7.13）。7px → 11px */
 .code-block-header {
     position: absolute;
-    top: 0;
-    right: 0;
+    top: 4px;
+    right: 4px;
     display: flex;
-    gap: 0;
-    align-items: stretch;
+    gap: 2px;
+    align-items: center;
     z-index: 10;
     padding: 0;
-    border-radius: 0 5px 0 0;
 }
 .code-lang-tag,
 .code-copy-btn,
 .code-expand-btn,
 .code-wrap-btn {
-    font-size: 7px;
-    color: var(--text-color);
-    background: var(--border-color);
+    font-size: 11px;
+    font-family: var(--fr-font-sans);
+    color: var(--fr-color-text-tertiary);
+    background: transparent;
     border: none;
-    padding: 1px 4px;
-    border-radius: 0;
+    height: 22px;
+    padding: 0 6px;
+    border-radius: var(--fr-radius-xs);
     cursor: pointer;
-    opacity: 0.7;
-    line-height: 0.99;
+    line-height: 1;
     user-select: none;
     display: flex;
     align-items: center;
+    transition: background-color var(--fr-duration-fast) ease, color var(--fr-duration-fast) ease, opacity var(--fr-duration-fast) ease;
+}
+.editor pre:not(:hover):not(:focus-within) .code-copy-btn,
+.editor pre:not(:hover):not(:focus-within) .code-expand-btn,
+.editor pre:not(:hover):not(:focus-within) .code-wrap-btn:not(.is-active) {
+    opacity: 0;
+}
+/* いつも出ている言語の名前は右端（block の右上の角）に置く。DOM の順（⤢ 言語 Copy ↩）のままだと、隠れているボタンの
+   箱の分だけ角から離れて浮いて見えた。並べ替えるのは見た目だけ（DOM と Tab の順は変えない — 言語の名前は focus しない） */
+.code-lang-tag {
+    order: 1;
 }
 .code-lang-tag:hover,
 .code-copy-btn:hover,
 .code-expand-btn:hover,
 .code-wrap-btn:hover {
-    opacity: 1;
-    background: var(--selection-bg);
+    background: var(--fr-color-fill-hover);
+    color: var(--fr-color-text-secondary);
 }
 /* FR-B10: 折り返しトグル ON 中の active 見た目 */
 .code-wrap-btn.is-active {
-    opacity: 1;
-    background: var(--selection-bg);
+    background: var(--fr-color-primary-soft);
+    color: var(--fr-color-primary-strong);
 }
-/* drawio image 右上の Open ボタン (codeblock copy ボタンと同じ design 系統、floating) */
+/* drawio image 右上の Open ボタン (codeblock の見出しのボタンと同じ形、floating) */
 .drawio-open-btn {
     position: fixed;
     z-index: 1000;
-    font-size: 7px;
-    color: var(--text-color);
-    background: var(--border-color);
-    border: none;
-    padding: 2px 5px;
-    border-radius: 3px;
+    font-size: 11px;
+    font-family: var(--fr-font-sans);
+    color: var(--fr-color-text-secondary);
+    background: var(--fr-color-bg-elevated);
+    border: 1px solid var(--fr-color-border);
+    height: 22px;
+    padding: 0 8px;
+    border-radius: var(--fr-radius-xs);
     cursor: pointer;
-    opacity: 0.85;
-    line-height: 0.99;
+    line-height: 1;
     user-select: none;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+    box-shadow: var(--fr-shadow-1);
 }
 .drawio-open-btn:hover {
-    opacity: 1;
-    background: var(--selection-bg);
+    color: var(--fr-color-text-primary);
+    background-image: linear-gradient(var(--fr-color-fill-hover), var(--fr-color-fill-hover));
 }
 
 /* ===== Attachments panel (popup) ===== */
+/* popover 共通の形（§7.7）: 地 bg-elevated・縁 1px・角 10px・影 2 */
 .attachments-panel {
     z-index: 10000;
     width: 380px;
     max-height: 480px;
     overflow: auto;
-    background: var(--bg-color);
-    color: var(--text-color);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    box-shadow: var(--fr-shadow-2);
     font-size: 13px;
 }
 .attachments-panel-header {
@@ -906,33 +978,35 @@ body {
     align-items: center;
     justify-content: space-between;
     padding: 12px 14px;
-    border-bottom: 1px solid var(--border-color);
-    background: var(--code-bg);
+    border-bottom: 1px solid var(--fr-color-border);   /* 浮く面の中の区切り（§3.3） */
 }
 .attachments-panel-title {
     font-weight: 600;
 }
 .attachments-panel-count {
-    opacity: 0.6;
+    color: var(--fr-color-text-tertiary);
     font-size: 12px;
+    font-variant-numeric: tabular-nums;
 }
 .attachments-panel-list {
     padding: 6px 0;
 }
 .attachments-panel-empty {
     padding: 24px 14px;
-    opacity: 0.5;
+    color: var(--fr-color-text-tertiary);
     text-align: center;
 }
 .attachments-panel-row {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 14px;
-    transition: background 0.1s;
+    margin: 0 4px;
+    padding: 8px 10px;
+    border-radius: var(--fr-radius-sm);
+    transition: background var(--fr-duration-fast);
 }
 .attachments-panel-row:hover {
-    background: var(--code-bg);
+    background: var(--fr-color-fill-hover);
 }
 .attachments-panel-icon {
     flex-shrink: 0;
@@ -941,17 +1015,17 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 6px;
-    background: var(--code-bg);
-    opacity: 0.7;
+    border-radius: var(--fr-radius-sm);
+    background: var(--fr-color-fill-subtle);
+    color: var(--fr-color-text-secondary);
 }
 .attachments-panel-icon.is-image {
-    background: rgba(99, 102, 241, 0.12);
-    color: rgb(99, 102, 241);
+    background: var(--fr-color-primary-soft);
+    color: var(--fr-color-primary-strong);
 }
 .attachments-panel-icon.is-file {
-    background: rgba(107, 114, 128, 0.12);
-    color: rgb(107, 114, 128);
+    background: var(--fr-color-fill-active);
+    color: var(--fr-color-text-secondary);
 }
 .attachments-panel-info {
     flex: 1;
@@ -965,7 +1039,7 @@ body {
 }
 .attachments-panel-path {
     font-size: 11px;
-    opacity: 0.6;
+    color: var(--fr-color-text-tertiary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -981,27 +1055,20 @@ body {
     border: none;
     cursor: pointer;
     color: inherit;
-    opacity: 0.6;
+    opacity: 0.62;
     padding: 6px;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.1s, opacity 0.1s;
+    transition: background var(--fr-duration-fast), opacity var(--fr-duration-fast);
 }
 .attachments-panel-btn:hover {
-    background: var(--selection-bg);
+    background: var(--fr-color-fill-hover);
     opacity: 1;
 }
 .attachments-panel-btn.is-copied {
-    color: rgb(34, 197, 94);
-}
-.code-expand-btn {
-    font-size: 8px;
-}
-/* Round only the top-right corner of the last button */
-.code-block-header > :last-child {
-    border-radius: 0 5px 0 0;
+    color: var(--fr-color-success-text);
 }
 /* Wrapper-level fullscreen button (mermaid / math).
    Codeblock has its own button inside .code-block-header. */
@@ -1016,18 +1083,17 @@ body {
     z-index: 5;
     font-size: 11px;
     line-height: 1;
-    color: var(--text-color);
-    background: var(--border-color);
-    border: none;
+    color: var(--fr-color-text-tertiary);
+    background: var(--fr-color-bg-elevated);
+    border: 1px solid var(--fr-color-border);
     padding: 3px 6px;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-xs);
     cursor: pointer;
-    opacity: 0.55;
     user-select: none;
 }
 .block-fullscreen-btn:hover {
-    opacity: 1;
-    background: var(--selection-bg);
+    color: var(--fr-color-text-secondary);
+    background-image: linear-gradient(var(--fr-color-fill-hover), var(--fr-color-fill-hover));
 }
 /* Hide wrapper-level button when the block is in edit mode so it doesn't
    sit on top of the source pre. */
@@ -1045,7 +1111,7 @@ body {
     height: 100vh;
     /* Translucent black scrim (matches image overlay). Theme-independent so
        the white close/copy buttons stay readable on either theme. */
-    background: rgba(0, 0, 0, 0.7);
+    background: var(--fr-color-overlay-strong);
     z-index: 10000;
     display: flex;
     align-items: center;
@@ -1121,7 +1187,7 @@ body {
     left: 16px;
     color: rgba(255, 255, 255, 0.7);
     font-size: 12px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--fr-font-mono);
     user-select: none;
     z-index: 10001;
 }
@@ -1151,9 +1217,9 @@ body {
     margin: 0;
     box-sizing: border-box;
     overflow: auto;
-    border-radius: 6px;
-    background: var(--code-bg, #1e1e1e);
-    color: var(--text-color, #d4d4d4);
+    border-radius: var(--fr-radius-md);
+    background: var(--fr-color-code-block-bg);
+    color: var(--fr-color-text-primary);
     font-family: var(--font-mono);
     white-space: pre;
     word-wrap: normal;
@@ -1215,36 +1281,40 @@ body {
 .katex .hangul_fallback {
     font-size: 90%;
 }
+/* 言語の選択: popover 共通の形（§7.7） */
 .lang-selector {
     position: fixed;
-    background: var(--bg-color);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    box-shadow: 0 4px 11px rgba(0,0,0,0.2);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    box-shadow: var(--fr-shadow-2);
     max-height: 225px;
     overflow-y: auto;
     z-index: 10000;
     min-width: 126px;
+    padding: 4px;
 }
 .lang-selector-item {
-    padding: 5px 11px;
+    padding: 4px 8px;
+    border-radius: var(--fr-radius-sm);
     cursor: pointer;
-    font-size: 11px;
+    font-size: 12px;
 }
 .lang-selector-item:hover {
-    background: var(--selection-bg);
+    background: var(--fr-color-fill-hover);
 }
 
 /* Mermaid diagram styles */
 .editor .mermaid-wrapper {
     margin: 0.9em 0;
-    border-radius: 5px;
+    border-radius: var(--fr-radius-md);
     overflow: visible;
 }
 .editor .mermaid-wrapper pre[data-lang="mermaid"] {
     display: none;
     margin: 0;
-    border-radius: 5px 5px 0 0;
+    border-radius: var(--fr-radius-md) var(--fr-radius-md) 0 0;
 }
 .editor .mermaid-wrapper[data-mode="edit"] pre[data-lang="mermaid"] {
     display: block;
@@ -1253,12 +1323,12 @@ body {
     background: var(--bg-color);
     padding: 14px;
     text-align: center;
-    border: 1px solid var(--border-color);
-    border-radius: 5px;
+    border: 1px solid var(--fr-color-divider);
+    border-radius: var(--fr-radius-md);
     min-height: 45px;
 }
 .editor .mermaid-wrapper[data-mode="edit"] .mermaid-diagram {
-    border-radius: 0 0 5px 5px;
+    border-radius: 0 0 var(--fr-radius-md) var(--fr-radius-md);
     border-top: none;
 }
 .editor .mermaid-diagram svg {
@@ -1266,33 +1336,23 @@ body {
     height: auto;
 }
 .editor .mermaid-diagram .mermaid-error {
-    color: #d73a49;
+    color: var(--fr-color-danger);
     font-size: 13px;
     padding: 7px;
-    background: #ffeef0;
-    border-radius: 4px;
-}
-[data-fr-theme="dark"] .editor .mermaid-diagram .mermaid-error {
-    background: #3d1f1f;
-    color: #f97583;
-}
-@media (prefers-color-scheme: dark) {
-    [data-fr-theme="auto"] .editor .mermaid-diagram .mermaid-error {
-        background: #3d1f1f;
-        color: #f97583;
-    }
+    background: var(--fr-color-danger-soft);
+    border-radius: var(--fr-radius-xs);
 }
 
 /* KaTeX math block styles */
 .editor .math-wrapper {
     margin: 0.9em 0;
-    border-radius: 5px;
+    border-radius: var(--fr-radius-md);
     overflow: visible;
 }
 .editor .math-wrapper pre[data-lang="math"] {
     display: none;
     margin: 0;
-    border-radius: 5px 5px 0 0;
+    border-radius: var(--fr-radius-md) var(--fr-radius-md) 0 0;
 }
 .editor .math-wrapper[data-mode="edit"] pre[data-lang="math"] {
     display: block;
@@ -1301,31 +1361,21 @@ body {
     background: var(--bg-color);
     padding: 14px;
     text-align: center;
-    border: 1px solid var(--border-color);
-    border-radius: 5px;
+    border: 1px solid var(--fr-color-divider);
+    border-radius: var(--fr-radius-md);
     min-height: 36px;
     overflow-x: auto;
 }
 .editor .math-wrapper[data-mode="edit"] .math-display {
-    border-radius: 0 0 5px 5px;
+    border-radius: 0 0 var(--fr-radius-md) var(--fr-radius-md);
     border-top: none;
 }
 .editor .math-display .math-error {
-    color: #d73a49;
+    color: var(--fr-color-danger);
     font-size: 13px;
     padding: 7px;
-    background: #ffeef0;
-    border-radius: 4px;
-}
-[data-fr-theme="dark"] .editor .math-display .math-error {
-    background: #3d1f1f;
-    color: #f97583;
-}
-@media (prefers-color-scheme: dark) {
-    [data-fr-theme="auto"] .editor .math-display .math-error {
-        background: #3d1f1f;
-        color: #f97583;
-    }
+    background: var(--fr-color-danger-soft);
+    border-radius: var(--fr-radius-xs);
 }
 
 /* Syntax highlighting colors */
@@ -1373,12 +1423,13 @@ body {
 
 .editor blockquote {
     margin: 0.5em 0;
-    padding: 0 0.9em;
+    padding: 0 0 0 14px;
     color: var(--blockquote-color);
-    border-left: 4px solid var(--blockquote-border);
+    border-left: 3px solid var(--blockquote-border);
     white-space: pre-wrap;
     word-wrap: break-word;
 }
+.editor li::marker { color: var(--fr-color-text-tertiary); }
 .editor ul, .editor ol { margin: 0.5em 0; padding-left: 1.8em; }
 .editor li { margin: 0.25em 0; }
 .editor li > ul, .editor li > ol { margin: 0.25em 0; } /* Nested lists */
@@ -1395,12 +1446,12 @@ body {
 .editor ol ol ol ol ol ol ol { list-style-type: decimal; }
 .editor ol ol ol ol ol ol ol ol { list-style-type: lower-alpha; }
 .editor ol ol ol ol ol ol ol ol ol { list-style-type: lower-roman; }
-.editor hr { border: none; border-top: 2px solid var(--border-color); margin: 0.9em 0; }
+.editor hr { border: none; border-top: 1px solid var(--fr-color-divider); margin: 1.5em 0; }
 .editor table { border-collapse: collapse; margin: 0.9em 0; position: relative; max-width: none; }
 .editor th, .editor td { border: 1px solid var(--border-color); padding: 7px 11px; min-width: 72px; position: relative; word-wrap: break-word; }
-.editor th { background: var(--code-bg); font-weight: 600; text-align: center; }
+.editor th { background: var(--fr-color-fill-subtle); font-weight: 600; text-align: center; }
 .editor td { text-align: left; vertical-align: top; }
-.editor td:focus, .editor th:focus { outline: 2px solid var(--link-color); outline-offset: -2px; }
+.editor td:focus, .editor th:focus { outline: 2px solid var(--fr-color-focus-ring); outline-offset: -2px; }
 
 /* Table column resize — pseudo-element approach:
    No `<div class="table-col-resize-handle">` element inside cells (which would trap the
@@ -1425,13 +1476,13 @@ body {
    on all cells in the same column. */
 .editor th.col-resize-hover::after,
 .editor td.col-resize-hover::after {
-    background: var(--link-color);
+    background: var(--fr-color-primary);
     opacity: 0.4;
 }
 /* Active resize — same color, more saturated. */
 .editor th.col-resize-resizing::after,
 .editor td.col-resize-resizing::after {
-    background: var(--link-color);
+    background: var(--fr-color-primary);
     opacity: 0.9;
 }
 .table-resizing {
@@ -1452,14 +1503,16 @@ body {
 }
 
 /* Table floating toolbar */
+/* 浮く toolbar（Figma の下の toolbar の形 — §7.7）: 地 bg-elevated・縁 1px・角 10px・影 3・内側 4px */
 .table-toolbar {
     position: fixed;
     display: none;
-    background: var(--toolbar-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 5px;
-    padding: 4px 7px;
-    box-shadow: 0 2px 7px rgba(0,0,0,0.15);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    padding: 4px;
+    box-shadow: var(--fr-shadow-3);
     z-index: 1000;
     gap: 2px;
     align-items: center;
@@ -1472,25 +1525,25 @@ body {
     border: none;
     padding: 4px 5px;
     cursor: pointer;
-    border-radius: 4px;
-    color: var(--text-color);
+    border-radius: var(--fr-radius-sm);
+    color: var(--fr-color-text-primary);
     display: flex;
     align-items: center;
     justify-content: center;
-    min-width: 23px;
-    min-height: 23px;
+    min-width: 26px;
+    min-height: 26px;
 }
 .table-toolbar button:hover {
-    background: var(--selection-bg);
+    background: var(--fr-color-fill-hover);
 }
 .table-toolbar button svg {
-    width: 13px;
-    height: 13px;
+    width: 14px;
+    height: 14px;
     flex-shrink: 0;
 }
-.table-toolbar button svg[fill="none"] { fill: none; }
+.table-toolbar button svg[fill="none"] { fill: none; stroke-width: 1.75; }
 .table-toolbar button.text-btn {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 500;
     white-space: nowrap;
     padding: 4px 7px;
@@ -1498,7 +1551,7 @@ body {
 .table-toolbar .separator {
     width: 1px;
     height: 16px;
-    background: var(--border-color);
+    background: var(--fr-color-border);   /* 浮く面の中の区切り（§3.3） */
     margin: 0 4px;
 }
 .editor li:has(> input[type="checkbox"]) {
@@ -1511,24 +1564,24 @@ body {
 
 .editor.is-empty:before {
     content: 'Start typing... (Try: # heading, - list, > quote, --- hr)';
-    color: var(--text-color);
-    opacity: 0.4;
+    color: var(--fr-color-text-tertiary);
     position: absolute;
     pointer-events: none;
 }
 /* Command Palette - selection highlight preserved while palette is open (scoped to editor) */
 .editor ::highlight(command-palette-selection) {
-    background-color: var(--selection-bg);
+    background-color: var(--fr-color-text-selection);
 }
 
-/* Command Palette */
+/* Command Palette（§7.7）: 地 bg-elevated・角 14px・影 3。入力欄は地なし + 下に divider、選んでいる項目は fill-active */
 .command-palette {
     position: fixed;
     z-index: 10000;
-    background: var(--bg-color);
-    border: 1px solid var(--border-color);
-    border-radius: 7px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-xl);
+    box-shadow: var(--fr-shadow-3);
     width: 252px;
     max-height: 324px;
     display: flex;
@@ -1536,47 +1589,50 @@ body {
     overflow: hidden;
 }
 .command-palette-search {
-    padding: 7px;
-    border-bottom: 1px solid var(--border-color);
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--fr-color-border);   /* 浮く面の中の区切り（§3.3） */
 }
 .command-palette-input {
     width: 100%;
-    padding: 5px 9px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--bg-color);
-    color: var(--text-color);
-    font-size: 12px;
+    height: 32px;
+    padding: 0 6px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--fr-color-text-primary);
+    font-size: 13px;
     outline: none;
     box-sizing: border-box;
 }
-.command-palette-input:focus {
-    border-color: var(--link-color);
+.command-palette-input:focus,
+.command-palette-input:focus-visible {
+    outline: none;
+    box-shadow: none;
 }
+.command-palette-input::placeholder { color: var(--fr-color-text-tertiary); }
 .command-palette-list {
     overflow-y: auto;
-    padding: 4px 0;
+    padding: 4px;
 }
 .command-palette-group-label {
-    padding: 4px 11px 2px;
-    font-size: 9px;
+    padding: 6px 8px 2px;
+    font-size: 11px;
     font-weight: 600;
-    text-transform: uppercase;
-    color: var(--text-color);
-    opacity: 0.5;
-    letter-spacing: 0.5px;
+    color: var(--fr-color-text-tertiary);
 }
 .command-palette-item {
     display: flex;
     align-items: center;
-    padding: 5px 11px;
+    padding: 5px 8px;
+    line-height: 18px;
+    border-radius: var(--fr-radius-sm);
     cursor: pointer;
-    gap: 7px;
-    font-size: 12px;
-    color: var(--text-color);
+    gap: 8px;
+    font-size: 13px;
+    color: var(--fr-color-text-primary);
 }
 .command-palette-item.selected {
-    background: var(--selection-bg);
+    background: var(--fr-color-fill-active);
 }
 .command-palette-icon {
     display: flex;
@@ -1585,29 +1641,34 @@ body {
     width: 14px;
     height: 14px;
     flex-shrink: 0;
-    opacity: 0.7;
+    color: var(--fr-color-text-secondary);
 }
 .command-palette-icon svg {
-    width: 13px;
-    height: 13px;
+    width: 14px;
+    height: 14px;
+    stroke-width: 1.75;
 }
 .command-palette-label {
     flex: 1;
 }
 .command-palette-shortcut {
-    font-size: 10px;
-    opacity: 0.5;
+    font-size: 11px;
+    color: var(--fr-color-text-tertiary);
     white-space: nowrap;
 }
+.command-palette-item.selected .command-palette-shortcut {
+    color: var(--fr-color-text-secondary);
+}
 
-/* Action Panel (Page Add) */
+/* Action Panel (Page Add) — command palette と同じ板 */
 .action-panel {
     position: fixed;
     z-index: 10000;
-    background: var(--bg-color);
-    border: 1px solid var(--border-color);
-    border-radius: 7px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-xl);
+    box-shadow: var(--fr-shadow-3);
     width: 270px;
     max-height: 360px;
     display: flex;
@@ -1615,28 +1676,26 @@ body {
     overflow: hidden;
 }
 .action-panel-title {
-    padding: 7px 11px 4px;
-    font-size: 9px;
+    padding: 8px 12px 4px;
+    font-size: 11px;
     font-weight: 600;
-    text-transform: uppercase;
-    color: var(--text-color);
-    opacity: 0.5;
-    letter-spacing: 0.5px;
+    color: var(--fr-color-text-tertiary);
 }
 .action-panel-list {
-    padding: 4px 0;
+    padding: 4px;
 }
 .action-panel-item {
     display: flex;
     align-items: center;
-    padding: 7px 11px;
+    padding: 6px 8px;
+    border-radius: var(--fr-radius-sm);
     cursor: pointer;
-    gap: 7px;
-    font-size: 12px;
-    color: var(--text-color);
+    gap: 8px;
+    font-size: 13px;
+    color: var(--fr-color-text-primary);
 }
 .action-panel-item.selected {
-    background: var(--selection-bg);
+    background: var(--fr-color-fill-active);
 }
 .action-panel-icon {
     flex-shrink: 0;
@@ -1644,39 +1703,42 @@ body {
     text-align: center;
 }
 .action-panel-input {
-    margin: 4px 7px 7px;
+    margin: 4px 8px 8px;
     padding: 5px 9px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--bg-color);
-    color: var(--text-color);
+    border: 1px solid transparent;
+    border-radius: var(--fr-radius-sm);
+    background: var(--fr-color-fill-subtle);
+    color: var(--fr-color-text-primary);
     font-size: 12px;
     outline: none;
     box-sizing: border-box;
 }
 .action-panel-input:focus {
-    border-color: var(--link-color);
+    background: var(--fr-color-bg-elevated);
+    border-color: var(--fr-color-focus-ring);
+    box-shadow: var(--fr-shadow-focus);
 }
 .action-panel-results {
     overflow-y: auto;
     max-height: 180px;
-    padding: 0 0 4px;
+    padding: 0 4px 4px;
 }
 .action-panel-result-item {
-    padding: 5px 11px;
+    padding: 5px 8px;
+    border-radius: var(--fr-radius-sm);
     cursor: pointer;
-    font-size: 11px;
-    color: var(--text-color);
+    font-size: 12px;
+    color: var(--fr-color-text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 .action-panel-result-item.selected {
-    background: var(--selection-bg);
+    background: var(--fr-color-fill-active);
 }
 .action-panel-confirm-btn {
     margin-top: 4px;
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid var(--fr-color-border);   /* 浮く面の中の区切り（§3.3） */
 }
 
 /* Side Panel (Notion-style peek overlay) */
@@ -1697,8 +1759,8 @@ body {
     max-width: 70%;
     /* height は top+bottom で確定（旧 height:100% を置換）。 */
     background: var(--bg-color);
-    border-left: 1px solid var(--border-color);
-    box-shadow: -4px 0 14px rgba(0, 0, 0, 0.15);
+    border-left: 1px solid var(--fr-color-divider);
+    box-shadow: var(--fr-shadow-3);
     display: none;
     flex-direction: row;
     z-index: 100;
@@ -1732,7 +1794,7 @@ body {
 .side-panel-resize-handle:hover,
 .side-panel-resize-handle.active {
     /* v0.207.43: notes-resize-handle と同 token + 同太さ (2px)、edge 中央配置 */
-    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    background: var(--fr-color-primary);
     width: 2px;
     left: -1px;
 }
@@ -1764,18 +1826,45 @@ body {
 .side-panel-sidebar-resize-handle:hover,
 .side-panel-sidebar-resize-handle.active {
     /* v0.207.43: notes-resize-handle と同 token + 同太さ (2px)、edge 中央配置 */
-    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    background: var(--fr-color-primary);
     width: 2px;
     right: -1px;
 }
 .side-panel-sidebar:not(.visible) .side-panel-sidebar-resize-handle {
     display: none;
 }
+/* sidepanel の Outline ヘッダー: note 面の md の Outline ヘッダー（notes-body-html.js の .sidebar-header）と同じ形 —
+   12px / 600 secondary・下に divider 1 本・左 10px。高さは横の .side-panel-header と同じ 36px（下の線が 1 本につながる） */
 .side-panel-sidebar .sidebar-header {
-    padding: 14px;
+    box-sizing: border-box;
+    height: 36px;
+    padding: 0 11px 0 10px;
+    border-bottom: 1px solid var(--fr-color-divider);
 }
 .side-panel-sidebar .sidebar-header h3 {
-    font-size: 12px;
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fr-text-sm, 12px);
+    font-weight: 600;
+    color: var(--fr-color-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.side-panel-sidebar .sidebar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    padding: 4px 5px;
+    line-height: 1;
+    border-radius: var(--fr-radius-sm);
+    color: var(--fr-color-text-primary);
+    opacity: 0.7;
+}
+.side-panel-sidebar .sidebar-toggle:hover {
+    opacity: 1;
+    background: var(--fr-color-fill-hover);
 }
 /* Side panel editor container (mirrors main .editor-container) */
 .side-panel-editor-container {
@@ -1789,11 +1878,15 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 7px 14px;
-    border-bottom: 1px solid var(--border-color);
+    /* 36px の行（5 + ボタン 25 + 5 + 下の線 1 — md の toolbar・note 面のヘッダーと同じ高さ）。
+       ボタンの間は 2px（26 + 2 = 28px の間隔 — md の toolbar と同じ。狭い sidepanel でも中央の file 名が残る幅を空ける） */
+    padding: 5px 12px;
+    border-bottom: 1px solid var(--fr-color-divider);
     flex-shrink: 0;
-    gap: 4px;
+    gap: 2px;
 }
+/* header の icon: 14px・線は細め（SVG の文字列は変えない） */
+.side-panel-header svg[fill="none"] { stroke-width: 1.75; }
 /* 狭幅レスポンシブ: lead（outline + 戻る/進む）と close は固定、中央のみ横スクロール。
    固定要素は縮まない（flex-shrink:0）。中央 wrapper だけが min-width:0 + overflow-x:auto で
    幅不足時にスクロールする。 */
@@ -1841,40 +1934,45 @@ body {
    テーマのとき・変数が無い面（fallback #252526）では、Fractal が light でも黒いメニューになっていた */
 .side-panel-overflow-menu {
     position: fixed;
-    background: var(--fr-color-bg-elevated, #fff);
-    border: 1px solid var(--fr-color-border, #ddd);
-    border-radius: var(--fr-radius-lg, 10px);
+    background: var(--fr-color-bg-elevated);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
     padding: 4px;
-    min-width: 144px;
-    box-shadow: var(--fr-shadow-2, 0 4px 11px rgba(0,0,0,0.15));
+    min-width: 180px;
+    box-shadow: var(--fr-shadow-2);
     z-index: 1000;
-    font-size: 12px;
-    color: var(--fr-color-text-primary, inherit);
+    font-size: var(--fr-text-base);
+    color: var(--fr-color-text-primary);
 }
 .side-panel-overflow-item {
     display: flex;
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 5px 18px 5px 11px;
+    padding: 5px 10px;
+    line-height: 16px;
     background: none;
     border: none;
-    border-radius: var(--fr-radius-sm, 6px);
+    border-radius: var(--fr-radius-sm);
     color: inherit;
-    font-size: 12px;
+    font-family: inherit;
+    font-size: var(--fr-text-base);
     cursor: pointer;
     white-space: nowrap;
     text-align: left;
 }
 .side-panel-overflow-item:hover:not(:disabled) {
-    background: var(--fr-color-bg-app, rgba(128,128,128,0.15));
+    background: var(--fr-color-fill-hover);
 }
 .side-panel-overflow-item:disabled {
-    opacity: 0.4;
+    color: var(--fr-color-text-muted);
     cursor: default;
 }
 .side-panel-overflow-item svg {
     flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    color: var(--fr-color-text-secondary);
 }
 /* wrapper は gap:4px で並べるため、ボタン個別の margin-right(4px) が gap と二重加算されて
    app link の左右だけ広く見えていた → wrapper 内では margin を殺して gap に一本化。
@@ -1884,9 +1982,9 @@ body {
     margin-right: 0;
 }
 .side-panel-filename {
-    font-size: 12px;
+    font-size: var(--fr-text-base);
     font-weight: 600;
-    opacity: 0.8;
+    color: var(--fr-color-text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1900,22 +1998,22 @@ body {
     font-size: 18px;
     cursor: pointer;
     padding: 2px 5px;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-sm);
     line-height: 1;
-    opacity: 0.6;
+    opacity: 0.62;
 }
 .side-panel-close:hover {
     opacity: 1;
-    background: var(--hover-bg, rgba(128,128,128,0.15));
+    background: var(--fr-color-fill-hover);
 }
 /* Side panel TOC footer */
 .side-panel-toc-footer {
     flex-shrink: 0;
     padding: 7px 14px;
-    border-top: 1px solid var(--border-color);
-    font-size: 10px;
-    color: var(--text-color);
-    opacity: 0.7;
+    border-top: 1px solid var(--fr-color-divider);
+    font-size: 11px;
+    color: var(--fr-color-text-secondary);
+    font-variant-numeric: tabular-nums;
 }
 /* Side panel TOC navigation */
 .side-panel-toc {
@@ -1923,27 +2021,54 @@ body {
     overflow-y: auto;
     padding: 7px 0;
 }
+/* sidepanel の目次: 項目の塗りは panel の端から 6px 内側・角 6px、今いる見出しは fill-active + text-primary 500。
+   内側に寄せるのは塗りだけ（透明な左右の縁 + background-clip — .outline-item と同じ。端まで押せる） */
 .side-panel-toc-item {
     display: block;
-    padding: 5px 14px;
-    color: var(--text-color);
+    margin: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    background-clip: padding-box;
+    padding: 4px 8px;
+    min-height: 24px;
+    border-radius: calc(var(--fr-radius-sm) + 6px) / var(--fr-radius-sm);
+    color: var(--fr-color-text-secondary);
     text-decoration: none;
     font-size: 12px;
     cursor: pointer;
 }
 .side-panel-toc-item:hover {
-    background: var(--selection-bg);
+    background-color: var(--fr-color-fill-hover);
+    color: var(--fr-color-text-primary);
 }
 .side-panel-toc-item.active {
-    background: var(--selection-bg);
-    font-weight: 600;
+    background-color: var(--fr-color-fill-active);
+    color: var(--fr-color-text-primary);
+    font-weight: 500;
 }
-.side-panel-toc-item[data-level="1"] { padding-left: 14px; font-weight: 600; }
-.side-panel-toc-item[data-level="2"] { padding-left: 25px; }
-.side-panel-toc-item[data-level="3"] { padding-left: 36px; font-size: 12px; }
-.side-panel-toc-item[data-level="4"] { padding-left: 47px; font-size: 11px; }
-.side-panel-toc-item[data-level="5"] { padding-left: 54px; font-size: 11px; color: var(--text-muted); }
-.side-panel-toc-item[data-level="6"] { padding-left: 58px; font-size: 10px; color: var(--text-muted); }
+.side-panel-toc-item[data-level="1"] { padding-left: 8px; font-weight: 600; color: var(--fr-color-text-primary); }
+.side-panel-toc-item[data-level="2"] { padding-left: 19px; }
+.side-panel-toc-item[data-level="3"] { padding-left: 30px; font-size: 12px; }
+.side-panel-toc-item[data-level="4"] { padding-left: 41px; font-size: 11px; }
+.side-panel-toc-item[data-level="5"] { padding-left: 48px; font-size: 11px; color: var(--fr-color-text-tertiary); }
+.side-panel-toc-item[data-level="6"] { padding-left: 52px; font-size: 10px; color: var(--fr-color-text-tertiary); }
+/* header の icon ボタンの箱は md の toolbar と同じ 26 × 25（並びの間隔 28px — §7.4。以前は 22 × 22 で間隔 24px） */
+.side-panel-header-btn,
+.side-panel-outline-btn,
+.side-panel-copy-path,
+.side-panel-copy-inapp-link,
+.side-panel-open-tab,
+.side-panel-expand,
+.side-panel-close {
+    box-sizing: border-box;
+    min-width: 26px;
+    min-height: 25px;
+    justify-content: center;
+}
+.side-panel-close {
+    display: flex;
+    align-items: center;
+}
 /* Side panel header action buttons (undo/redo/source) */
 .side-panel-header-actions {
     display: flex;
@@ -1957,14 +2082,14 @@ body {
     color: var(--text-color);
     cursor: pointer;
     padding: 4px;
-    border-radius: 4px;
-    opacity: 0.6;
+    border-radius: var(--fr-radius-sm);
+    opacity: 0.62;
     display: flex;
     align-items: center;
 }
 .side-panel-header-btn:hover {
     opacity: 1;
-    background: var(--hover-bg, rgba(128,128,128,0.15));
+    background: var(--fr-color-fill-hover);
 }
 .side-panel-header-btn:disabled {
     cursor: default;
@@ -1984,8 +2109,8 @@ body {
     color: var(--text-color);
     cursor: pointer;
     padding: 4px;
-    border-radius: 4px;
-    opacity: 0.6;
+    border-radius: var(--fr-radius-sm);
+    opacity: 0.62;
     display: flex;
     align-items: center;
     margin-right: 7px;
@@ -1993,7 +2118,7 @@ body {
 }
 .side-panel-outline-btn:hover {
     opacity: 1;
-    background: var(--hover-bg, rgba(128,128,128,0.15));
+    background: var(--fr-color-fill-hover);
 }
 .side-panel-outline-btn.hidden {
     display: none;
@@ -2005,16 +2130,16 @@ body {
     color: var(--text-color);
     cursor: pointer;
     padding: 2px 5px;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-sm);
     line-height: 1;
-    opacity: 0.6;
+    opacity: 0.62;
     margin-right: 4px;
     display: flex;
     align-items: center;
 }
 .side-panel-copy-path:hover {
     opacity: 1;
-    background: var(--hover-bg, rgba(128,128,128,0.15));
+    background: var(--fr-color-fill-hover);
 }
 /* app link ボタン: copy-path と同じフラットな見た目（専用スタイルが無くブラウザ既定の
    border が角丸枠として見えていた → リセットして揃える）。sprint 20260803-013547 TASK-03 */
@@ -2024,16 +2149,16 @@ body {
     color: var(--text-color);
     cursor: pointer;
     padding: 2px 5px;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-sm);
     line-height: 1;
-    opacity: 0.6;
+    opacity: 0.62;
     margin-right: 4px;
     display: flex;
     align-items: center;
 }
 .side-panel-copy-inapp-link:hover {
     opacity: 1;
-    background: var(--hover-bg, rgba(128,128,128,0.15));
+    background: var(--fr-color-fill-hover);
 }
 /* Side panel expand button */
 .side-panel-open-tab {
@@ -2042,16 +2167,16 @@ body {
     color: var(--text-color);
     cursor: pointer;
     padding: 2px 5px;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-sm);
     line-height: 1;
-    opacity: 0.6;
-    margin-right: 4px;
+    opacity: 0.62;
+    margin-right: 0;   /* 間は header の gap（2px）だけ — 並びの間隔 28px */
     display: flex;
     align-items: center;
 }
 .side-panel-open-tab:hover {
     opacity: 1;
-    background: var(--hover-bg, rgba(128,128,128,0.15));
+    background: var(--fr-color-fill-hover);
 }
 .side-panel-expand {
     background: none;
@@ -2059,20 +2184,21 @@ body {
     color: var(--text-color);
     cursor: pointer;
     padding: 2px 5px;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-sm);
     line-height: 1;
-    opacity: 0.6;
+    opacity: 0.62;
     margin-right: 4px;
     display: flex;
     align-items: center;
 }
 .side-panel-expand:hover {
     opacity: 1;
-    background: var(--hover-bg, rgba(128,128,128,0.15));
+    background: var(--fr-color-fill-hover);
 }
 .side-panel-expand.active {
     opacity: 1;
-    background: var(--selection-bg);
+    background: var(--fr-color-primary-soft);
+    color: var(--fr-color-primary-strong);
 }
 .side-panel-iframe-container {
     flex: 1;
@@ -2088,8 +2214,8 @@ body {
     min-height: 80px;
     display: flex;
     flex-direction: column;
-    border-top: 1px solid var(--border-color);
-    background: var(--bg-color);
+    border-top: 1px solid var(--fr-color-divider);
+    background: var(--fr-color-bg-panel);
     position: relative;
     overflow: hidden;
 }
@@ -2112,21 +2238,28 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 10px;
-    font-size: 11px;
+    /* 左 17px = お気に入りの見出し・tree の行の icon と同じ左端（sidebar の section の見出しは 1 本の線にそろえる — §7.2） */
+    padding: 0 8px 0 17px;
+    font-size: 12px;
     font-weight: 600;
-    color: var(--text-muted, #888);
+    color: var(--fr-color-text-secondary);
     user-select: none;
 }
 .side-panel-history-toggle {
     background: none;
     border: none;
+    border-radius: var(--fr-radius-sm);
     cursor: pointer;
-    color: inherit;
+    color: var(--fr-color-text-tertiary);
     padding: 2px;
     display: flex;
-    transition: transform 0.15s;
+    transition: transform var(--fr-duration-base) var(--fr-ease-standard), background-color var(--fr-duration-fast) ease;
 }
+.side-panel-history-toggle:hover {
+    background: var(--fr-color-fill-hover);
+    color: var(--fr-color-text-primary);
+}
+.side-panel-history-toggle svg { stroke-width: 1.75; }
 .side-panel-history.collapsed .side-panel-history-toggle { transform: rotate(180deg); }
 .side-panel-history-list {
     flex: 1;
@@ -2134,19 +2267,28 @@ body {
     padding: 2px 0;
 }
 .side-panel-history.collapsed .side-panel-history-list { display: none; }
+/* Recent の行: 塗りは panel の端から 6px 内側・角 6px（透明な左右の縁 + background-clip — 端まで押せる）。
+   icon の左端は 6 + 11 = 17px（tree の行・お気に入りと同じ。FR-FA-01 の 11px）。hover fill-hover */
 .side-panel-history-item {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 10px;
+    margin: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    background-clip: padding-box;
+    padding: 4px 8px 4px 11px;
+    min-height: 24px;
+    border-radius: calc(var(--fr-radius-sm) + 6px) / var(--fr-radius-sm);
     font-size: 12px;
+    color: var(--fr-color-text-secondary);
     cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.side-panel-history-item:hover { background: var(--fr-color-selection-bg, var(--outliner-hover, #e8e8e8)); }
-.side-panel-history-item-icon { flex-shrink: 0; opacity: 0.5; width: 13px; height: 13px; }
+.side-panel-history-item:hover { background-color: var(--fr-color-fill-hover); color: var(--fr-color-text-primary); }
+.side-panel-history-item-icon { flex-shrink: 0; width: 14px; height: 14px; color: var(--fr-color-text-secondary); stroke-width: 1.75; }
 .side-panel-history-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-panel-editor-root {
     display: flex;
@@ -2156,7 +2298,7 @@ body {
 }
 /* sprint 20260724-042927: .side-panel-overlay（シャドー背景）は全モードで廃止した。 */
 
-::selection { background: var(--selection-bg); }
+::selection { background: var(--fr-color-text-selection); }
 
 /* Image overlay (lightbox) — same as outliner */
 .outliner-image-overlay {
@@ -2165,7 +2307,7 @@ body {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.7);
+    background: var(--fr-color-overlay-strong);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2205,32 +2347,37 @@ body {
     user-select: none;
 }
 /* 画像 fullscreen overlay 右上の 3 ボタン (Copy Image / Open in New Tab / Copy Path) */
+/* 上の操作は浮く toolbar の形（§7.8）: 地 bg-elevated・縁 1px・角 10px・影 3、中は枠のないボタン */
 .image-overlay-toolbar {
     position: fixed;
     top: 14px;
     right: 14px;
     display: flex;
-    gap: 6px;
+    gap: 2px;
+    padding: 4px;
+    background: var(--fr-color-bg-elevated);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    box-shadow: var(--fr-shadow-3);
     z-index: 10002;
     user-select: none;
 }
 .image-overlay-toolbar button {
-    background: rgba(0, 0, 0, 0.55);
-    color: rgba(255, 255, 255, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-size: 11px;
+    background: transparent;
+    color: var(--fr-color-text-primary);
+    border: none;
+    padding: 5px 10px;
+    border-radius: var(--fr-radius-sm);
+    font-family: inherit;
+    font-size: 12px;
     cursor: pointer;
     line-height: 1.2;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 .image-overlay-toolbar button:hover {
-    background: rgba(0, 0, 0, 0.78);
-    border-color: rgba(255, 255, 255, 0.5);
+    background: var(--fr-color-fill-hover);
 }
 .image-overlay-toolbar button:active {
-    background: rgba(0, 0, 0, 0.92);
+    background: var(--fr-color-fill-active);
 }
 
 /* v10: Translation Loading Overlay */
@@ -2240,7 +2387,8 @@ body {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.5);
+    /* 白い文字と spinner を載せるので強い覆い */
+    background: var(--fr-color-overlay-strong);
     display: none;
     flex-direction: column;
     align-items: center;
@@ -2251,7 +2399,7 @@ body {
     width: 36px;
     height: 36px;
     border: 4px solid rgba(255, 255, 255, 0.3);
-    border-top-color: white;
+    border-top-color: var(--fr-color-primary);
     border-radius: 50%;
     animation: translate-spin 0.8s linear infinite;
 }
@@ -2268,10 +2416,9 @@ body {
 /* FR-RR-05: リソースアクセス範囲外の控えめなフッター帯 */
 .fractal-resource-footer {
     padding: 6px 12px;
-    border-top: 1px solid var(--border-color);
-    font-size: 10px;
-    color: var(--text-color);
-    opacity: 0.8;
+    border-top: 1px solid var(--fr-color-divider);
+    font-size: 11px;
+    color: var(--fr-color-text-secondary);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -2296,10 +2443,11 @@ body {
 
 /* sprint 20260724-160000: インライン文字色ピッカー（md toolbar/palette + outliner 右クリック共通） */
 .inline-color-popover {
-    background: var(--bg-color, #fff);
-    border: 1px solid var(--border-color, rgba(128,128,128,0.3));
-    border-radius: var(--fr-radius-sm, 6px);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    box-shadow: var(--fr-shadow-2);
     padding: 4px 0;
     min-width: 0;
 }
@@ -2330,8 +2478,9 @@ body {
    styles.css は outliner.css の後にロードされるため、この 2-class ルールが基本 item スタイルに優先する。 */
 .outliner-tag-suggest-item.kbd-active {
     background: var(--outliner-tag-hover-bg);
-    outline: 1px solid var(--outliner-tag-color);
-    outline-offset: -1px;
+    color: var(--outliner-tag-hover-color);
+    outline: 2px solid var(--fr-color-focus-ring);
+    outline-offset: -2px;
 }
 
 /* FR-TS-01: taskScope ポップアップ。add-col-dialog の慣例を踏襲（outliner.css）しつつ、
@@ -2344,17 +2493,18 @@ body {
 .outliner-task-scope-buttons button:first-child,
 .outliner-task-scope-buttons button:last-child {
     flex: 1 1 0;
-    background: var(--outliner-tag-color, #2196F3);
-    color: #ffffff;
-    font-weight: 600;
-    border-color: var(--outliner-tag-color, #2196F3);
+    background: var(--fr-color-primary);
+    color: var(--fr-color-primary-fg);
+    font-weight: 500;
+    border-color: var(--fr-color-primary);
 }
 .outliner-task-scope-buttons button:hover {
-    filter: brightness(1.08);
+    background: var(--fr-color-primary-hover);
+    border-color: var(--fr-color-primary-hover);
 }
 .outliner-task-scope-buttons button:focus-visible,
 .outliner-task-scope-buttons button:focus {
-    outline: 2px solid var(--outliner-tag-color, #2196F3);
+    outline: 2px solid var(--fr-color-focus-ring);
     outline-offset: 1px;
 }
 
@@ -2375,21 +2525,19 @@ body {
     max-height: 86vh;
     overflow: auto;
     padding: 20px 24px;
-    border-radius: 12px;
-    background: var(--bg-color, #ffffff);
-    color: var(--text-color, #24292f);
-    border: 1px solid var(--border-color, #d0d7de);
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.28);
+    border-radius: var(--fr-radius-xl);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    box-shadow: var(--fr-shadow-4);
     font-size: 13px;
     line-height: 1.5;
 }
-/* US-6b: HUD タイトル（どのモード用の一覧か明示） */
+/* US-6b: HUD タイトル（どのモード用の一覧か明示）。線は引かない（大きさと太さで示す） */
 .fractal-shortcut-hud-title {
-    font-weight: 700;
-    font-size: 15px;
-    margin-bottom: 12px;
-    padding-bottom: 6px;
-    border-bottom: 2px solid var(--accent-color, #4a9eff);
+    font-weight: 600;
+    font-size: var(--fr-text-lg);
+    margin-bottom: 14px;
 }
 .fractal-shortcut-hud-grid {
     display: flex;
@@ -2402,15 +2550,12 @@ body {
     flex: 1 1 220px;
     margin-bottom: 8px;
 }
+/* section の見出し（§7.2）: 12px / 600 secondary。大文字化・字間の広げ・下線はしない */
 .fractal-shortcut-hud-cat-title {
-    font-weight: 700;
+    font-weight: 600;
     font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    opacity: 0.7;
+    color: var(--fr-color-text-secondary);
     margin-bottom: 6px;
-    padding-bottom: 3px;
-    border-bottom: 1px solid var(--border-color, #d0d7de);
 }
 .fractal-shortcut-hud-row {
     display: flex;
@@ -2418,18 +2563,20 @@ body {
     gap: 16px;
     padding: 2px 0;
 }
+/* kbd: fill-subtle + 1px border + 角 4px + mono 11px */
 .fractal-shortcut-hud-keys {
-    font-family: var(--font-mono, 'SF Mono', Consolas, monospace);
-    background: var(--code-bg, #f6f8fa);
-    color: var(--text-color, #24292f);
-    padding: 1px 6px;
-    border-radius: 4px;
+    font-family: var(--fr-font-mono);
+    background: var(--fr-color-fill-subtle);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    padding: 0 6px;
+    border-radius: var(--fr-radius-xs);
     white-space: nowrap;
-    font-size: 12px;
+    font-size: 11px;
 }
 .fractal-shortcut-hud-desc {
     text-align: right;
-    opacity: 0.85;
+    color: var(--fr-color-text-secondary);
 }
 
 /* FR-TBL-01 rev2 (ADRL-0053): headerless = th 不在の DOM が単一真実。
@@ -2437,8 +2584,8 @@ body {
    toolbar-activeBackground は light テーマで濃色になり文字が沈むため、
    button の accent 色(背景 + 前景を対で指定)を使う。 */
 .table-toolbar button.active {
-    background: var(--vscode-button-background, #0e639c);
-    color: var(--vscode-button-foreground, #ffffff);
+    background: var(--fr-color-primary-soft);
+    color: var(--fr-color-primary-strong);
 }
 
 /* FR-TSL (sprint 20260812-032645): table cell select/edit モード。
@@ -2449,25 +2596,31 @@ table.tbl-select-mode td {
 }
 th.tbl-cell-selected,
 td.tbl-cell-selected {
-    outline: 2px solid var(--vscode-focusBorder, #007fd4);
+    outline: 2px solid var(--fr-color-primary);
     outline-offset: -2px;
 }
 th.tbl-cell-range,
 td.tbl-cell-range {
-    background: var(--vscode-editor-selectionBackground, rgba(51, 153, 255, 0.25));
+    background: var(--fr-color-selection-bg);
 }
 /* FR-TFL: 行フィルタの非表示行 */
 tr.tbl-row-filtered {
     display: none;
 }
 .table-toolbar input.table-filter-input {
-    border: 1px solid var(--border-color, #ccc);
-    border-radius: 4px;
-    padding: 2px 6px;
+    border: 1px solid transparent;
+    border-radius: var(--fr-radius-sm);
+    padding: 3px 6px;
     font-size: 11px;
     width: 110px;
-    background: var(--bg-color, #fff);
-    color: var(--text-color, #333);
+    background: var(--fr-color-fill-subtle);
+    color: var(--fr-color-text-primary);
+    outline: none;
+}
+.table-toolbar input.table-filter-input:focus {
+    background: var(--fr-color-bg-elevated);
+    border-color: var(--fr-color-focus-ring);
+    box-shadow: var(--fr-shadow-focus);
 }
 
 

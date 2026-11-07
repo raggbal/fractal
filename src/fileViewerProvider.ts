@@ -21,6 +21,7 @@ import { isViewerTarget, VIEWER_SIZE_LIMIT } from './shared/viewer-target';
 import { getFileViewerHtml } from './fileViewerContent';
 import { buildInAppFileLinkFromFolders } from './shared/viewer-inapp-link';
 import { getWebviewMessages, t } from './i18n/messages';
+import { migrateLegacyTheme } from './shared/settings-provider';
 
 class FileViewerDocument implements vscode.CustomDocument {
     constructor(public readonly uri: vscode.Uri) {}
@@ -72,6 +73,16 @@ export class FileViewerProvider implements vscode.CustomReadonlyEditorProvider<F
 
         webviewPanel.webview.html = getFileViewerHtml(
             webviewPanel.webview, this.context.extensionUri, document.uri, kind);
+
+        // modern-2026（docs/design/modern-2026.md §7.14）: 開いたまま fractal.theme を変えたら viewer のタブも追従する。
+        // notes / outliner の面は HTML を作り直すが、viewer は表示の状態（拡大率・位置・ページ）を失わないよう
+        // data-fr-theme だけを差し替える（fileViewerContent.ts の inline script が受ける）
+        const themeListener = vscode.workspace.onDidChangeConfiguration((e) => {
+            if (!e.affectsConfiguration('fractal.theme')) { return; }
+            const theme = migrateLegacyTheme(vscode.workspace.getConfiguration('fractal').get<string>('theme', 'auto'));
+            void webviewPanel.webview.postMessage({ type: 'fractalTheme', theme });
+        });
+        webviewPanel.onDidDispose(() => themeListener.dispose());
 
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
             if (!message) { return; }

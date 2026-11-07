@@ -27,7 +27,7 @@ function ensureStyle(doc) {
         '.fv-image-stage img { position: absolute; left: 0; top: 0; transform-origin: 0 0;',
         '  max-width: none; max-height: none; user-select: none; -webkit-user-drag: none; }',
         '.fv-image-stage img.fv-pixelated { image-rendering: pixelated; }',
-        '.fv-image-zoom-label { margin-left: 6px; font-size: 11px; opacity: 0.7; }',
+        '.fv-image-zoom-label { margin-left: 6px; font-size: 11px; color: var(--fr-color-text-tertiary, inherit); font-variant-numeric: tabular-nums; }',
     ].join('\n');
     doc.head.appendChild(style);
 }

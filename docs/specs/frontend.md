@@ -12,22 +12,22 @@
 - Theme is applied via the HTML attribute `data-fr-theme`.
 - Legacy seven themes (night / github / sepia / minimal / things / perplexity, ...) auto-migrate to the three modes.
 
-**Color palette:**
-- Primary: `#9CC8DC` (light) / `#7DC4DF` (dark) — pastel teal-blue.
-- Surface: `--fr-bg-app` / `--fr-bg-panel` (unified).
-- Text: primary → muted scale.
-- Status: success / warning / danger / info (each with a soft variant).
+**Color palette** (design language `modern-2026` — `docs/design/modern-2026.md`):
+- Surfaces: note content is white (`--fr-color-bg-app` `#FFFFFF` / dark `#1F1F22`); the sidebar, the md Outline and the tab strip are one step darker, faintly lavender gray (`--fr-color-bg-panel` / `--fr-color-bg-chrome` `#F5F4FB` / dark `#18181B`; variant A5, chosen on 2026-11-07 from 11 variants — the others and how to switch back are in `docs/design/modern-2026.md` §13), separated by a single 1px `--fr-color-divider`. Menus, popovers, dialogs and floating toolbars use `--fr-color-bg-elevated` (white / dark `#2A2A2E`) with a 1px border and a shadow. Lines inside a floating surface (menu separators, toolbar group separators, popover header rules) use `--fr-color-border`, not the divider (the divider is 1.06:1 on the dark elevated surface). PDF / docx / pptx pages sit on `--fr-color-bg-canvas`.
+- Accent: one blue, `--fr-color-primary` `#0A68E6` (white text 5.08:1); accent text (links, tags, search-result file names) is `--fr-color-primary-strong` (`#0256C3` / dark `#6EA6FE`). All accent values live in the accent ramp block (`--fr-accent-*`) at the top of `tokens.css` — swapping the brand color means editing only that block (a purple variant is documented there).
+- States are fills: hover `--fr-color-fill-hover`, the open item / pressed `--fr-color-fill-active` (neutral), multi-select and the keyboard focus row `--fr-color-selection-bg` (soft blue). The outliner node selection stays amber and `::selection` stays blue (ADRL-0115).
+- Text: primary / secondary / tertiary meet 4.5:1 on every surface; `--fr-color-text-muted` is for disabled states and decoration only.
+- Status: success / warning / danger / info, each with a soft variant (`-text` for the text color of success / warning).
 
 **Tokens (`tokens.css`):**
-- Spacing scale (CSS custom properties).
-- Border-radius tokens.
-- Shadow: `--fr-shadow-focus` (focus ring).
-- Typography (font family + size scale).
-- Z-index layer definitions.
+- The three theme blocks (light / dark / auto + OS dark) carry the same keys; dark and auto-dark are identical. Values are plain hex / rgba (no `color-mix()` / `light-dark()` — Chromium 114 and rgb()-based tests). `test/unit/design-tokens-modern.spec.ts` (G1–G5, G2b–G2d) checks the blocks, the contrast pairs, the visual steps of lines and tag pills, VS Code color leaks (font variables excepted), undefined `--fr-*` names and the value format.
+- Spacing scale, radius (`xs 4` / `sm 6` / `md 8` / `lg 10` / `xl 14`), elevation (`--fr-shadow-1..4`, per theme), focus (`--fr-color-focus-ring` + `--fr-shadow-focus` halo).
+- Typography: `--fr-font-sans` / `--fr-font-mono` (system UI with Japanese UI fonts), UI sizes `--fr-text-*` on a 13px base (`--fr-text-base`).
+- Motion: `--fr-duration-*` / `--fr-ease-*` (0 under `prefers-reduced-motion`). Z-index layer definitions.
 
 **Responsive:** N/A (the webview is a fixed-width container).
 
-**Animation:** Smooth transition on theme switch (`fr-base.css`); other animations are minimal.
+**Animation:** Smooth transition on theme switch (`fr-base.css`, 80ms); other animations are minimal.
 
 ---
 

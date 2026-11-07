@@ -1,12 +1,532 @@
 <!DOCTYPE html>
-<html>
+<html data-fr-theme="auto">
 <head>
 <meta charset="utf-8">
 <!-- 本番 fileViewerContent.ts の CSP を忠実に再現（cspSource → 'self'）。blob iframe はこの CSP を
      policy container 継承する — ユーザー script 抑止の実体（script-src nonce）・外部送信遮断
      （connect-src）・外部 URL への iframe 遷移抑止（frame-src — TC-FV-03）が全てここに依存する -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'nonce-LIlMjTEudzoo1tsw0d7pZg==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; font-src 'self' blob: data:; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'nonce-rphnoJrR079qlyyMsGjEog==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; font-src 'self' blob: data:; form-action 'none'">
 <title>Standalone File Viewer Test</title>
+<style>
+/*
+ * Fractal Design Tokens — modern-2026
+ *
+ * 設計: docs/design/modern-2026.md（面の構成 §2・色 §3・コントラストの検証 §4・形 §5）
+ * 3 mode theme system (light / dark / auto) — data-fr-theme="light|dark|auto"
+ *
+ * Loaded BEFORE styles.css / outliner.css to provide --fr-* variables
+ * Compatible with VSCode webview (Chromium 114+) / Electron / Chrome / Safari 15.4+
+ *
+ * 書き方の決まり（§3.14）:
+ *   1. テーマの 3 ブロック（light / dark / auto + OS dark）は同じ key を持つ。dark と auto-dark は同じ値
+ *      （test/unit/design-tokens-modern.spec.ts の G1 が機械で確かめる）
+ *   2. 影もテーマのブロックに入れる（dark は影の濃さが違う）
+ *   3. 色の値は 16 進か rgb / rgba の直書き。color-mix() / light-dark() は使わない
+ *      （計算後の値の形が変わって rgb() を前提にした test が壊れる・Chromium 114 で動かない — §9 D5）
+ *   4. 部品の CSS は accent ramp（--fr-accent-*）を直接使わず、意味の token（--fr-color-primary 等）を使う
+ */
+
+/* Layer order: 後ろほど優先度が高い (CSS Cascade Layers).
+ * fr-legacy は既存 outliner.css / styles.css の `--outliner-bg` 等の fallback 定義用。
+ * fr-tokens で theme tokens が legacy を override する。 */
+@layer fr-legacy, fr-tokens, fr-base, fr-components, fr-chrome;
+
+@layer fr-tokens {
+    /* ═══════════════════════════════════════════════════════════════
+       Accent ramp — ブランド色の差し替え点（ここだけ書き換える。値は §4 の検証を通したもの）
+       青（OKLCH 259°）。紫（Quick 寄り）に差し替えるときの値は §3.1:
+         100 #EDEAFF / 200 #DCD6FF / 300 #C3B7FE / 400 #A992FF / 600 #7A46E7 / 700 #6638C4 / 800 #522E9E /
+         soft-dark #383051 / soft-hover-dark #46396B / rgb 122, 70, 231 / light-rgb 169, 146, 255
+       ═══════════════════════════════════════════════════════════════ */
+    :root {
+        --fr-accent-100: #E3EEFF;                 /* light: primary-soft / selection-bg */
+        --fr-accent-200: #C9DEFF;                 /* light: primary-soft-hover */
+        --fr-accent-300: #9EC4FF;                 /* dark : primary-strong-hover（soft-hover の上の文字） */
+        --fr-accent-400: #6EA6FE;                 /* dark : primary-strong / focus-ring */
+        --fr-accent-600: #0A68E6;                 /* 両方: primary（塗り・指標）/ light: focus-ring */
+        --fr-accent-700: #0256C3;                 /* 両方: primary-hover / light: primary-strong（文字） */
+        --fr-accent-800: #06469E;                 /* 両方: primary-active */
+        --fr-accent-soft-dark: #263651;           /* dark: primary-soft / selection-bg（= 500 #3D87F8 を 22% で #1F1F22 に重ねた値） */
+        --fr-accent-soft-hover-dark: #29426B;     /* dark: primary-soft-hover（= 500 を 34%。soft との段差 1.21:1 — 26% の #273A5A は 1.06:1 で見えなかった） */
+        --fr-accent-rgb: 10, 104, 230;            /* = 600。light の ::selection / focus の halo */
+        --fr-accent-light-rgb: 110, 166, 254;     /* = 400。dark の ::selection / focus の halo */
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Light tokens (default + auto fallback)
+       面: 本文 = 白、chrome（sidebar・タブ strip・md の Outline）= ニュートラルの薄い灰、境目は 1px の線
+       ═══════════════════════════════════════════════════════════════ */
+    :root,
+    :root[data-fr-theme="light"],
+    :root[data-fr-theme="auto"] {
+        color-scheme: light;
+
+        /* Surface */
+        --fr-color-bg-app:         #FFFFFF;   /* 本文（md・outliner・table・mindmap・file viewer・linkedfd・sidepanel） */
+        /* 左パネル（panel / chrome）は A5「ほんのり紫」（2026-11-07 採用）。ほかの案と戻し方は docs/design/modern-2026.md §13 */
+        --fr-color-bg-panel:       #F5F4FB;   /* サイドバー（note tree の panel・md の Outline） */
+        --fr-color-bg-chrome:      #F5F4FB;   /* notes のタブ strip（既定は sidebar と同じ値） */
+        --fr-color-bg-elevated:    #FFFFFF;   /* menu・popover・dialog・浮く toolbar */
+        --fr-color-bg-canvas:      #F2F2F4;   /* PDF / docx / pptx の紙面の後ろ */
+        --fr-color-bg-inverse:     #18181B;   /* toast */
+        --fr-color-overlay:        rgba(17, 17, 20, 0.32);   /* dialog の下の scrim */
+        --fr-color-overlay-strong: rgba(0, 0, 0, 0.70);      /* lightbox / 全画面 */
+
+        /* Fill — どの面の上でも同じ段差に見える半透明の塗り */
+        --fr-color-fill-subtle:    rgba(24, 24, 27, 0.04);   /* 入力欄の地・table の見出し行・kbd */
+        --fr-color-fill-hover:     rgba(24, 24, 27, 0.055);  /* hover */
+        --fr-color-fill-active:    rgba(24, 24, 27, 0.085);  /* 押下中・開いている項目（現在地）・無彩色の ON */
+
+        /* Line */
+        --fr-color-divider:        #E7E7EA;   /* 面の境目・区切り */
+        --fr-color-border:         #E2E2E6;   /* 部品の縁 */
+        --fr-color-border-strong:  #D1D1D6;   /* hover した縁・引用の左線 */
+        --fr-color-connector:      #8E8E96;   /* mindmap の枝（構造を表す線 3:1 以上） */
+
+        /* Text */
+        --fr-color-text-primary:   #18181B;
+        --fr-color-text-secondary: #52525B;
+        --fr-color-text-tertiary:  #64646C;
+        --fr-color-text-muted:     #A1A1AA;   /* 無効状態と飾りだけ（意味のある文字に使わない） */
+        --fr-color-text-inverse:   #FAFAFA;
+
+        /* Accent（意味の token） */
+        --fr-color-primary:            var(--fr-accent-600);
+        --fr-color-primary-hover:      var(--fr-accent-700);
+        --fr-color-primary-active:     var(--fr-accent-800);
+        --fr-color-primary-strong:     var(--fr-accent-700);   /* accent の文字と icon（link・tag・ON の icon） */
+        --fr-color-primary-soft:       var(--fr-accent-100);   /* tag の地・ON のボタンの地・選択の地 */
+        --fr-color-primary-soft-hover: var(--fr-accent-200);
+        --fr-color-primary-strong-hover: var(--fr-accent-700);   /* primary-soft-hover の上の文字（tag の hover・focus 行の上の tag） */
+        --fr-color-primary-fg:         #FFFFFF;
+        --fr-color-accent:             var(--fr-color-primary);        /* 廃止予定の alias */
+        --fr-color-accent-soft:        var(--fr-color-primary-soft);   /* 廃止予定の alias */
+
+        /* Selection / focus（ADRL-0115: outliner の node 選択の amber は outliner.css に置く） */
+        --fr-color-selection-bg:   var(--fr-color-primary-soft);
+        --fr-color-selection-bar:  var(--fr-color-primary);            /* 廃止予定の alias */
+        --fr-color-text-selection: rgba(var(--fr-accent-rgb), 0.20);   /* ::selection */
+        --fr-color-focus-ring:     var(--fr-accent-600);
+        --fr-color-focus-halo:     rgba(var(--fr-accent-rgb), 0.22);
+
+        /* Status */
+        --fr-color-success:        #16A34A;
+        --fr-color-success-text:   #11733A;
+        --fr-color-success-soft:   #DCFCE7;
+        --fr-color-warning:        #D97706;
+        --fr-color-warning-text:   #A14907;   /* A5 の開いている行（active/sidebar）の上でも 4.5:1（#A64B07 では 4.45） */
+        --fr-color-warning-soft:   #FEF3C7;
+        --fr-color-danger:         #C21D1D;   /* 同（#C81E1E では 4.42） */
+        --fr-color-danger-solid:   #C81E1E;
+        --fr-color-danger-soft:    #FEE2E2;
+        --fr-color-info:           var(--fr-color-primary-strong);
+        --fr-color-info-soft:      var(--fr-color-primary-soft);
+
+        /* Search */
+        --fr-color-search-hit:     rgba(255, 255, 0, 0.40);
+        --fr-color-search-current: rgba(255, 165, 0, 0.60);
+        /* 検索の結果から飛んだ先の 2 秒の flash（md の段落・outliner の行・note tree の行で同じ amber） */
+        --fr-color-jump-flash:        rgba(255, 200, 0, 0.25);   /* 段落・行 */
+        --fr-color-jump-flash-strong: rgba(255, 200, 0, 0.55);   /* 一致した語・tree の行の出だし */
+
+        /* MD content */
+        --fr-color-code-bg:        #F4F4F5;   /* inline code */
+        --fr-color-code-block-bg:  #F7F7F8;   /* code block（pre） */
+
+        /* Scrollbar */
+        --fr-color-scrollbar-thumb:       rgba(24, 24, 27, 0.18);
+        --fr-color-scrollbar-thumb-hover: rgba(24, 24, 27, 0.32);
+
+        /* Chip（table の multiselect）— 不透明な地 + 文字（4.5:1 以上。§3.11） */
+        --fr-chip-red-bg:    #FEE2E2;  --fr-chip-red-fg:    #B91C1C;
+        --fr-chip-orange-bg: #FFEDD5;  --fr-chip-orange-fg: #B93C0B;
+        --fr-chip-yellow-bg: #FEF3C7;  --fr-chip-yellow-fg: #8A5A00;
+        --fr-chip-green-bg:  #DCFCE7;  --fr-chip-green-fg:  #137A3A;
+        --fr-chip-blue-bg:   #E3EEFF;  --fr-chip-blue-fg:   #0256C3;
+        --fr-chip-purple-bg: #F3E8FF;  --fr-chip-purple-fg: #7E22CE;
+        --fr-chip-pink-bg:   #FCE7F3;  --fr-chip-pink-fg:   #BE185D;
+        --fr-chip-zinc-bg:   #F1F1F3;  --fr-chip-zinc-fg:   #52525B;
+
+        /* Elevation（浮く面は影 + 1px の border を組みにする） */
+        --fr-shadow-1: 0 1px 2px rgba(17, 17, 20, 0.06);
+        --fr-shadow-2: 0 1px 3px rgba(17, 17, 20, 0.06), 0 6px 16px rgba(17, 17, 20, 0.10);
+        --fr-shadow-3: 0 2px 6px rgba(17, 17, 20, 0.06), 0 12px 32px rgba(17, 17, 20, 0.14);
+        --fr-shadow-4: 0 4px 12px rgba(17, 17, 20, 0.08), 0 24px 64px rgba(17, 17, 20, 0.22);
+        --fr-shadow-focus: 0 0 0 3px var(--fr-color-focus-halo);
+
+        /* MD content legacy aliases */
+        --bg-color:          var(--fr-color-bg-app);
+        --text-color:        var(--fr-color-text-primary);
+        --heading-color:     var(--fr-color-text-primary);
+        --link-color:        var(--fr-color-primary-strong);
+        --code-bg:           var(--fr-color-code-bg);
+        --code-text:         var(--fr-color-text-primary);
+        --border-color:      var(--fr-color-border);
+        --blockquote-color:  var(--fr-color-text-secondary);
+        --blockquote-border: var(--fr-color-border-strong);
+        --sidebar-bg:        var(--fr-color-bg-panel);
+        --sidebar-border:    var(--fr-color-divider);
+        --toolbar-bg:        var(--fr-color-bg-app);
+        --selection-bg:      var(--fr-color-primary-soft);
+
+        /* outliner-* legacy aliases — outliner.css の `var(--outliner-*)` */
+        --outliner-bg:                  var(--fr-color-bg-app);
+        --outliner-fg:                  var(--fr-color-text-primary);
+        --outliner-text:                var(--fr-color-text-primary);
+        --outliner-border:              var(--fr-color-divider);
+        --outliner-hover:               var(--fr-color-fill-hover);
+        --outliner-hover-bg:            var(--fr-color-fill-hover);
+        --outliner-active:              var(--fr-color-selection-bg);
+        --outliner-focus-bg:            var(--fr-color-selection-bg);
+        --outliner-text-focus-bg:       transparent;
+        --outliner-subtext:             var(--fr-color-text-secondary);
+        --outliner-subtext-color:       var(--fr-color-text-secondary);
+        --outliner-placeholder:         var(--fr-color-text-tertiary);
+        --outliner-tag-color:           var(--fr-color-primary-strong);
+        --outliner-tag-bg:              var(--fr-color-primary-soft);
+        --outliner-tag-hover-bg:        var(--fr-color-primary-soft-hover);
+        --outliner-tag-hover-color:     var(--fr-color-primary-strong-hover);
+        --outliner-checkbox-accent:     var(--fr-color-primary);
+        --outliner-page-icon-color:     var(--fr-color-text-secondary);
+        --outliner-search-bg:           var(--fr-color-fill-subtle);
+        --outliner-search-border:       transparent;
+        --outliner-search-fg:           var(--fr-color-text-primary);
+        --outliner-code-bg:             var(--fr-color-code-bg);
+        --outliner-error-color:         var(--fr-color-danger);
+        --outliner-accent-fg:           var(--fr-color-primary-fg);
+        --outliner-scrollbar-thumb:        var(--fr-color-scrollbar-thumb);
+        --outliner-scrollbar-thumb-hover:  var(--fr-color-scrollbar-thumb-hover);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Dark tokens (explicit dark) — VS Code Dark Modern と同じ並び
+       sidebar #18181B < 本文 #1F1F22 < 浮く面 #2A2A2E
+       ═══════════════════════════════════════════════════════════════ */
+    :root[data-fr-theme="dark"] {
+        color-scheme: dark;
+
+        --fr-color-bg-app:         #1F1F22;
+        --fr-color-bg-panel:       #18181B;
+        --fr-color-bg-chrome:      #18181B;
+        --fr-color-bg-elevated:    #2A2A2E;
+        --fr-color-bg-canvas:      #18181B;
+        --fr-color-bg-inverse:     #3A3A40;
+        --fr-color-overlay:        rgba(0, 0, 0, 0.56);
+        --fr-color-overlay-strong: rgba(0, 0, 0, 0.70);
+
+        --fr-color-fill-subtle:    rgba(255, 255, 255, 0.045);
+        --fr-color-fill-hover:     rgba(255, 255, 255, 0.06);
+        --fr-color-fill-active:    rgba(255, 255, 255, 0.095);
+
+        --fr-color-divider:        #2E2E33;
+        --fr-color-border:         #38383E;
+        --fr-color-border-strong:  #4A4A50;
+        --fr-color-connector:      #707079;
+
+        --fr-color-text-primary:   #EDEDEF;
+        --fr-color-text-secondary: #B4B4BC;
+        --fr-color-text-tertiary:  #9A9AA2;
+        --fr-color-text-muted:     #5F5F67;
+        --fr-color-text-inverse:   #FAFAFA;
+
+        --fr-color-primary:            var(--fr-accent-600);
+        --fr-color-primary-hover:      var(--fr-accent-700);
+        --fr-color-primary-active:     var(--fr-accent-800);
+        --fr-color-primary-strong:     var(--fr-accent-400);
+        --fr-color-primary-soft:       var(--fr-accent-soft-dark);
+        --fr-color-primary-soft-hover: var(--fr-accent-soft-hover-dark);
+        --fr-color-primary-strong-hover: var(--fr-accent-300);
+        --fr-color-primary-fg:         #FFFFFF;
+        --fr-color-accent:             var(--fr-color-primary);
+        --fr-color-accent-soft:        var(--fr-color-primary-soft);
+
+        --fr-color-selection-bg:   var(--fr-color-primary-soft);
+        --fr-color-selection-bar:  var(--fr-color-primary);
+        --fr-color-text-selection: rgba(var(--fr-accent-light-rgb), 0.32);
+        --fr-color-focus-ring:     var(--fr-accent-400);
+        --fr-color-focus-halo:     rgba(var(--fr-accent-light-rgb), 0.30);
+
+        --fr-color-success:        #22C55E;
+        --fr-color-success-text:   #4ADE80;
+        --fr-color-success-soft:   #1F3A2C;
+        --fr-color-warning:        #F59E0B;
+        --fr-color-warning-text:   #FBBF24;
+        --fr-color-warning-soft:   #41331E;
+        --fr-color-danger:         #F87171;
+        --fr-color-danger-solid:   #DC2626;
+        --fr-color-danger-soft:    #402527;
+        --fr-color-info:           var(--fr-color-primary-strong);
+        --fr-color-info-soft:      var(--fr-color-primary-soft);
+
+        --fr-color-search-hit:     rgba(255, 230, 0, 0.25);
+        --fr-color-search-current: rgba(255, 140, 0, 0.45);
+        --fr-color-jump-flash:        rgba(255, 200, 0, 0.25);
+        --fr-color-jump-flash-strong: rgba(255, 200, 0, 0.40);   /* .55 だと明るい文字が 3.41:1 */
+
+        --fr-color-code-bg:        #2C2C31;
+        --fr-color-code-block-bg:  #26262A;   /* 本文より一段明るい（inline code と同じ向き。GitHub dark の #161B22 > #0D1117 と同じ） */
+
+        --fr-color-scrollbar-thumb:       rgba(255, 255, 255, 0.18);
+        --fr-color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.30);
+
+        --fr-chip-red-bg:    #492629;  --fr-chip-red-fg:    #FCA5A5;
+        --fr-chip-orange-bg: #4B3020;  --fr-chip-orange-fg: #FDBA74;
+        --fr-chip-yellow-bg: #483D1D;  --fr-chip-yellow-fg: #FDE047;
+        --fr-chip-green-bg:  #203D2D;  --fr-chip-green-fg:  #86EFAC;
+        --fr-chip-blue-bg:   #263651;  --fr-chip-blue-fg:   #9EC4FF;
+        --fr-chip-purple-bg: #3D2B51;  --fr-chip-purple-fg: #D8B4FE;
+        --fr-chip-pink-bg:   #48273A;  --fr-chip-pink-fg:   #F9A8D4;
+        --fr-chip-zinc-bg:   #39393D;  --fr-chip-zinc-fg:   #D4D4D8;
+
+        --fr-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.30);
+        --fr-shadow-2: 0 1px 3px rgba(0, 0, 0, 0.30), 0 6px 16px rgba(0, 0, 0, 0.40);
+        --fr-shadow-3: 0 2px 6px rgba(0, 0, 0, 0.30), 0 12px 32px rgba(0, 0, 0, 0.50);
+        --fr-shadow-4: 0 4px 12px rgba(0, 0, 0, 0.35), 0 24px 64px rgba(0, 0, 0, 0.60);
+        --fr-shadow-focus: 0 0 0 3px var(--fr-color-focus-halo);
+
+        --bg-color:          var(--fr-color-bg-app);
+        --text-color:        var(--fr-color-text-primary);
+        --heading-color:     var(--fr-color-text-primary);
+        --link-color:        var(--fr-color-primary-strong);
+        --code-bg:           var(--fr-color-code-bg);
+        --code-text:         var(--fr-color-text-primary);
+        --border-color:      var(--fr-color-border);
+        --blockquote-color:  var(--fr-color-text-secondary);
+        --blockquote-border: var(--fr-color-border-strong);
+        --sidebar-bg:        var(--fr-color-bg-panel);
+        --sidebar-border:    var(--fr-color-divider);
+        --toolbar-bg:        var(--fr-color-bg-app);
+        --selection-bg:      var(--fr-color-primary-soft);
+
+        --outliner-bg:                  var(--fr-color-bg-app);
+        --outliner-fg:                  var(--fr-color-text-primary);
+        --outliner-text:                var(--fr-color-text-primary);
+        --outliner-border:              var(--fr-color-divider);
+        --outliner-hover:               var(--fr-color-fill-hover);
+        --outliner-hover-bg:            var(--fr-color-fill-hover);
+        --outliner-active:              var(--fr-color-selection-bg);
+        --outliner-focus-bg:            var(--fr-color-selection-bg);
+        --outliner-text-focus-bg:       transparent;
+        --outliner-subtext:             var(--fr-color-text-secondary);
+        --outliner-subtext-color:       var(--fr-color-text-secondary);
+        --outliner-placeholder:         var(--fr-color-text-tertiary);
+        --outliner-tag-color:           var(--fr-color-primary-strong);
+        --outliner-tag-bg:              var(--fr-color-primary-soft);
+        --outliner-tag-hover-bg:        var(--fr-color-primary-soft-hover);
+        --outliner-tag-hover-color:     var(--fr-color-primary-strong-hover);
+        --outliner-checkbox-accent:     var(--fr-color-primary);
+        --outliner-page-icon-color:     var(--fr-color-text-secondary);
+        --outliner-search-bg:           var(--fr-color-fill-subtle);
+        --outliner-search-border:       transparent;
+        --outliner-search-fg:           var(--fr-color-text-primary);
+        --outliner-code-bg:             var(--fr-color-code-bg);
+        --outliner-error-color:         var(--fr-color-danger);
+        --outliner-accent-fg:           var(--fr-color-primary-fg);
+        --outliner-scrollbar-thumb:        var(--fr-color-scrollbar-thumb);
+        --outliner-scrollbar-thumb-hover:  var(--fr-color-scrollbar-thumb-hover);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Auto: prefers-color-scheme dark → 採用（上の dark と同じ key・同じ値）
+       ═══════════════════════════════════════════════════════════════ */
+    @media (prefers-color-scheme: dark) {
+        :root[data-fr-theme="auto"] {
+            color-scheme: dark;
+
+            --fr-color-bg-app:         #1F1F22;
+            --fr-color-bg-panel:       #18181B;
+            --fr-color-bg-chrome:      #18181B;
+            --fr-color-bg-elevated:    #2A2A2E;
+            --fr-color-bg-canvas:      #18181B;
+            --fr-color-bg-inverse:     #3A3A40;
+            --fr-color-overlay:        rgba(0, 0, 0, 0.56);
+            --fr-color-overlay-strong: rgba(0, 0, 0, 0.70);
+
+            --fr-color-fill-subtle:    rgba(255, 255, 255, 0.045);
+            --fr-color-fill-hover:     rgba(255, 255, 255, 0.06);
+            --fr-color-fill-active:    rgba(255, 255, 255, 0.095);
+
+            --fr-color-divider:        #2E2E33;
+            --fr-color-border:         #38383E;
+            --fr-color-border-strong:  #4A4A50;
+            --fr-color-connector:      #707079;
+
+            --fr-color-text-primary:   #EDEDEF;
+            --fr-color-text-secondary: #B4B4BC;
+            --fr-color-text-tertiary:  #9A9AA2;
+            --fr-color-text-muted:     #5F5F67;
+            --fr-color-text-inverse:   #FAFAFA;
+
+            --fr-color-primary:            var(--fr-accent-600);
+            --fr-color-primary-hover:      var(--fr-accent-700);
+            --fr-color-primary-active:     var(--fr-accent-800);
+            --fr-color-primary-strong:     var(--fr-accent-400);
+            --fr-color-primary-soft:       var(--fr-accent-soft-dark);
+            --fr-color-primary-soft-hover: var(--fr-accent-soft-hover-dark);
+            --fr-color-primary-strong-hover: var(--fr-accent-300);
+            --fr-color-primary-fg:         #FFFFFF;
+            --fr-color-accent:             var(--fr-color-primary);
+            --fr-color-accent-soft:        var(--fr-color-primary-soft);
+
+            --fr-color-selection-bg:   var(--fr-color-primary-soft);
+            --fr-color-selection-bar:  var(--fr-color-primary);
+            --fr-color-text-selection: rgba(var(--fr-accent-light-rgb), 0.32);
+            --fr-color-focus-ring:     var(--fr-accent-400);
+            --fr-color-focus-halo:     rgba(var(--fr-accent-light-rgb), 0.30);
+
+            --fr-color-success:        #22C55E;
+            --fr-color-success-text:   #4ADE80;
+            --fr-color-success-soft:   #1F3A2C;
+            --fr-color-warning:        #F59E0B;
+            --fr-color-warning-text:   #FBBF24;
+            --fr-color-warning-soft:   #41331E;
+            --fr-color-danger:         #F87171;
+            --fr-color-danger-solid:   #DC2626;
+            --fr-color-danger-soft:    #402527;
+            --fr-color-info:           var(--fr-color-primary-strong);
+            --fr-color-info-soft:      var(--fr-color-primary-soft);
+
+            --fr-color-search-hit:     rgba(255, 230, 0, 0.25);
+            --fr-color-search-current: rgba(255, 140, 0, 0.45);
+            --fr-color-jump-flash:        rgba(255, 200, 0, 0.25);
+            --fr-color-jump-flash-strong: rgba(255, 200, 0, 0.40);
+
+            --fr-color-code-bg:        #2C2C31;
+            --fr-color-code-block-bg:  #26262A;
+
+            --fr-color-scrollbar-thumb:       rgba(255, 255, 255, 0.18);
+            --fr-color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.30);
+
+            --fr-chip-red-bg:    #492629;  --fr-chip-red-fg:    #FCA5A5;
+            --fr-chip-orange-bg: #4B3020;  --fr-chip-orange-fg: #FDBA74;
+            --fr-chip-yellow-bg: #483D1D;  --fr-chip-yellow-fg: #FDE047;
+            --fr-chip-green-bg:  #203D2D;  --fr-chip-green-fg:  #86EFAC;
+            --fr-chip-blue-bg:   #263651;  --fr-chip-blue-fg:   #9EC4FF;
+            --fr-chip-purple-bg: #3D2B51;  --fr-chip-purple-fg: #D8B4FE;
+            --fr-chip-pink-bg:   #48273A;  --fr-chip-pink-fg:   #F9A8D4;
+            --fr-chip-zinc-bg:   #39393D;  --fr-chip-zinc-fg:   #D4D4D8;
+
+            --fr-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.30);
+            --fr-shadow-2: 0 1px 3px rgba(0, 0, 0, 0.30), 0 6px 16px rgba(0, 0, 0, 0.40);
+            --fr-shadow-3: 0 2px 6px rgba(0, 0, 0, 0.30), 0 12px 32px rgba(0, 0, 0, 0.50);
+            --fr-shadow-4: 0 4px 12px rgba(0, 0, 0, 0.35), 0 24px 64px rgba(0, 0, 0, 0.60);
+            --fr-shadow-focus: 0 0 0 3px var(--fr-color-focus-halo);
+
+            --bg-color:          var(--fr-color-bg-app);
+            --text-color:        var(--fr-color-text-primary);
+            --heading-color:     var(--fr-color-text-primary);
+            --link-color:        var(--fr-color-primary-strong);
+            --code-bg:           var(--fr-color-code-bg);
+            --code-text:         var(--fr-color-text-primary);
+            --border-color:      var(--fr-color-border);
+            --blockquote-color:  var(--fr-color-text-secondary);
+            --blockquote-border: var(--fr-color-border-strong);
+            --sidebar-bg:        var(--fr-color-bg-panel);
+            --sidebar-border:    var(--fr-color-divider);
+            --toolbar-bg:        var(--fr-color-bg-app);
+            --selection-bg:      var(--fr-color-primary-soft);
+
+            --outliner-bg:                  var(--fr-color-bg-app);
+            --outliner-fg:                  var(--fr-color-text-primary);
+            --outliner-text:                var(--fr-color-text-primary);
+            --outliner-border:              var(--fr-color-divider);
+            --outliner-hover:               var(--fr-color-fill-hover);
+            --outliner-hover-bg:            var(--fr-color-fill-hover);
+            --outliner-active:              var(--fr-color-selection-bg);
+            --outliner-focus-bg:            var(--fr-color-selection-bg);
+            --outliner-text-focus-bg:       transparent;
+            --outliner-subtext:             var(--fr-color-text-secondary);
+            --outliner-subtext-color:       var(--fr-color-text-secondary);
+            --outliner-placeholder:         var(--fr-color-text-tertiary);
+            --outliner-tag-color:           var(--fr-color-primary-strong);
+            --outliner-tag-bg:              var(--fr-color-primary-soft);
+            --outliner-tag-hover-bg:        var(--fr-color-primary-soft-hover);
+            --outliner-tag-hover-color:     var(--fr-color-primary-strong-hover);
+            --outliner-checkbox-accent:     var(--fr-color-primary);
+            --outliner-page-icon-color:     var(--fr-color-text-secondary);
+            --outliner-search-bg:           var(--fr-color-fill-subtle);
+            --outliner-search-border:       transparent;
+            --outliner-search-fg:           var(--fr-color-text-primary);
+            --outliner-code-bg:             var(--fr-color-code-bg);
+            --outliner-error-color:         var(--fr-color-danger);
+            --outliner-accent-fg:           var(--fr-color-primary-fg);
+            --outliner-scrollbar-thumb:        var(--fr-color-scrollbar-thumb);
+            --outliner-scrollbar-thumb-hover:  var(--fr-color-scrollbar-thumb-hover);
+        }
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Spacing / Radius / Typography / Motion / z-index（テーマに依らない尺度）
+       ═══════════════════════════════════════════════════════════════ */
+    :root {
+        --fr-space-0:  0px;
+        --fr-space-1:  2px;
+        --fr-space-2:  4px;
+        --fr-space-3:  6px;
+        --fr-space-4:  8px;
+        --fr-space-5:  10px;
+        --fr-space-6:  12px;
+        --fr-space-8:  16px;
+        --fr-space-10: 20px;
+        --fr-space-12: 24px;
+        --fr-space-16: 32px;
+
+        /* 入れ子は同心円にする: 外の角 = 中の角 + 内側の余白（menu: 10 = 6 + 4） */
+        --fr-radius-xs:    4px;   /* inline code・本文の tag・kbd */
+        --fr-radius-sm:    6px;   /* ボタン・入力欄・tree の行・menu の項目 */
+        --fr-radius-md:    8px;   /* code block・mindmap の node・カード */
+        --fr-radius-lg:   10px;   /* menu・popover・浮く toolbar・toast */
+        --fr-radius-xl:   14px;   /* dialog・command palette・shortcut の HUD */
+        --fr-radius-full: 9999px;
+
+        /* system UI を先に、和文は OS の UI 書体。system-ui は最後（Windows で和文が中国語の字形になるのを避ける） */
+        --fr-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+                        "Yu Gothic UI", Meiryo, "Noto Sans JP", "Noto Sans", system-ui, sans-serif;
+        --fr-font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Cascadia Mono", "Liberation Mono", monospace;
+
+        /* UI（chrome）の文字。基準は --fr-text-base の 1 か所で変える */
+        --fr-text-2xs:  10px;   /* 件数の badge だけ */
+        --fr-text-xs:   11px;
+        --fr-text-sm:   12px;
+        --fr-text-base: 13px;
+        --fr-text-md:   14px;
+        --fr-text-lg:   16px;
+        --fr-text-xl:   20px;
+        --fr-text-2xl:  24px;
+
+        --fr-leading-tight: 1.25;
+        --fr-leading-base:  1.4;
+        --fr-leading-loose: 1.6;
+
+        --fr-weight-regular:  400;
+        --fr-weight-medium:   500;
+        --fr-weight-semibold: 600;
+        --fr-weight-bold:     700;
+
+        /* 動き: 閉じるときは即時。選択の切り替えに動きを付けない */
+        --fr-duration-fast: 80ms;    /* hover の色 */
+        --fr-duration-base: 140ms;   /* menu・popover が出るとき、chevron の回転 */
+        --fr-duration-slow: 200ms;   /* sidepanel の出入り */
+        --fr-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+        --fr-ease-exit:     cubic-bezier(0.4, 0, 1, 1);
+
+        --fr-z-base:    0;
+        --fr-z-sticky:  100;
+        --fr-z-popup:   400;
+        --fr-z-modal:   500;
+        --fr-z-toast:   600;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        :root {
+            --fr-duration-fast: 0ms;
+            --fr-duration-base: 0ms;
+            --fr-duration-slow: 0ms;
+        }
+    }
+}
+
+</style>
 <style>
 /* Copyright 2014 Mozilla Foundation
  *
@@ -7147,14 +7667,14 @@ html, body { margin: 0; height: 100%; }
 </head>
 <body>
 <div id="viewer-root"></div>
-<script nonce="LIlMjTEudzoo1tsw0d7pZg==">
+<script nonce="rphnoJrR079qlyyMsGjEog==">
 // TASK-13（不変条件7）: 本番 fileViewerContent.ts と同じ "null" origin capture 遮断を
 // bootstrap 最初期（全 message listener 登録より前）に再現 — TC-FV-47/48 の検証対象
 window.addEventListener('message', function (e) {
     if (e.origin === 'null') { e.stopImmediatePropagation(); }
 }, true);
 </script>
-<script type="module" nonce="LIlMjTEudzoo1tsw0d7pZg==">
+<script type="module" nonce="rphnoJrR079qlyyMsGjEog==">
 // テストハーネス: vscode webview API のスタブ + postMessage 記録
 // （ハーネス bootstrap 自身も nonce 必須 — script-src に 'self'/'unsafe-inline' だけでは inline module が動かない）
 window.__postedMessages = [];
@@ -7182,7 +7702,7 @@ window.__viewerConfig = {
         viewerStatic: './drawio-viewer/viewer-static.min.js',
         stencils: './drawio-viewer/stencils.min.js',
     },
-    nonce: 'LIlMjTEudzoo1tsw0d7pZg==',
+    nonce: 'rphnoJrR079qlyyMsGjEog==',
 };
 /**
  * file-viewer.js — file viewer webview 本体（PDF レンダ + HTML sandbox 表示 + 読み込み失敗 UI）
@@ -7271,9 +7791,9 @@ window.__viewerConfig = {
     }
 
     // viewer の見た目は 3 面（standalone/sidepanel/note）どこでも同一になるよう自己完結で注入する。
-    // 色は Fractal のテーマトークン（--fr-*）を第一に使い、無い面（standalone viewer webview）では
-    // VS Code 変数 → ライト既定にフォールバック（実機検収 2026-08-15: --vscode-* 直参照だと
-    // ダーク VS Code で viewer だけ真っ黒になり、ライト基調のアプリ UI と乖離した）
+    // 色は Fractal のテーマトークン（--fr-*）だけを使う。standalone viewer webview も tokens.css を読み
+    // data-fr-theme を持つ（fileViewerContent.ts）。token が無い面ではライト既定にフォールバック
+    //（実機検収 2026-08-15: --vscode-* 直参照だとダーク VS Code で viewer だけ真っ黒になり、ライト基調のアプリ UI と乖離した）
     // TASK-12: 開いている viewer mount → find state（Cmd+F の一元先取り用。destroy で解除）
     const findRegistry = new Map();
     function activeFindState() {
@@ -7311,50 +7831,65 @@ window.__viewerConfig = {
         const style = document.createElement('style');
         style.id = 'file-viewer-style';
         style.textContent = [
-            ':root { --fv-bg-bar: var(--fr-color-bg-panel, var(--vscode-editorWidget-background, #f7f7f5));',
-            '  --fv-bg-body: var(--fr-color-bg-app, var(--vscode-editor-background, #ececec));',
-            '  --fv-border: var(--fr-color-border, var(--vscode-panel-border, #ddd));',
-            // 第 7 ラウンド①: 実在トークンは --fr-color-text-primary（tokens.css:40 = #1A1B1F —
-            // md の --text-color の実体）。旧 --fr-color-text は存在せず --vscode-foreground
-            // （UI 用薄グレー）へ落下して md より大幅に薄くなっていた（TC-FV-74 が実色を pin）
-            '  --fv-text: var(--fr-color-text-primary, var(--vscode-editor-foreground, var(--vscode-foreground, #333)));',
-            '  --fv-text-muted: var(--fr-color-text-muted, var(--vscode-descriptionForeground, #777));',
-            '  --fv-btn-bg: var(--fr-color-bg-elevated, var(--vscode-button-secondaryBackground, #fff));',
-            '  --fv-btn-hover: var(--fr-color-primary-soft, var(--vscode-button-secondaryHoverBackground, #e8f1fb)); }',
+            // modern-2026（docs/design/modern-2026.md §7.14）: viewer の chrome は本文の面（toolbar も本体も bg-app）、
+            // 線は divider 1 本、PDF / docx / pptx の紙面の後ろだけ bg-canvas（白い紙面の縁が見える最小の灰）。
+            // 色は Fractal の token だけを読む（VS Code のテーマの色 --vscode-* は読まない — P7）。fallback は light の値
+            ':root { --fv-bg-bar: var(--fr-color-bg-app, #FFFFFF);',
+            '  --fv-bg-body: var(--fr-color-bg-app, #FFFFFF);',
+            '  --fv-bg-canvas: var(--fr-color-bg-canvas, #F2F2F4);',
+            '  --fv-border: var(--fr-color-divider, #E7E7EA);',
+            // 第 7 ラウンド①: 実在トークンは --fr-color-text-primary（md の --text-color の実体）。
+            // 旧 --fr-color-text は存在せず fallback へ落下して md より大幅に薄くなっていた（TC-FV-74 が実色を pin）
+            '  --fv-text: var(--fr-color-text-primary, #18181B);',
+            '  --fv-text-muted: var(--fr-color-text-secondary, #52525B);',
+            // 検索欄の地（TC-VFB-08 は「検索欄の地 = --fv-btn-bg」を見る）・hover の塗り
+            '  --fv-btn-bg: var(--fr-color-fill-subtle, rgba(24, 24, 27, 0.04));',
+            '  --fv-btn-hover: var(--fr-color-fill-hover, rgba(24, 24, 27, 0.055)); }',
             // FR-FV-12（再オープン③）: ボタン chrome は md sidepanel の .side-panel-header-btn
-            //（styles.css:1926-1950）の値を自己完結で複製（アイコンボタン化 — 枠付きテキストボタン廃止）
+            //（styles.css）の値を自己完結で複製（アイコンボタン化 — 枠付きテキストボタン廃止）
+            // 36px の行（5 + ボタン 25 + 5 + 下の線 1 — md の toolbar と同じ。note 面では notes-body-html.js が 36px に固定する）
             '.viewer-toolbar { flex: 0 0 auto; display: flex; gap: 2px; align-items: center;',
-            '  padding: 6px 10px; border-bottom: 1px solid var(--fv-border);',
+            '  padding: 5px 10px; border-bottom: 1px solid var(--fv-border);',
             '  background: var(--fv-bg-bar); color: var(--fv-text);',
-            '  font-family: var(--vscode-font-family, -apple-system, sans-serif); }',
+            '  font-family: var(--fr-font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif); }',
             '.viewer-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;',
-            '  white-space: nowrap; font-size: 12px; color: var(--fv-text-muted); margin-right: 6px; }',
+            '  white-space: nowrap; font-size: var(--fr-text-base, 13px); font-weight: 500; color: var(--fv-text-muted); margin-right: 6px; }',
+            // 休み = 色 text-primary × 不透明度 .62（TC-FV-74 は色が text-primary であることを pin）、hover で 1 + fill-hover
+            // 箱は md の toolbar・outliner・sidepanel のヘッダーと同じ 26 × 25（並びの間隔 28px — §7.4）
             '.viewer-toolbar button { flex: 0 0 auto; background: none; border: none; color: var(--fv-text);',
-            '  cursor: pointer; padding: 4px; border-radius: 4px; opacity: 0.6;',
-            '  display: flex; align-items: center; font-size: 12px; line-height: 1; }',
-            '.viewer-toolbar button:hover { opacity: 1; background: var(--hover-bg, rgba(128,128,128,0.15)); }',
+            '  cursor: pointer; padding: 4px; border-radius: var(--fr-radius-sm, 6px); opacity: 0.62;',
+            '  box-sizing: border-box; min-width: 26px; min-height: 25px; justify-content: center;',
+            '  display: flex; align-items: center; font-size: 12px; line-height: 1; font-family: inherit; }',
+            '.viewer-toolbar button:hover { opacity: 1; background: var(--fv-btn-hover); }',
             '.viewer-toolbar button svg { width: 14px; height: 14px; }',
-            '.viewer-find-bar { flex: 0 0 auto; display: flex; gap: 4px; align-items: center; padding: 2px 6px;',
-            '  background: var(--fv-bg, transparent); border-bottom: 1px solid var(--fv-border, rgba(128,128,128,0.25)); }',
-            '.viewer-find-bar input { flex: 0 1 220px; min-width: 80px; font-size: 12px; padding: 2px 6px;',
+            '.viewer-toolbar button svg[fill="none"] { stroke-width: 1.75; }',
+            '.viewer-find-bar { flex: 0 0 auto; display: flex; gap: 4px; align-items: center; padding: 3px 8px;',
+            '  background: var(--fv-bg-bar); border-bottom: 1px solid var(--fv-border); }',
+            '.viewer-find-bar input { flex: 0 1 220px; min-width: 80px; font-size: 12px; padding: 3px 8px;',
             // 入力欄は viewer の chrome と同じ fractal トークン（--vscode-input-* は VS Code が暗いテーマだと
-            // fractal が白でも黒い箱になっていた — 2026-10-23）
-            '  background: var(--fv-btn-bg); color: var(--fv-text);',
-            '  border: 1px solid var(--fv-border); border-radius: 3px; outline: none; }',
-            '.viewer-find-bar input:focus { border-color: var(--fr-color-primary, var(--vscode-focusBorder, #9CC8DC)); }',
-            '.viewer-find-count { font-size: 11px; opacity: 0.75; min-width: 40px; text-align: center; }',
+            // fractal が白でも黒い箱になっていた — 2026-10-23）。休みは地だけ（縁で囲まない）、focus で縁 + halo
+            '  background: var(--fv-btn-bg); color: var(--fv-text); font-family: inherit;',
+            '  border: 1px solid transparent; border-radius: var(--fr-radius-sm, 6px); outline: none; }',
+            '.viewer-find-bar input:focus { border-color: var(--fr-color-focus-ring, #0A68E6);',
+            '  box-shadow: var(--fr-shadow-focus, none); }',
+            '.viewer-find-count { font-size: 11px; color: var(--fr-color-text-tertiary, #64646C); font-variant-numeric: tabular-nums;',
+            '  min-width: 40px; text-align: center; }',
             '.viewer-find-bar button { background: none; border: none; cursor: pointer; opacity: 0.7; padding: 2px 4px;',
-            '  color: var(--fv-text); border-radius: 3px; }',
-            '.viewer-find-bar button:hover { opacity: 1; background: var(--hover-bg, rgba(128,128,128,0.15)); }',
-            '.viewer-script-toggle[aria-pressed="true"] { opacity: 1; background: var(--fv-btn-hover); }',
-            '.viewer-zoom-in, .viewer-zoom-out, .viewer-zoom-reset { min-width: 24px; font-weight: 600; font-size: 13px;',
+            '  color: var(--fv-text); border-radius: var(--fr-radius-sm, 6px); }',
+            '.viewer-find-bar button:hover { opacity: 1; background: var(--fv-btn-hover); }',
+            // ON = primary-soft + primary-strong（不透明度 1）
+            '.viewer-script-toggle[aria-pressed="true"] { opacity: 1; background: var(--fr-color-primary-soft, #E3EEFF);',
+            '  color: var(--fr-color-primary-strong, #0256C3); }',
+            '.viewer-zoom-in, .viewer-zoom-out, .viewer-zoom-reset { min-width: 26px; font-weight: 600; font-size: 13px;',
             '  justify-content: center; }',
             '.viewer-body { flex: 1 1 auto; position: relative; overflow: auto; min-height: 0;',
             '  background: var(--fv-bg-body); }',
             // html は「ブラウザで見た時」が正 — iframe は常に白ベース
             '.viewer-html-frame { width: 100%; height: 100%; border: none; background: #fff; }',
-            // pdf はページ紙面が浮くニュートラル背景 + pdf_viewer.css の page 影を活かす
-            '.viewer-pdf-container { background: var(--fv-bg-body); }',
+            // pdf はページ紙面が浮くニュートラル背景（bg-canvas）。紙面の縁は 1px の divider + 段 1 の影
+            //（.page は 9px の透明な border を持つので、影は中の .canvasWrapper に付ける）
+            '.viewer-pdf-container { background: var(--fv-bg-canvas); }',
+            '.viewer-pdf-container .pdfViewer .canvasWrapper { box-shadow: 0 0 0 1px var(--fr-color-divider, #E7E7EA), var(--fr-shadow-1, none); }',
             // FR-VZP-03: ドラッグパンのカーソル（text span 上は選択カーソルを維持）
             '.viewer-pdf-container { cursor: grab; }',
             '.viewer-pdf-container.fv-panning { cursor: grabbing; }',
@@ -7374,8 +7909,8 @@ window.__viewerConfig = {
             '.viewer-pdf-container .textLayer :is(span, br) { letter-spacing: normal;',
             '  word-spacing: normal; text-transform: none; font-weight: normal; font-style: normal;',
             '  padding: 0; margin: 0; }',
-            '.viewer-error { padding: 20px; color: var(--fr-color-danger, var(--vscode-errorForeground, #c33));',
-            '  font-family: var(--vscode-font-family, sans-serif); font-size: 13px; white-space: pre-wrap; }',
+            '.viewer-error { padding: 20px; color: var(--fr-color-danger, #C81E1E);',
+            '  font-family: var(--fr-font-sans, sans-serif); font-size: 13px; white-space: pre-wrap; }',
         ].join('\n');
         document.head.appendChild(style);
     }

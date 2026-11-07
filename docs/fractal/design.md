@@ -1217,22 +1217,22 @@ main ブランチ直接コミット（個人開発）。PR / branch protection �
 - テーマ適用: `data-fr-theme` HTML 属性
 - レガシー 7 テーマ（night/github/sepia/minimal/things/perplexity）から 3 モードへ自動マイグレーション
 
-**カラーパレット:**
-- Primary: `#9CC8DC` (light) / `#7DC4DF` (dark) — teal-blue pastel
-- Surface: `--fr-bg-app` / `--fr-bg-panel` (unified)
-- Text: primary → muted スケール
-- Status: success / warning / danger / info (各 soft variant あり)
+**カラーパレット**（デザイン言語 modern-2026 — `docs/design/modern-2026.md`）:
+- 面: note の本文は白（`--fr-color-bg-app` `#FFFFFF` / dark `#1F1F22`）。サイドバー・md の Outline・タブ strip は一段沈んだほんのり紫の薄い灰（`--fr-color-bg-panel` / `--fr-color-bg-chrome` `#F5F4FB` / dark `#18181B`。2026-11-07 に試した 11 案から A5 を採用。ほかの案と戻し方は `docs/design/modern-2026.md` §13）で、境目は 1px の `--fr-color-divider` 1 本。menu・popover・dialog・浮く toolbar は `--fr-color-bg-elevated`（白 / dark `#2A2A2E`）+ 1px の縁 + 影。浮く面の中の線（menu の区切り・浮く toolbar の群の区切り・popover の見出しの下）は divider でなく `--fr-color-border`（dark の浮く面の上の divider は 1.06:1 で見えない）。PDF / docx / pptx の紙面の後ろは `--fr-color-bg-canvas`
+- アクセント: 青 1 色。`--fr-color-primary` `#0A68E6`（白文字 5.08:1）、accent の文字（link・tag・検索結果の file 名）は `--fr-color-primary-strong`（`#0256C3` / dark `#6EA6FE`）。値は tokens.css 先頭の accent ramp（`--fr-accent-*`）の 1 ブロックだけに書く（紫の差し替え値も同じ場所に記載）
+- 状態は塗りで示す: hover = `--fr-color-fill-hover`、開いている項目・押下 = `--fr-color-fill-active`（無彩色）、複数選択とキーボードの focus 行 = `--fr-color-selection-bg`（淡い青）。outliner の node 選択は amber、`::selection` は青のまま（ADRL-0115）
+- 文字: primary / secondary / tertiary はすべての面で 4.5:1 以上。`--fr-color-text-muted` は無効状態と飾りだけ
+- Status: success / warning / danger / info（各 soft variant あり。success / warning は文字用の `-text` もある）
 
 **トークン体系 (`tokens.css`):**
-- スペーシング: CSS custom properties スケール
-- Border-radius: トークン定義
-- Shadow: `--fr-shadow-focus` (フォーカスリング)
-- Typography: フォントファミリー + サイズスケール
-- Z-index: レイヤー定義
+- テーマの 3 ブロック（light / dark / auto + OS dark）は同じ key、dark と auto-dark は同じ値。値は 16 進 / rgba の直書き（`color-mix()` / `light-dark()` は使わない）。`test/unit/design-tokens-modern.spec.ts`（G1〜G5・G2b〜G2d）がブロック・コントラストの組・線と tag の pill の段差・VS Code の色の漏れ（書体の変数は除く）・存在しない `--fr-*`・値の形を機械で確かめる
+- スペーシング、角（`xs 4` / `sm 6` / `md 8` / `lg 10` / `xl 14`）、影（`--fr-shadow-1..4`。テーマごと）、focus（`--fr-color-focus-ring` + halo の `--fr-shadow-focus`）
+- Typography: `--fr-font-sans` / `--fr-font-mono`（system UI + 和文の UI 書体）、UI の文字は 13px 基準（`--fr-text-base`）
+- 動き: `--fr-duration-*` / `--fr-ease-*`（`prefers-reduced-motion` では 0）。Z-index: レイヤー定義
 
 **レスポンシブ:** N/A（VS Code webview 内、固定幅コンテナ）
 
-**アニメーション:** テーマ切り替え時の smooth transition（fr-base.css）。その他は最小限。
+**アニメーション:** テーマ切り替え時の smooth transition（fr-base.css・80ms）。その他は最小限。
 
 ---
 

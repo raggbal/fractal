@@ -10,7 +10,7 @@
  * 設計正典: design/system.md §2.1 / §3 + ADRL-0035（webview DOM 回収）
  *
  * 露出（E2E 駆動 seam・inline-color.js の window.InlineColor と同型）:
- *   window.PdfExport = { buildPdfExportHtml, resolvePdfTarget, cleanPdfImageSrc }
+ *   window.PdfExport = { buildPdfExportHtml, resolvePdfTarget, cleanPdfImageSrc, relightMermaidForPrint }
  *
  * 二重ロード安全: `if (window.PdfExport) return;` の先勝ちガード（editor.js + outliner.js 両ロードでも
  *   listener は 1 回登録・応答は __pdfExportHandledRequests Set で requestId 単位に 1 回に抑制）。
@@ -141,6 +141,68 @@
 
         // 5. return（innerHTML）
         return { html: clone.innerHTML };
+    }
+
+    // ── mermaid の図を PDF（白い紙）向けに描き直す relightMermaidForPrint ──────────────────
+    // 清書は画面の DOM の clone なので、画面が dark のとき mermaid の図は theme 'dark'（黒い箱・薄い線）のまま白い紙に
+    // 載ってしまう。画面の図を 'dark' で描いたとき（editor.js の initMermaid が window.__fractalMermaidTheme に書く）だけ、
+    // 同じ source を light の theme（'default'）で描き直して差し替える。theme は source の先頭の init directive で
+    // その 1 回の描画だけに効かせる（mermaid.initialize の全体の設定は触らない — 画面の次の描画に漏れない）。
+    // 失敗した図はその図だけ画面のまま。全体が RELIGHT_TIMEOUT_MS を超えたら画面の図のまま返す（PDF の出力自体は止めない。
+    // host の待ちは 10s — pdf-export-host.ts）。入力は清書済みの html 文字列で、元 DOM は触らない（NFR-PDF-04）
+    var RELIGHT_TIMEOUT_MS = 6000;
+    var PRINT_MERMAID_THEME = 'default';
+
+    // pre[data-lang="mermaid"] の source（<br> は改行 — editor.js の getCodePlainText と同じ扱い）
+    function _mermaidSourceOf(wrapper) {
+        var code = wrapper.querySelector('pre[data-lang="mermaid"] code') || wrapper.querySelector('pre[data-lang="mermaid"]');
+        if (!code) { return ''; }
+        var c = code.cloneNode(true);
+        var brs = c.querySelectorAll('br');
+        for (var i = 0; i < brs.length; i++) {
+            brs[i].parentNode.replaceChild(c.ownerDocument.createTextNode('\n'), brs[i]);
+        }
+        return (c.textContent || '').trim();
+    }
+
+    // init directive を足す。YAML の front matter（--- … ---）は先頭に無いと読まれないので、その後ろに入れる
+    function _withPrintTheme(src) {
+        var directive = '%%{init: {"theme": "' + PRINT_MERMAID_THEME + '"}}%%\n';
+        var fm = /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n/.exec(src);
+        return fm ? src.slice(0, fm[0].length) + directive + src.slice(fm[0].length) : directive + src;
+    }
+
+    // return: Promise<string>（描き直した html。描き直す図が無い・できないときは入力のまま）
+    function relightMermaidForPrint(html) {
+        if (typeof html !== 'string' || html.indexOf('mermaid-wrapper') < 0) { return Promise.resolve(html); }
+        if (typeof window === 'undefined' || window.__fractalMermaidTheme !== 'dark') { return Promise.resolve(html); }
+        var mm = window.mermaid;
+        if (!mm || typeof mm.render !== 'function' || typeof DOMParser === 'undefined') { return Promise.resolve(html); }
+        var doc;
+        try {
+            // 不活性な document に読む（img を取りに行かない・script を実行しない）
+            doc = new DOMParser().parseFromString('<!DOCTYPE html><html><body>' + html + '</body></html>', 'text/html');
+        } catch (_p) { return Promise.resolve(html); }
+        var wrappers = doc.body.querySelectorAll('.mermaid-wrapper');
+        var changed = 0;
+        var seq = Promise.resolve();
+        Array.prototype.forEach.call(wrappers, function (w, i) {
+            seq = seq.then(function () {
+                var diagram = w.querySelector('.mermaid-diagram');
+                var src = _mermaidSourceOf(w);
+                if (!diagram || !src || !diagram.querySelector('svg')) { return; }   // 誤りの表示・空の図はそのまま
+                var id = 'pdf-mermaid-' + i + '-' + Math.random().toString(36).slice(2, 8);
+                var rendering;
+                try { rendering = mm.render(id, _withPrintTheme(src)); } catch (_r) { return; }   // この図は画面のまま
+                return Promise.resolve(rendering).then(function (r) {
+                    if (r && typeof r.svg === 'string' && r.svg) { diagram.innerHTML = r.svg; changed++; }
+                }, function () { /* この図は画面のまま */ });
+            });
+        });
+        var work = seq.then(function () { return changed ? doc.body.innerHTML : html; }, function () { return html; });
+        var timer = null;
+        var timeout = new Promise(function (resolve) { timer = setTimeout(function () { resolve(html); }, RELIGHT_TIMEOUT_MS); });
+        return Promise.race([work, timeout]).then(function (out) { clearTimeout(timer); return out; });
     }
 
     // ── §2.1 対象解決 resolvePdfTarget（解決順が仕様）──────────────────────────
@@ -371,12 +433,16 @@
             }
 
             if (post) {
-                post({
-                    type: 'pdfHtmlResult',
-                    requestId: m.requestId,
-                    html: built.html,
-                    filePath: target.filePath || null
-                });
+                // 画面が dark のときの mermaid の図は light で描き直してから返す（relightMermaidForPrint。失敗・時間切れは清書のまま）
+                var reply = function (html) {
+                    post({
+                        type: 'pdfHtmlResult',
+                        requestId: m.requestId,
+                        html: html,
+                        filePath: target.filePath || null
+                    });
+                };
+                relightMermaidForPrint(built.html).then(reply, function () { reply(built.html); });
             }
         });
     }
@@ -385,7 +451,8 @@
     var _api = {
         buildPdfExportHtml: buildPdfExportHtml,
         resolvePdfTarget: resolvePdfTarget,
-        cleanPdfImageSrc: cleanPdfImageSrc
+        cleanPdfImageSrc: cleanPdfImageSrc,
+        relightMermaidForPrint: relightMermaidForPrint
     };
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = _api;

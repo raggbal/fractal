@@ -38,30 +38,34 @@ test.describe('TC-04: data-fr-theme attribute', () => {
 });
 
 test.describe('TC-05: theme switch reflects on body bg-color', () => {
-    test('TC-05a: light theme uses pastel cream bg', async ({ page }) => {
+    // modern-2026（docs/design/modern-2026.md §2）: 本文の面は白（light）/ #1F1F22（dark — VS Code Dark Modern の並び）。
+    // 旧 PoC の値（#F5F4EE / #181820）は 2026-05 以降どこにも無く、この 3 件は known-red のまま残っていた
+    test('TC-05a: light theme uses white content bg', async ({ page }) => {
         await page.goto(HTML_PATH);
         await page.evaluate(() => {
             document.documentElement.setAttribute('data-fr-theme', 'light');
         });
-        const bg = await page.evaluate(() =>
-            getComputedStyle(document.body).backgroundColor
-        );
-        // #F5F4EE = rgb(245, 244, 238)
-        expect(bg).toContain('245, 244, 238');
-    });
-
-    test('TC-05b: dark theme uses deep navy bg', async ({ page }) => {
-        await page.goto(HTML_PATH);
-        await page.evaluate(() => {
-            document.documentElement.setAttribute('data-fr-theme', 'dark');
-        });
-        // wait for transition (0.15s) + safety
+        // wait for transition (80ms) + safety
         await page.waitForTimeout(300);
         const bg = await page.evaluate(() =>
             getComputedStyle(document.body).backgroundColor
         );
-        // #181820 = rgb(24, 24, 32)
-        expect(bg).toContain('24, 24, 32');
+        // #FFFFFF = rgb(255, 255, 255)
+        expect(bg).toContain('255, 255, 255');
+    });
+
+    test('TC-05b: dark theme uses neutral dark content bg', async ({ page }) => {
+        await page.goto(HTML_PATH);
+        await page.evaluate(() => {
+            document.documentElement.setAttribute('data-fr-theme', 'dark');
+        });
+        // wait for transition (80ms) + safety
+        await page.waitForTimeout(300);
+        const bg = await page.evaluate(() =>
+            getComputedStyle(document.body).backgroundColor
+        );
+        // #1F1F22 = rgb(31, 31, 34)
+        expect(bg).toContain('31, 31, 34');
     });
 });
 
@@ -76,8 +80,8 @@ test.describe('TC-06: prefers-color-scheme on auto mode', () => {
         const bg = await page.evaluate(() =>
             getComputedStyle(document.body).backgroundColor
         );
-        // dark: #181820 = rgb(24, 24, 32)
-        expect(bg).toContain('24, 24, 32');
+        // dark: #1F1F22 = rgb(31, 31, 34)
+        expect(bg).toContain('31, 31, 34');
     });
 });
 
@@ -129,14 +133,24 @@ test.describe('TC-08: tokens reference assertion', () => {
 });
 
 test.describe('TC-09: settings chrome new tokens applied', () => {
-    test('TC-09: file-panel-tab.active border-bottom uses --fr-color-primary', async ({ page }) => {
+    // 選択タブは下線でなく無彩色の pill（2026-10-16 の D3 で下線は無くなった。modern-2026 §7.1 で地 = --fr-color-fill-active）
+    test('TC-09: file-panel-tab.active is a pill filled with --fr-color-fill-active', async ({ page }) => {
         await page.goto(HTML_PATH);
         // 最初の tab (Notes) が active なはず
-        const borderBottomColor = await page.locator('.file-panel-tab.active').first().evaluate(el =>
-            getComputedStyle(el).borderBottomColor
-        );
-        // --fr-color-primary = #4F6BFF = rgb(79, 107, 255)
-        expect(borderBottomColor).toContain('79, 107, 255');
+        const r = await page.locator('.file-panel-tab.active').first().evaluate((el) => {
+            const probe = document.createElement('div');
+            probe.style.background = 'var(--fr-color-fill-active)';
+            document.body.appendChild(probe);
+            const want = getComputedStyle(probe).backgroundColor;
+            probe.remove();
+            const cs = getComputedStyle(el);
+            const other = document.querySelector('.file-panel-tab:not(.active)') as HTMLElement;
+            return { bg: cs.backgroundColor, want, radius: cs.borderRadius, otherBg: other ? getComputedStyle(other).backgroundColor : null };
+        });
+        expect(r.want, '前提: --fr-color-fill-active が解決できる').not.toBe('rgba(0, 0, 0, 0)');
+        expect(r.bg).toBe(r.want);
+        expect(r.radius).toBe('6px');
+        expect(r.otherBg, '非選択タブは塗らない').toBe('rgba(0, 0, 0, 0)');
     });
 });
 

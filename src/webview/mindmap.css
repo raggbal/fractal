@@ -1,7 +1,10 @@
 /*
  * mindmap.css — Mindmap Mode 専用スタイル
- * 全色は --fr-* トークン (tokens.css) を既定にし light/dark/auto に追従。
+ * 全色は --fr-* トークン (tokens.css) を参照し light/dark/auto に追従（存在しない名前は使わない —
+ * test/unit/design-tokens-modern.spec.ts の G4 が番人）。
  * ノード個別スタイル (node.mindmap.fill 等) はインラインで上書きされる。
+ * node の大きさに関わる値（13px・行 1.4・左右の余白 10px・縁 1.5px）は mindmap-render.js /
+ * mindmap-interactions.js の PAD_H / BORDER_W と対になっているので変えない。
  */
 
 /* FR-021-J1/J3 (TASK-39): mindmap モードでは外側スクロールを止め、tree 自身を
@@ -29,7 +32,7 @@
     width: 100%;
     height: 100%;
     min-height: 400px;
-    background: var(--fr-bg-app, #fff);
+    background: var(--fr-color-bg-app);
     cursor: default;
 }
 
@@ -67,7 +70,7 @@
 
 /* --- links --- */
 .mindmap-link {
-    stroke: var(--fr-border-strong, #b0b0b0);
+    stroke: var(--fr-color-connector);
     stroke-width: 2px;
     fill: none;
 }
@@ -92,19 +95,24 @@
        width:100% (foreignObject 追従) は既存レイアウトを崩さないため設定しない。 */
     max-width: 280px;
     padding: 6px 10px;
-    background: var(--fr-bg-panel, #f7f7f7);
-    border: 1.5px solid var(--fr-border, #d0d0d0);
-    border-radius: var(--fr-radius-md, 8px);
-    color: var(--fr-text, #222);
+    background: var(--fr-color-bg-elevated);
+    border: 1.5px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-md);
+    box-shadow: var(--fr-shadow-1);
+    color: var(--fr-color-text-primary);
     font-size: 13px;
     line-height: 1.4;
     cursor: pointer;
     transition: box-shadow 0.12s, border-color 0.12s;
 }
 
+.mindmap-node-box:hover {
+    border-color: var(--fr-color-border-strong);
+}
+
 .mindmap-node-box.is-focused {
-    border-color: var(--fr-color-primary, #7dc4df);
-    box-shadow: var(--fr-shadow-focus, 0 0 0 2px rgba(125, 196, 223, 0.4));
+    border-color: var(--fr-color-primary);
+    box-shadow: 0 0 0 3px var(--fr-color-focus-halo);
 }
 
 /* #B (iteration 24 / TASK-66): 複数選択 (shift+click) が「解除されて見える」問題の是正。
@@ -112,14 +120,14 @@
    選択が視認できなかった。濃いめの背景 + 明確な選択リング (box-shadow) を付けて、
    focus が無くても「選択中」が明確に分かるようにする。is-focused と併用しても両立する。 */
 .mindmap-node-box.is-selected {
-    border-color: var(--fr-color-primary, #7dc4df);
-    background: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
-    box-shadow: 0 0 0 2px var(--fr-color-primary, #7dc4df);
+    border-color: var(--fr-color-primary);
+    background: var(--fr-color-selection-bg);
+    box-shadow: 0 0 0 2px var(--fr-color-primary);
 }
 /* focus + selected 併用時: 選択リング (実線) の外側に focus のソフトリングを重ねて両方見せる。 */
 .mindmap-node-box.is-selected.is-focused {
-    box-shadow: 0 0 0 2px var(--fr-color-primary, #7dc4df),
-                0 0 0 4px var(--fr-shadow-focus-ring, rgba(125, 196, 223, 0.4));
+    box-shadow: 0 0 0 2px var(--fr-color-primary),
+                0 0 0 5px var(--fr-color-focus-halo);
 }
 
 .mindmap-node-text {
@@ -135,16 +143,24 @@
     cursor: text;
 }
 
+/* node の中の link: outliner / md と同じ Fractal の青（UA の既定のリンク色を使わない） */
+.mindmap-node-text a {
+    color: var(--fr-color-primary-strong);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+
 /* [M] iteration 29 (TASK-78): mindmap 検索の一致ノードをハイライト。is-search-hit = 一致、
    is-search-current = 現在巡回中の一致 (中央化対象・より強調)。絞り込みでなく全ノード表示のまま。 */
 .mindmap-node-box.is-search-hit {
-    background: var(--fr-bg-search-hit, rgba(255, 213, 79, 0.35));
-    border-color: var(--fr-color-search-hit, #f5b301);
+    background: var(--fr-color-search-hit);
+    border-color: var(--fr-color-warning);
 }
 .mindmap-node-box.is-search-current {
-    background: var(--fr-bg-search-current, rgba(255, 179, 0, 0.55));
-    border-color: var(--fr-color-search-current, #ff8f00);
-    box-shadow: 0 0 0 2px var(--fr-color-search-current, #ff8f00);
+    background: var(--fr-color-search-current);
+    border-color: var(--fr-color-warning);
+    box-shadow: 0 0 0 2px var(--fr-color-warning);
 }
 
 /* iteration 28 (TASK-73): committed active ノードは IME 合成のため contenteditable=true だが
@@ -178,14 +194,14 @@
 .mindmap-node-images img {
     max-width: 60px;
     max-height: 48px;
-    border-radius: 4px;
+    border-radius: var(--fr-radius-xs);
     object-fit: cover;
 }
 
 .mindmap-node-tags {
     flex: 0 0 auto;
     font-size: 11px;
-    color: var(--fr-text-muted, #888);
+    color: var(--fr-color-primary-strong);
 }
 
 .mindmap-node-checkbox {
@@ -207,16 +223,18 @@
     line-height: 14px;
     font-size: 12px;
     border-radius: 50%;
-    border: 1px solid var(--fr-border, #d0d0d0);
-    background: var(--fr-bg-app, #fff);
-    color: var(--fr-text, #222);
+    border: 1px solid var(--fr-color-border-strong);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-secondary);
     cursor: pointer;
 }
 
 /* --- groups (boundary) --- */
+/* group: 1.5px の点線 primary・地は付けない（関係線とは形で区別する）。
+   pointer-events:all なので fill:none でも枠の中をクリックできる (FR-021-G5) */
 .mindmap-group-rect {
-    fill: var(--fr-color-primary-soft, rgba(125, 196, 223, 0.08));
-    stroke: var(--fr-color-primary, #7dc4df);
+    fill: none;
+    stroke: var(--fr-color-primary);
     stroke-width: 1.5px;
     stroke-dasharray: 6 4;
     pointer-events: all;   /* FR-021-G5: 枠をクリック可能に (ノードの下でも枠部分は hit) */
@@ -226,22 +244,25 @@
 .mindmap-group.is-selected .mindmap-group-rect {
     stroke-width: 2.5px;
     stroke-dasharray: none;
-    fill: var(--fr-bg-selection, rgba(125, 196, 223, 0.18));
+    fill: var(--fr-color-selection-bg);
 }
 
 .mindmap-group-label {
-    fill: var(--fr-text-muted, #888);
+    fill: var(--fr-color-text-secondary);
     font-size: 12px;
     font-weight: 600;
 }
 
 /* --- title center node --- */
 .mindmap-title-box {
-    font-weight: 700;
+    font-weight: 600;
     font-size: 15px;
-    background: var(--fr-color-primary, #7dc4df);
-    color: #fff;
-    border-color: var(--fr-color-primary, #7dc4df);
+    background: var(--fr-color-primary);
+    color: var(--fr-color-primary-fg);
+    border-color: var(--fr-color-primary);
+}
+.mindmap-title-box:hover {
+    border-color: var(--fr-color-primary-hover);
 }
 
 /* FR-MMT-01: title 未設定の中心ノード。placeholder (Untitled) は薄く出す
@@ -252,19 +273,20 @@
 }
 
 /* --- relationships --- */
+/* 関係線: 1.5px の点線 tertiary + 矢印（group の primary の点線とは色と形で区別する） */
 .mindmap-rel-path {
-    stroke: var(--fr-color-accent, #d99a9a);
+    stroke: var(--fr-color-text-tertiary);
     stroke-width: 1.5px;
     fill: none;
     stroke-dasharray: 5 3;
 }
 
 .mindmap-arrow-head {
-    fill: var(--fr-color-accent, #d99a9a);
+    fill: var(--fr-color-text-tertiary);
 }
 
 .mindmap-rel-label {
-    fill: var(--fr-text-muted, #888);
+    fill: var(--fr-color-text-secondary);
     font-size: 11px;
     text-anchor: middle;
 }
@@ -276,16 +298,18 @@
     bottom: 12px;
     width: 160px;
     height: 120px;
-    background: var(--fr-bg-panel, rgba(247, 247, 247, 0.9));
-    border: 1px solid var(--fr-border, #d0d0d0);
-    border-radius: 6px;
+    background: var(--fr-color-bg-elevated);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-md);
+    box-shadow: var(--fr-shadow-2);
     overflow: hidden;
-    opacity: 0.85;
     pointer-events: auto;
 }
 
+/* node の点は飾りの縮図なので 3:1 は求めない（primary を薄く） */
 .mindmap-minimap-dot {
-    fill: var(--fr-color-primary, #7dc4df);
+    fill: var(--fr-color-primary);
+    fill-opacity: 0.45;
 }
 
 /* --- empty state --- */
@@ -297,16 +321,20 @@
     height: 100%;
     min-height: 300px;
     gap: 12px;
-    color: var(--fr-text-muted, #888);
+    color: var(--fr-color-text-tertiary);
 }
 
 .mindmap-empty-add {
     padding: 6px 16px;
-    border: 1px solid var(--fr-border, #d0d0d0);
-    border-radius: var(--fr-radius-md, 8px);
-    background: var(--fr-bg-panel, #f7f7f7);
-    color: var(--fr-text, #222);
+    border: 1px solid transparent;
+    border-radius: var(--fr-radius-sm);
+    background: var(--fr-color-primary);
+    color: var(--fr-color-primary-fg);
+    font-weight: 500;
     cursor: pointer;
+}
+.mindmap-empty-add:hover {
+    background: var(--fr-color-primary-hover);
 }
 
 /* --- style panel / toolbar --- */
@@ -323,52 +351,62 @@
     position: absolute;
     z-index: 20;
     padding: 10px;
-    background: var(--fr-bg-panel, #fff);
-    border: 1px solid var(--fr-border, #d0d0d0);
-    border-radius: var(--fr-radius-md, 8px);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    background: var(--fr-color-bg-elevated);
+    color: var(--fr-color-text-primary);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    box-shadow: var(--fr-shadow-2);
     font-size: 12px;
 }
 
+/* 浮く toolbar（Figma の下の toolbar の形）: 地 bg-elevated・縁 1px・角 10px・影 3。中は枠のないボタン */
 .mindmap-toolbar {
     align-items: center;
-    padding: 4px 6px;
-    background: var(--fr-bg-panel, rgba(247, 247, 247, 0.92));
-    border: 1px solid var(--fr-border, #d0d0d0);
-    border-radius: var(--fr-radius-md, 8px);
+    gap: 2px;
+    padding: 4px;
+    background: var(--fr-color-bg-elevated);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    box-shadow: var(--fr-shadow-3);
 }
 
 .mindmap-tb-btn,
 .mindmap-tb-layout {
     padding: 3px 8px;
+    min-height: 28px;
     font-size: 12px;
-    border: 1px solid var(--fr-border, #d0d0d0);
-    border-radius: 6px;
-    background: var(--fr-bg-app, #fff);
-    color: var(--fr-text, #222);
+    font-family: inherit;
+    border: 1px solid transparent;
+    border-radius: var(--fr-radius-sm);
+    background: transparent;
+    color: var(--fr-color-text-primary);
     cursor: pointer;
 }
+.mindmap-tb-layout {
+    background: var(--fr-color-fill-subtle);
+}
 
-.mindmap-tb-btn:hover {
-    border-color: var(--fr-color-primary, #7dc4df);
+.mindmap-tb-btn:hover,
+.mindmap-tb-layout:hover {
+    background: var(--fr-color-fill-hover);
 }
 
 /* D&D drop 位置フィードバック（sprint 20260721-170755）:
    上辺線=兄になる / 下辺線=弟になる / 塗り=子になる。マウス位置で切替（mindmap-interactions.js）。
    線は box-shadow で描き layout に影響させない（box は box-sizing:border-box）。 */
 .mm-drop-target {   /* 後方互換（現状未使用だが残置）: 全体点線 */
-    outline: 2px dashed var(--fr-color-primary, #7dc4df);
+    outline: 2px dashed var(--fr-color-primary);
     outline-offset: 2px;
 }
 .mm-drop-above {
-    box-shadow: 0 -3px 0 0 var(--fr-color-primary, #7dc4df);
+    box-shadow: 0 -3px 0 0 var(--fr-color-primary);
 }
 .mm-drop-below {
-    box-shadow: 0 3px 0 0 var(--fr-color-primary, #7dc4df);
+    box-shadow: 0 3px 0 0 var(--fr-color-primary);
 }
 .mm-drop-child {
-    background: var(--fr-bg-selection, rgba(125, 196, 223, 0.28)) !important;
-    outline: 2px solid var(--fr-color-primary, #7dc4df);
+    background: var(--fr-color-selection-bg) !important;
+    outline: 2px solid var(--fr-color-primary);
     outline-offset: 1px;
 }
 
@@ -379,28 +417,34 @@ body.mm-dragging, body.mm-dragging * {
     user-select: none !important;
 }
 
+/* menu の共通の形（docs/design/modern-2026.md §7.6） */
 .mindmap-context-menu {
     position: fixed;
     z-index: 1000;
-    min-width: 160px;
-    padding: 4px 0;
-    background: var(--fr-bg-panel, #fff);
-    border: 1px solid var(--fr-border, #d0d0d0);
-    border-radius: var(--fr-radius-md, 8px);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
-    font-size: 13px;
-    color: var(--fr-text, #222);
+    min-width: 180px;
+    padding: 4px;
+    background: var(--fr-color-bg-elevated);
+    border: 1px solid var(--fr-color-border);
+    border-radius: var(--fr-radius-lg);
+    box-shadow: var(--fr-shadow-2);
+    font-size: var(--fr-text-base);
+    color: var(--fr-color-text-primary);
 }
 
 .mindmap-ctx-item {
-    padding: 5px 14px;
+    padding: 5px 10px;
+    line-height: 16px;
+    border-radius: var(--fr-radius-sm);
     cursor: pointer;
     white-space: nowrap;
 }
 
 .mindmap-ctx-item:hover {
-    background: var(--fr-bg-selection, rgba(125, 196, 223, 0.15));
+    background: var(--fr-color-fill-hover);
 }
+/* 危険な項目（Delete Group）: 文字 danger・hover danger-soft（§7.6 — 他の menu と同じ） */
+.mindmap-ctx-item.danger { color: var(--fr-color-danger); }
+.mindmap-ctx-item.danger:hover { background: var(--fr-color-danger-soft); }
 
 .mindmap-ctx-colors {
     display: flex;
@@ -412,8 +456,8 @@ body.mm-dragging, body.mm-dragging * {
 .mindmap-ctx-swatch {
     width: 20px;
     height: 20px;
-    border: 1px solid var(--fr-border, #d0d0d0);
-    border-radius: 4px;
+    border: 1px solid var(--fr-color-border-strong);
+    border-radius: var(--fr-radius-xs);
     cursor: pointer;
     font-size: 11px;
     line-height: 18px;
@@ -422,7 +466,7 @@ body.mm-dragging, body.mm-dragging * {
 
 /* FR-MMI-01 (sprint 20260812-110538): mindmap 画像の選択視覚(outliner FR-OIP-02 と同スタイル) */
 .mindmap-node-images img.is-selected {
-    outline: 2px solid var(--outliner-accent-fg, #2196F3);
+    outline: 2px solid var(--fr-color-primary);
     outline-offset: 1px;
-    box-shadow: 0 0 0 4px rgba(33, 150, 243, 0.25);
+    box-shadow: 0 0 0 4px var(--fr-color-focus-halo);
 }

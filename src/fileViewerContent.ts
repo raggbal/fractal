@@ -8,6 +8,7 @@
 import * as vscode from 'vscode';
 import { ViewerKind } from './shared/viewer-target';
 import { getNonce } from './webviewContent';
+import { migrateLegacyTheme } from './shared/settings-provider';
 
 export function getFileViewerHtml(
     webview: vscode.Webview,
@@ -19,6 +20,10 @@ export function getFileViewerHtml(
     const asUri = (u: vscode.Uri): string => webview.asWebviewUri(u).toString();
     const viewerJs = asUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'file-viewer.js'));
     const viewerCss = asUri(vscode.Uri.joinPath(pdfjsDir, 'pdf_viewer.css'));
+    // modern-2026（docs/design/modern-2026.md §7.14）: standalone の viewer のタブも Fractal の token（tokens.css）と
+    // テーマ（data-fr-theme）で描く。読まないと VS Code のテーマの色で描かれ、note 面の viewer と見た目が分かれる
+    const tokensCss = asUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'tokens.css'));
+    const frTheme = migrateLegacyTheme(vscode.workspace.getConfiguration('fractal').get<string>('theme', 'auto'));
     // SEC-1（reviewer iter1）: inline script（__viewerConfig 注入）には nonce が必須 —
     // script-src に nonce/'unsafe-inline' が無いと本番 CSP でブロックされ standalone 面が空白になる
     // （既存 3 provider = webviewContent.ts:152 等と同じ nonce パターン）
@@ -66,16 +71,18 @@ export function getFileViewerHtml(
         nonce,
     };
     return `<!DOCTYPE html>
-<html>
+<html data-fr-theme="${frTheme}">
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
+<link rel="stylesheet" href="${tokensCss}">
 <link rel="stylesheet" href="${viewerCss}">
 <style>
 html, body { margin: 0; height: 100%; }
+body { background: var(--fr-color-bg-app, #fff); color: var(--fr-color-text-primary, #18181B); font-family: var(--fr-font-sans, sans-serif); }
 #viewer-root { height: 100%; display: flex; flex-direction: column; }
 .viewer-body { flex: 1 1 auto; position: relative; overflow: auto; }
-.viewer-error { padding: 16px; color: var(--vscode-errorForeground, #b00); }
+.viewer-error { padding: 16px; color: var(--fr-color-danger, #b00); }
 </style>
 </head>
 <body>
@@ -86,6 +93,14 @@ html, body { margin: 0; height: 100%; }
 window.addEventListener('message', function (e) {
     if (e.origin === 'null') { e.stopImmediatePropagation(); }
 }, true);
+// fractal.theme を開いたまま変えたら、拡張機能（fileViewerProvider.ts）から来る値で data-fr-theme だけを差し替える
+// （HTML を作り直さないので拡大率・位置はそのまま）。値は 3 つのどれかだけを受ける
+window.addEventListener('message', function (e) {
+    var m = e.data;
+    if (m && m.type === 'fractalTheme' && (m.theme === 'light' || m.theme === 'dark' || m.theme === 'auto')) {
+        document.documentElement.setAttribute('data-fr-theme', m.theme);
+    }
+});
 window.__viewerConfig = ${JSON.stringify(config)};</script>
 <script type="module" nonce="${nonce}" src="${viewerJs}"></script>
 </body>

@@ -3354,7 +3354,7 @@ var notesFilePanel = (function() {
             if (m.type === 'file' && m.fileExt === 'file') prependSearchGlyph(matchEl, searchFileGlyph(m.filePath || m.title));
             else if (m.type === 'file') prependSearchKindIcon(matchEl, m.fileExt);
             var badge = document.createElement('span');
-            badge.style.cssText = 'opacity:0.5;font-size:10px;margin-left:4px;';
+            badge.className = 'file-panel-search-badge';   // 11px tertiary（notes-body-html.js — 不透明度で薄めると 3.35:1）
             badge.textContent = '[' + (m.type === 'folder' ? 'folder' : (m.fileExt || 'file')) + ']';
             matchEl.appendChild(badge);
             matchEl.addEventListener('click', function() {
@@ -3468,14 +3468,13 @@ var notesFilePanel = (function() {
             // FR-DS-09: 添付ヒットの位置（p.5 / slide 3 / シート名!B12）— docx は loc なし
             if (isFile && match.loc) {
                 var locBadge = document.createElement('span');
-                locBadge.className = 'file-panel-search-loc';
-                locBadge.style.cssText = 'opacity:0.6;font-size:10px;margin-left:4px;';
+                locBadge.className = 'file-panel-search-badge file-panel-search-loc';
                 locBadge.textContent = '[' + match.loc + ']';
                 matchEl.appendChild(locBadge);
             }
             if (match.field !== 'text') {
                 var badge = document.createElement('span');
-                badge.style.cssText = 'opacity:0.5;font-size:10px;margin-left:4px;';
+                badge.className = 'file-panel-search-badge';
                 badge.textContent = '[' + match.field + ']';
                 matchEl.appendChild(badge);
             }
@@ -4194,17 +4193,19 @@ var notesFilePanel = (function() {
 
         var overlay = document.createElement('div');
         overlay.id = 's3ConfirmOverlay';
-        overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        // dialog の共通の形（docs/design/modern-2026.md §7.8）: 下は overlay、板は bg-elevated・角 14px・影 4。
+        // 実行は危険ボタン（danger-solid の塗り + 白文字）、並びは 副 → 主
+        overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:var(--fr-color-overlay, rgba(0,0,0,0.5));z-index:9999;display:flex;align-items:center;justify-content:center;';
 
         var dialog = document.createElement('div');
-        dialog.style.cssText = 'background:var(--outliner-bg,#fff);border:1px solid var(--outliner-border,#ccc);border-radius:8px;padding:20px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.3);';
+        dialog.style.cssText = 'background:var(--fr-color-bg-elevated,#fff);color:var(--fr-color-text-primary,inherit);border:1px solid var(--fr-color-border,#ccc);border-radius:var(--fr-radius-xl,14px);padding:20px;max-width:400px;width:90%;box-shadow:var(--fr-shadow-4,0 4px 20px rgba(0,0,0,0.3));';
 
         var titleEl = document.createElement('div');
-        titleEl.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:8px;color:#c44;';
+        titleEl.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:8px;color:var(--fr-color-danger,#c44);';
         titleEl.textContent = title;
 
         var msgEl = document.createElement('div');
-        msgEl.style.cssText = 'font-size:13px;margin-bottom:16px;line-height:1.5;';
+        msgEl.style.cssText = 'font-size:13px;margin-bottom:16px;line-height:1.5;color:var(--fr-color-text-secondary,inherit);';
         msgEl.textContent = message;
 
         var btnRow = document.createElement('div');
@@ -4212,12 +4213,12 @@ var notesFilePanel = (function() {
 
         var cancelBtn = document.createElement('button');
         cancelBtn.textContent = i18n.notesS3Cancel || 'Cancel';
-        cancelBtn.style.cssText = 'padding:6px 16px;border:1px solid var(--outliner-border,#ccc);border-radius:4px;background:transparent;color:inherit;cursor:pointer;font-size:13px;';
+        cancelBtn.style.cssText = 'height:28px;padding:0 14px;border:1px solid var(--fr-color-border-strong,#ccc);border-radius:var(--fr-radius-sm,6px);background:var(--fr-color-bg-elevated,transparent);color:inherit;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;';
         cancelBtn.addEventListener('click', function() { overlay.remove(); });
 
         var confirmBtn = document.createElement('button');
         confirmBtn.textContent = i18n.notesS3Continue || 'Continue';
-        confirmBtn.style.cssText = 'padding:6px 16px;border:none;border-radius:4px;background:#c44;color:#fff;cursor:pointer;font-size:13px;font-weight:500;';
+        confirmBtn.style.cssText = 'height:28px;padding:0 14px;border:none;border-radius:var(--fr-radius-sm,6px);background:var(--fr-color-danger-solid,#c44);color:#fff;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;';
         confirmBtn.addEventListener('click', function() { overlay.remove(); onConfirm(); });
 
         btnRow.appendChild(cancelBtn);
