@@ -8,7 +8,8 @@ const listStatus = document.getElementById('listStatus');
 // note（★・有効にする）
 const enableBanner = document.getElementById('enableBanner');
 const enableBannerText = document.getElementById('enableBannerText');
-const enableButtons = document.getElementById('enableButtons');
+const enableRows = document.getElementById('enableRows');
+const enableHint = document.getElementById('enableHint');
 const accessStatus = document.getElementById('accessStatus');
 const noteListEl = document.getElementById('noteList');
 // 以前の登録（〜0.4.x の 1 つずつの登録）
@@ -21,6 +22,9 @@ const tn = (key, params) => t(params.count === 1 ? key + '_one' : key, params);
 
 let list = null;  // FractalFolders.readFractalList()（未設定 = null）
 let notes = [];   // FractalFolders.listNotes(list)
+let enableFolders = []; // まだ保存できない note をまとめて選べるフォルダ（バナーの行）
+
+const IS_MAC = FractalList.localOs(navigator) === 'mac';
 
 function setStatus(el, text, kind) {
     el.style.display = '';
@@ -49,8 +53,10 @@ function smallButton(text, className, onClick) {
     return b;
 }
 
-/** note の保存できる状態: 'ok' | 'reauth'（許可が切れた）| 'none'（まだ有効にしていない）| 'missing'（フォルダが無い） */
+/** note の保存できる状態: 'ok' | 'reauth'（許可が切れた）| 'none'（まだ有効にしていない）| 'missing'（フォルダが無い）
+ *  | 'elsewhere'（このコンピューターには無い — ほかのマシンのパス） */
 async function noteState(note) {
+    if (note.elsewhere) return 'elsewhere';
     if (!note.permHandle) return 'none';
     if (!(await FractalFolders.hasPermission(note.permHandle))) return 'reauth';
     try {
@@ -103,7 +109,8 @@ function renderList() {
 // 一覧は組み終えてから入れ替える（読み込みの途中を見せない・続けて描き直しても行が重ならない）
 async function renderNotes() {
     const items = document.createDocumentFragment();
-    const listed = notes.filter((n) => n.source === 'list');
+    // このコンピューターに無い note は最後に
+    const listed = notes.filter((n) => n.source === 'list' && !n.elsewhere).concat(notes.filter((n) => n.source === 'list' && n.elsewhere));
     if (listed.length === 0) {
         items.appendChild(emptyItem(list ? 'options_list_empty' : 'options_no_list_notes'));
     }
@@ -118,6 +125,7 @@ async function renderNotes() {
         });
         fav.title = t('options_fav_title');
         fav.setAttribute('aria-pressed', on ? 'true' : 'false');
+        if (n.elsewhere) fav.style.visibility = 'hidden'; // このコンピューターに無い note は popup に出ないので ★ も無い
         li.appendChild(fav);
 
         const nameEl = document.createElement('span');
@@ -143,29 +151,46 @@ async function renderNotes() {
             }));
         } else if (state === 'none') {
             notEnabled.push(n.path);
-            li.appendChild(smallButton(t('options_note_enable'), 'primary small', enableFolder));
+            li.appendChild(smallButton(t('options_note_enable'), 'primary small', () => enableFolder(folderToChoose(n.path))));
         } else {
             const st = document.createElement('span');
-            st.className = 'perm-warn';
-            st.textContent = t('options_note_missing');
+            st.className = state === 'elsewhere' ? 'meta' : 'perm-warn';
+            st.textContent = t(state === 'elsewhere' ? 'options_note_elsewhere' : 'options_note_missing');
             li.appendChild(st);
         }
         items.appendChild(li);
     }
     noteListEl.replaceChildren(items);
 
-    // まだ有効ではない note があれば、選ぶとよいフォルダ（共通の親）ごとのボタンを出す
+    // まだ保存できない note があれば、選ぶフォルダ（共通の親）ごとに 1 行: パス・note の数・「選ぶ…」
+    enableFolders = FractalList.suggestFolders(notEnabled);
     if (notEnabled.length) {
         enableBannerText.textContent = tn('options_enable_banner', { count: notEnabled.length });
-        const buttons = document.createDocumentFragment();
-        for (const path of FractalList.suggestFolders(notEnabled)) {
-            buttons.appendChild(smallButton(t('options_enable_in', { path }), 'primary', enableFolder));
+        const rows = document.createDocumentFragment();
+        for (const path of enableFolders) {
+            const row = document.createElement('div');
+            row.className = 'suggest';
+            const code = document.createElement('code');
+            code.textContent = path;
+            row.appendChild(code);
+            const count = document.createElement('span');
+            count.className = 'meta';
+            count.textContent = tn('options_enable_count', { count: notEnabled.filter((p) => FractalList.relUnder(path, p) !== null).length });
+            row.appendChild(count);
+            row.appendChild(smallButton(t('options_enable_choose'), 'primary small', () => enableFolder(path)));
+            rows.appendChild(row);
         }
-        enableButtons.replaceChildren(buttons);
+        enableRows.replaceChildren(rows);
+        enableHint.textContent = t(IS_MAC ? 'options_enable_dialog_hint' : 'options_enable_dialog_hint_other');
         enableBanner.style.display = '';
     } else {
         enableBanner.style.display = 'none';
     }
+}
+
+/** note を有効にするために選ぶフォルダ（バナーの行のうち、その note を含むもの。無ければ note のフォルダ） */
+function folderToChoose(notePath) {
+    return enableFolders.find((f) => FractalList.relUnder(f, notePath) !== null) || notePath;
 }
 
 async function renderLegacy() {
@@ -199,19 +224,29 @@ async function renderLegacy() {
     legacySection.style.display = folders.length ? '' : 'none';
 }
 
-/** note を有効にする: note が入っているフォルダを選んでもらう（Chrome は選ばれたフォルダにしか書かせない）。
+/** note を有効にする: note が入っているフォルダ（path）を選んでもらう（Chrome は選ばれたフォルダにしか書かせない）。
+ *  選ぶ画面は前に開いた場所で開き、拡張からは場所を指定できないので、パスをコピーしておく（画面で貼り付けて移る）。
  *  選んだフォルダの中の .fractal の note すべてが保存できるようになる */
-async function enableFolder() {
+async function enableFolder(path) {
     clearStatus(accessStatus);
     if (!list || list.notes.length === 0) {
         setStatus(accessStatus, t('options_access_need_list'), 'err');
         return;
     }
+    if (path) {
+        try {
+            await navigator.clipboard.writeText(path);
+            setStatus(accessStatus, t('options_enable_copied', { path }), 'info');
+        } catch { /* コピーできなくても選ぶ画面は開く */ }
+    }
     let handle;
     try {
         handle = await window.showDirectoryPicker({ id: 'fractal-notes', mode: 'readwrite' });
     } catch (e) {
-        if (e.name === 'AbortError') return;
+        if (e.name === 'AbortError') {
+            clearStatus(accessStatus);
+            return;
+        }
         setStatus(accessStatus, '❌ ' + e.message, 'err');
         return;
     }

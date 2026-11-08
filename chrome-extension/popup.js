@@ -268,7 +268,8 @@ clipBtn.addEventListener('click', async () => {
     list = await FractalFolders.readFractalList();
     if (list && list.state === 'ok') await FractalFolders.adoptLegacyFolders(list.notes);
     const favorites = await FractalFolders.listFavorites();
-    notes = FractalFolders.sortByFavorite(await FractalFolders.listNotes(list), favorites);
+    // このコンピューターに無い note（ほかのマシンのパス）は出さない
+    notes = FractalFolders.sortByFavorite((await FractalFolders.listNotes(list)).filter((n) => !n.elsewhere), favorites);
     if (notes.length === 0) {
         setupRequiredEl.style.display = '';
         pickerEl.style.display = 'none';

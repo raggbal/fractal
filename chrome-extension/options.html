@@ -70,7 +70,9 @@
         .empty { padding: 12px; color: #999; text-align: center; font-style: italic; }
         #accessStatus { margin: 0 0 8px; }
         .banner { margin: 8px 0; padding: 10px 12px; background: #fff8e6; border: 1px solid #f0d58a; border-radius: 4px; }
-        .banner .row { margin: 8px 0 4px; }
+        .banner .suggest { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+        .banner .suggest code { flex: 1; min-width: 0; overflow-wrap: anywhere; padding: 5px 8px; background: #fff; border: 1px solid #eadfb8; border-radius: 3px; }
+        .banner .suggest .meta { white-space: nowrap; }
         .fav { border: none; background: none; padding: 0 2px; font-size: 16px; line-height: 1; color: #b5b5b5; cursor: pointer; }
         .fav:hover { background: none; color: #d39b00; }
         .fav.on { color: #e3a600; }
@@ -78,7 +80,7 @@
     </style>
 </head>
 <body>
-    <h1>Fractal Web Clipper — Settings</h1>
+    <h1 data-i18n="options_title">Fractal Web Clipper — Settings</h1>
 
     <h2 data-i18n="options_list_heading">Notes list (.fractal)</h2>
     <div class="row">
@@ -92,8 +94,8 @@
     <h2 data-i18n="options_notes_heading">Notes</h2>
     <div id="enableBanner" class="banner" style="display:none">
         <div id="enableBannerText"></div>
-        <div id="enableButtons" class="row"></div>
-        <div class="hint" data-i18n="options_enable_dialog_hint">In the dialog, choose that folder (on a Mac, ⌘⇧G lets you type the path).</div>
+        <div id="enableRows"></div>
+        <div id="enableHint" class="hint" data-i18n="options_enable_dialog_hint">Choose… copies the path and opens the folder dialog (it opens wherever it was last). In the dialog press ⌘⇧G, paste with ⌘V and press Enter, then click Select. When Chrome asks, allow it.</div>
     </div>
     <div id="accessStatus" class="status" style="display:none"></div>
     <ul id="noteList" class="folder-list">

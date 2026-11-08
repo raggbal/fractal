@@ -126,6 +126,27 @@
         return ranked[0];
     }
 
+    /** このコンピューターの OS: 'mac' | 'windows' | 'linux' | ''。navigator.platform を先に見る（実際の OS のまま。
+     *  userAgentData.platform は User-Agent を上書きすると変わる） */
+    function localOs(nav) {
+        const p = String((nav && (nav.platform || (nav.userAgentData && nav.userAgentData.platform))) || '').toLowerCase();
+        if (p.includes('mac')) return 'mac';
+        if (p.includes('win')) return 'windows';
+        if (p.includes('linux') || p.includes('cros') || p.includes('x11')) return 'linux';
+        return '';
+    }
+
+    /** このコンピューターには無いと分かるパスか（.fractal に別のマシン — EC2 など — の note が入っていることがある）。
+     *  Mac: /home/… と C:/…（Mac の /home は空の autofs）、Windows: / で始まるパス、Linux: /Users/… と C:/… */
+    function isElsewhere(p, os) {
+        const n = normalizePath(p);
+        const drive = /^[A-Za-z]:(\/|$)/.test(n);
+        if (os === 'mac') return n.startsWith('/home/') || drive;
+        if (os === 'windows') return n.startsWith('/');
+        if (os === 'linux') return n.startsWith('/Users/') || drive;
+        return false;
+    }
+
     /** 1 つのフォルダとして許可するには広すぎるか（ルート・ドライブ・/Users・ホーム。ホーム直下の
      *  Desktop / Documents / Downloads も Chrome がフォルダごとは選ばせない） */
     function isTooBroad(p) {
@@ -173,7 +194,9 @@
         hasNoteAt: hasNoteAt,
         resolvePickedFolder: resolvePickedFolder,
         isTooBroad: isTooBroad,
-        suggestFolders: suggestFolders
+        suggestFolders: suggestFolders,
+        localOs: localOs,
+        isElsewhere: isElsewhere
     };
 
     global.FractalList = api;

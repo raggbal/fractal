@@ -90,8 +90,10 @@ async function installDisk(page: Page): Promise<void> {
             await wr.close();
         };
         w.__opfs = { dir, write };
+        w.__pick = 'Users/me/workspace/fractal'; // the folder the user "chooses" in the folder dialog
         w.showOpenFilePicker = async () => [await (await dir('Users/me/.fractal')).getFileHandle('default.fractal')];
-        w.showDirectoryPicker = async () => dir('Users/me/workspace/fractal');
+        w.showDirectoryPicker = async () => dir(w.__pick);
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t: string) => { w.__copied = t; } } });
     });
 }
 
@@ -121,21 +123,28 @@ test.describe('web clipper in Chromium', () => {
             await installDisk(opts);
             const files = noteFiles(['alpha', 'beta', 'gamma']);
             const two = Object.fromEntries(Object.entries(files).filter(([k]) => !k.startsWith('gamma/')));
-            await writeDisk(opts, two, [`${W}/alpha`, `${W}/beta`]);
+            const EC2 = '/home/ec2-user/repos/fractal/doc/ttt'; // a note of another machine in the same .fractal
+            await writeDisk(opts, two, [`${W}/alpha`, EC2, `${W}/beta`]);
 
-            // the .fractal → its notes, not enabled yet: each row has Enable…, and the banner names the folder to choose
+            // the .fractal → its notes, not enabled yet: each row has Enable…, the banner has a row per folder to choose
+            // (path, how many notes, Choose…); the other machine's note says so, has no button, and is not counted
             await opts.click('#chooseListBtn');
-            await expect(opts.locator('#listSummary')).toHaveText('default.fractal — 2 notes');
-            await expect(opts.locator('#noteList li')).toHaveCount(2);
+            await expect(opts.locator('#listSummary')).toHaveText('default.fractal — 3 notes');
+            await expect(opts.locator('#noteList li')).toHaveCount(3);
             await expect(opts.locator('#noteList li button:not(.fav)')).toHaveText(['Enable…', 'Enable…']);
-            await expect(opts.locator('#enableBannerText')).toContainText('2 notes are not enabled yet');
-            await expect(opts.locator('#enableButtons button')).toHaveText([`📁 Enable the notes in ${W}…`]);
+            await expect(opts.locator('#noteList li').nth(2)).toContainText('ttt');
+            await expect(opts.locator('#noteList li').nth(2)).toContainText('Not on this computer');
+            await expect(opts.locator('#enableBannerText')).toContainText('2 notes cannot be saved to yet');
+            await expect(opts.locator('#enableRows .suggest code')).toHaveText([W]);
+            await expect(opts.locator('#enableRows .suggest .meta')).toHaveText(['2 notes']);
+            await expect(opts.locator('#enableHint')).toContainText('⌘⇧G');
             expect(await opts.$('#rootList')).toBeNull(); // no "Allowed folders" list, no presets
             expect(await opts.$('#presetList')).toBeNull();
 
-            // choose the folder once → both notes ready
-            await opts.click('#enableButtons button');
+            // Choose… copies the path (to paste in the dialog) and opens it → both notes ready
+            await opts.click('#enableRows .suggest button');
             await expect(opts.locator('#accessStatus')).toHaveText(`✅ Enabled 2 notes in ${W}`);
+            expect(await opts.evaluate(() => (window as any).__copied)).toBe(W);
             await expect(opts.locator('#noteList li .ok')).toHaveText(['✓ Ready', '✓ Ready']);
             await expect(opts.locator('#enableBanner')).toBeHidden();
 
@@ -193,26 +202,37 @@ test.describe('web clipper in Chromium', () => {
 
             // Fractal adds gamma (inside the enabled folder) and delta (outside it)
             const gamma = Object.fromEntries(Object.entries(files).filter(([k]) => k.startsWith('gamma/')));
-            await writeDisk(opts, gamma, [`${W}/alpha`, `${W}/beta`, `${W}/gamma`, '/Users/me/Documents/delta']);
+            await writeDisk(opts, gamma, [`${W}/alpha`, EC2, `${W}/beta`, `${W}/gamma`, '/Users/me/Documents/delta']);
             await opts.reload();
-            await expect(opts.locator('#listSummary')).toHaveText('default.fractal — 4 notes');
-            await expect(opts.locator('#noteList li')).toHaveCount(4);
-            await expect(opts.locator('#noteList li').nth(2)).toContainText('✓ Ready');
-            await expect(opts.locator('#noteList li').nth(3)).toContainText('Enable…');
-            await expect(opts.locator('#enableBannerText')).toContainText('1 note is not enabled yet');
-            await expect(opts.locator('#enableButtons button')).toHaveText(['📁 Enable the notes in /Users/me/Documents/delta…']);
+            await installDisk(opts);
+            await expect(opts.locator('#listSummary')).toHaveText('default.fractal — 5 notes');
+            await expect(opts.locator('#noteList li')).toHaveCount(5);
+            await expect(opts.locator('#noteList li').nth(2)).toContainText('✓ Ready'); // gamma
+            await expect(opts.locator('#noteList li').nth(3)).toContainText('Enable…'); // delta
+            await expect(opts.locator('#noteList li').nth(4)).toContainText('Not on this computer'); // the other machine's, last
+            await expect(opts.locator('#enableBannerText')).toContainText('1 note cannot be saved to yet');
+            await expect(opts.locator('#enableRows .suggest code')).toHaveText(['/Users/me/Documents/delta']);
+            await expect(opts.locator('#enableRows .suggest .meta')).toHaveText(['1 note']);
+            // the row's Enable… copies the folder to choose for that note; choosing a folder with none of the notes says so
+            await opts.evaluate(() => { (window as any).__pick = 'Users/me/elsewhere'; });
+            await opts.locator('#noteList li').nth(3).locator('button:not(.fav)').click();
+            await expect(opts.locator('#accessStatus')).toHaveText('❌ That folder has none of the notes in the .fractal. Choose the folder that holds them');
+            expect(await opts.evaluate(() => (window as any).__copied)).toBe('/Users/me/Documents/delta');
             const popup2 = await s.ctx.newPage();
             await popup2.goto(`chrome-extension://${s.id}/popup.html`);
-            await expect(popup2.locator('#folderSelect option')).toHaveCount(4);
+            await expect(popup2.locator('#folderSelect option')).toHaveCount(4); // the other machine's note is not offered
             expect(await popup2.$$eval('#folderSelect option', (os) => os.map((o) => [o.textContent, (o as HTMLOptionElement).disabled])))
                 .toEqual([['★ beta', false], ['alpha', false], ['gamma', false], ['delta — not enabled yet (Settings)', true]]);
             await popup2.close();
 
             // 日本語
             await opts.selectOption('#langSelect', 'ja');
-            await expect(opts.locator('#listSummary')).toHaveText('default.fractal — note 4 件');
+            await expect(opts.locator('#listSummary')).toHaveText('default.fractal — note 5 件');
             await expect(opts.locator('#noteList li').nth(3)).toContainText('有効にする…');
+            await expect(opts.locator('#noteList li').nth(4)).toContainText('このコンピューターにはありません');
             await expect(opts.locator('#noteList li').nth(0)).toContainText('✓ 保存できます');
+            await expect(opts.locator('#enableRows .suggest button')).toHaveText(['選ぶ…']);
+            await expect(opts.locator('#enableHint')).toContainText('⌘⇧G を押し、⌘V で貼り付けて Enter');
             expect(s.errors).toEqual([]);
         } finally {
             await s.close();

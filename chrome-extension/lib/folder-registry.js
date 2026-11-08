@@ -165,7 +165,9 @@
      * 決められなければ Error（.reason = 'none' | 'ambiguous'）を throw。返り値 { path, notes }
      */
     async function addAccessRoot(handle, notePaths) {
-        const r = await List.resolvePickedFolder(handle, notePaths);
+        // ほかのマシンの note のパスには当てない（同じ名前のフォルダを取り違えない）
+        const os = currentOs();
+        const r = await List.resolvePickedFolder(handle, (notePaths || []).filter((p) => !List.isElsewhere(p, os)));
         if (!r.path) {
             const e = new Error(r.reason);
             e.reason = r.reason;
@@ -181,6 +183,10 @@
         await FractalIdb.set('accessRoots', (await listAccessRoots()).filter((x) => x.path !== rootPath));
     }
 
+    function currentOs() {
+        return List.localOs(global.navigator);
+    }
+
     function listNote(notePath, roots) {
         const root = List.rootFor(roots, notePath);
         return {
@@ -188,6 +194,7 @@
             name: List.baseName(notePath),
             path: notePath,
             source: 'list',
+            elsewhere: List.isElsewhere(notePath, currentOs()), // このコンピューターには無い（保存先にならない）
             root: root,
             rel: root ? List.relUnder(root.path, notePath) : null,
             permHandle: root ? root.handle : null
@@ -200,7 +207,7 @@
 
     /**
      * 保存先の note: .fractal の note（list.notes の順）+ まだ残っている旧登録。
-     * 返り値 Array<{ id, name, path, source: 'list' | 'legacy', root, rel, legacy, permHandle }>
+     * 返り値 Array<{ id, name, path, source: 'list' | 'legacy', elsewhere, root, rel, legacy, permHandle }>
      * （list の note で root が null = まだ許可したフォルダの下にない。id は note のパス、旧登録は その id）
      */
     async function listNotes(list) {

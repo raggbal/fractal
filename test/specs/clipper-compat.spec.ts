@@ -421,6 +421,38 @@ test.describe('web clipper × the .fractal notes list', () => {
         expect(await registry.getLastSelection()).toEqual({ folderId: '/n/x', targetId: 'ox', targetKind: 'out' });
     });
 
+    test('TC-CC-11 notes of another computer in the .fractal: told apart by the OS, and a same-named folder here is not taken for one', async () => {
+        expect(fractalList.localOs({ platform: 'MacIntel', userAgentData: { platform: 'Windows' } })).toBe('mac'); // the real OS, not an overridden user agent
+        expect(fractalList.localOs({ platform: 'Win32' })).toBe('windows');
+        expect(fractalList.localOs({ platform: 'Linux x86_64' })).toBe('linux');
+        expect(fractalList.localOs({ userAgentData: { platform: 'macOS' } })).toBe('mac');
+        const EC2 = '/home/ec2-user/repos/fractal/doc/ttt';
+        expect([EC2, '/Users/me/a', 'C:\\Users\\me\\a'].map((p) => fractalList.isElsewhere(p, 'mac'))).toEqual([true, false, true]);
+        expect([EC2, '/Users/me/a', 'C:/Users/me/a'].map((p) => fractalList.isElsewhere(p, 'linux'))).toEqual([false, true, true]);
+        expect([EC2, 'C:/Users/me/a'].map((p) => fractalList.isElsewhere(p, 'windows'))).toEqual([true, false]);
+        expect(fractalList.isElsewhere(EC2, '')).toBe(false); // unknown OS: nothing is marked
+
+        const nav = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+        Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { platform: 'MacIntel' } });
+        const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'fx-clipper-ec2-')));
+        try {
+            const here = path.join(tmp, 'ttt'); // a note here with the same folder name as the EC2 one
+            fs.mkdirSync(here);
+            const fm = new NotesFileManager(here);
+            fm.loadStructure();
+            fm.dispose();
+            await expect(registry.addAccessRoot(new DirHandle(here), [EC2])).rejects.toMatchObject({ reason: 'none' });
+            expect(await registry.listAccessRoots()).toEqual([]);
+            idb.set('fractalList', { name: 'default.fractal', notes: [EC2, here] });
+            const notes = await registry.listNotes({ notes: [EC2, here] });
+            expect(notes.map((n: { elsewhere: boolean }) => n.elsewhere)).toEqual([true, false]);
+            expect((await registry.addAccessRoot(new DirHandle(here), [EC2, here])).path).toBe(here);
+        } finally {
+            if (nav) Object.defineProperty(globalThis, 'navigator', nav);
+            fs.rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
     test('TC-CC-09 the folder to allow: the common parent, split where it would be the home or too broad', () => {
         expect(fractalList.suggestFolders(['/Users/me/workspace/fractal/a', '/Users/me/workspace/fractal/b'])).toEqual(['/Users/me/workspace/fractal']);
         expect(fractalList.suggestFolders(['/Users/me/notes/a'])).toEqual(['/Users/me/notes/a']);
