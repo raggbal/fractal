@@ -28,15 +28,19 @@
 
 ## キービジュアル
 
+### VS Code の中で
+アクティビティバーの Fractal Note で .fractal の一覧と note を選ぶと、note がエディタのタブで開きます（note のツリー・アウトライン・サイドパネルのページ）。
+![VS Code の中の Fractal Note: 左に Fractal List と Notes、エディタに note のツリー・アウトライン・サイドパネルのページ](assets/images/vscode-overview.png)
+
 ### マークダウンエディタ
 Notionのような心地よい入力ができるMarkdown エディター。基本的なMarkdown要素は全て使え、さらに codeブロック、数式ブロック、mermaidブロック、drawio埋め込みブロック、文字色変更など拡張的な機能も存在。あらゆる人のMarkdownニーズに対応。
 さらに、Notion的な Subpage も対応(Linkとは区別)。階層的に Markdown を管理することが可能。
-![assets/images/1785072634683.png](assets/images/1785072634683.png)
+![サイドパネルにサブページを開いたマークダウンエディタ](assets/images/1785072634683.png)
 
 ### アウトライナーエディタ
 Dynalist クラスのアウトライナー。フォルダ、タグ、そしてアウトラインノードとマークダウン本文の横断フルテキスト検索。
 同じアウトラインを **データベースビュー**（Notion 的なテーブル）と **マインドマップビュー**（編集可能な SVG マインドマップ）に切り替えて表示・編集することも可能。
-![assets/images/1785071780563.png](assets/images/1785071780563.png)
+![note のツリーと、サイドパネルにページを開いたアウトライナー](assets/images/1785071780563.png)
 
 
 ---
@@ -60,8 +64,8 @@ Dynalist クラスのアウトライナー。フォルダ、タグ、そして�
 
 ## 📝 マークダウンエディタ (.md)
 Notion スタイルの WYSIWYG エディタ。見えているものがそのままファイルの中身です。
-![assets/images/1785071877602.png](assets/images/1785071877602.png)
-![assets/images/1785072859352.png](assets/images/1785072859352.png)
+![draw.io の図・ガントチャート・表を含むマークダウン](assets/images/1785071877602.png)
+![Mermaid のシーケンス図とチェックリストを含むマークダウン](assets/images/1785072859352.png)
 
 
 ### 編集
@@ -107,7 +111,7 @@ VS Code を離れずに draw.io の図を作成・編集できます。
 
 ### サブページ
 Notion のように、md の中に md を埋め込めます。サブページは単なるリンクではなく **親ページに所有される**存在で、その所有関係は親にどこまでもついて回ります:
-![assets/images/1786518644715.png](assets/images/1786518644715.png)
+![マークダウンのページと、サイドパネルに開いたサブページ（目次つき）](assets/images/1786518644715.png)
 
 - `Cmd+/`** → Add Page**（または `Cmd+N`） — 子マークダウンページを作成してカーソル位置にリンクを挿入
 - `.md` リンクをクリックすると **Notion スタイルのサイドピークパネル** で開き、フル WYSIWYG 編集が可能。戻る/進むナビゲーション付き（`Opt+←` / `Opt+→`）
@@ -132,13 +136,13 @@ AI アシスタント（Claude Code、Cursor、Kiro など）— あるいは他
 Dynalist ライクなアウトライナー。同じデータを3つの視点で。
 
 #### アウトラインビュー
-![assets/images/1785071590698.png](assets/images/1785071590698.png)
+![アウトライン表示](assets/images/1785071590698.png)
 
 #### データベースビュー
-![assets/images/1785071543294.png](assets/images/1785071543294.png)
+![データベース表示（サイドパネルにページ）](assets/images/1785071543294.png)
 
 #### マインドマップビュー
-![assets/images/1785071464193.png](assets/images/1785071464193.png)
+![マインドマップ表示](assets/images/1785071464193.png)
 
 ### 3つのビューモード
 ビュートグルで切り替え:
@@ -175,7 +179,7 @@ Enter / Tab / Shift+Tab は期待どおりに動作。複数選択インデン�
 ## 🗂 Notes — すべてが繋がる場所
 
 Fractal Note は **note** 単位で情報を管理します。アクティビティバーから任意のフォルダを登録するだけです。
-![assets/images/1785086976945.png](assets/images/1785086976945.png)
+![VS Code の Notes: note のデータベース表示](assets/images/1785086976945.png)
 
 - **ロックインのない構造化** — ファイルはディスク上に **フラット** に保存しつつ、`.out`・`.md`・**その他任意のファイル** を **仮想的なフォルダ/ファイルツリー** でドラッグ&ドロップ整理。データはあくまでプレーンなファイルのまま
 - **何でも取り込み** — Finder **や VS Code エクスプローラ**（エクスプローラからは Shift を押しながら）から .md をファイルツリーへ D&D するだけで note に複製・登録。**任意のファイル**（PDF、Excel、zip など）をドロップすれば note 共有の `files/` フォルダに格納 — クリックで開く（Office / PDF / HTML / 画像 / テキストはアプリ内ビューア、それ以外は OS デフォルトアプリ）

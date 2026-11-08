@@ -28,15 +28,19 @@
 
 ## Key visuals
 
+### In VS Code
+Fractal Note lives in the activity bar: pick a notes list and a note on the left, and the note opens in an editor tab — the note tree, an outline, and a page in the side panel.
+![Fractal Note in VS Code: the Fractal List and Notes views on the left, a note with its tree, an outline and a page in the side panel](assets/images/vscode-overview.png)
+
 ### Markdown editor
 A markdown editor with the same pleasant writing feel as Notion. Every basic markdown element is available, plus extended features like code blocks, math blocks, Mermaid blocks, embedded draw.io diagrams, and text color — covering everyone's markdown needs.
 It also supports Notion-style **subpages** (distinct from plain links), so you can manage markdown hierarchically.
-![assets/images/1785072634683.png](assets/images/1785072634683.png)
+![Markdown editor with a subpage open in the side panel](assets/images/1785072634683.png)
 
 ### Outliner editor
 A Dynalist-class outliner. Folders, tags, and full-text search across both outline node text and markdown bodies.
 The same outline can also be switched into a **Database view** (a Notion-like table) and a **Mindmap view** (an editable SVG mindmap).
-![assets/images/1785071780563.png](assets/images/1785071780563.png)
+![Outliner with the note tree and a page in the side panel](assets/images/1785071780563.png)
 
 ---
 
@@ -59,8 +63,8 @@ Tying it all together is **Notes** — a folder-scoped workspace (virtual tree, 
 
 ## 📝 Markdown editor (.md)
 A Notion-style WYSIWYG editor. What you see is exactly what's in the file.
-![assets/images/1785071877602.png](assets/images/1785071877602.png)
-![assets/images/1785072859352.png](assets/images/1785072859352.png)
+![Markdown with a draw.io diagram, a Gantt chart and a table](assets/images/1785071877602.png)
+![Markdown with a Mermaid sequence diagram and a checklist](assets/images/1785072859352.png)
 
 ### Editing
 - **Seamless live preview** — Markdown renders the moment you type it. Switch to **source mode** anytime (`Cmd+.`)
@@ -105,7 +109,7 @@ Create and edit draw.io diagrams without leaving VS Code.
 
 ### Subpages
 Embed markdown pages inside markdown pages, like Notion. A subpage isn't a mere link — it's **owned by its parent**, and that ownership follows the parent everywhere:
-![assets/images/1786518644715.png](assets/images/copy-1786518687773-1786518644715.png)
+![A markdown page and its subpage, with the subpage's outline, in the side panel](assets/images/copy-1786518687773-1786518644715.png)
 - `Cmd+/`** → Add Page** (or `Cmd+N`) — Create a child markdown page and insert a link at the cursor
 - Click a `.md` link to open it in a **Notion-style side-peek panel** with full WYSIWYG editing, including back/forward navigation (`Opt+←` / `Opt+→`)
 - `Cmd+Shift+click` (Windows / Linux: `Ctrl+Shift+click`) to open it in a **new tab** — the same modifier works on note-tree rows (anywhere on the row) and on the outliner's 📄 / 📎 icons, or use **Open in new tab** from the right-click menu
@@ -129,13 +133,13 @@ When an AI assistant (Claude Code, Cursor, Kiro, …) — or anything else — m
 A Dynalist-like outliner. The same data from three perspectives.
 
 #### Outline view
-![assets/images/1785071590698.png](assets/images/1785071590698.png)
+![Outline view](assets/images/1785071590698.png)
 
 #### Database view
-![assets/images/1785071543294.png](assets/images/1785071543294.png)
+![Database view with a page in the side panel](assets/images/1785071543294.png)
 
 #### Mindmap view
-![assets/images/1785071464193.png](assets/images/1785071464193.png)
+![Mindmap view](assets/images/1785071464193.png)
 
 ### Three view modes
 Switch with the view toggle:
@@ -172,7 +176,7 @@ Enter / Tab / Shift+Tab work the way you expect. Multi-select indenting, node mo
 ## 🗂 Notes — where everything connects
 
 Fractal Note organizes information into **notes**. Just register any folder from the activity bar.
-![assets/images/1785087018130.png](assets/images/1785087018130.png)
+![Notes in VS Code: a note in the database view](assets/images/1785087018130.png)
 
 - **Structure without lock-in** — Files are stored **flat** on disk while you organize `.out`, `.md`, and **any other files** in a **virtual folder/file tree** with drag & drop. Your data stays plain files
 - **Import anything** — drag a .md from Finder **or the VS Code Explorer** (hold Shift for Explorer drops) onto the file tree to copy & register it into the note; drop **any file** (PDF, Excel, zip, …) to store it in the note's shared `files/` folder — click to open (Office / PDF / HTML / images / text in the built-in viewer, anything else in the OS default app; on a remote VS Code server this becomes a browser download)
