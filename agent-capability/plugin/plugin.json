@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "fractal",
-  "version": "1.4.0",
+  "version": "1.4.1-rc.1",
   "description": "Fractal notes (VS Code extension) for AI agents: MCP tools that read, search and edit notes / outliners / md with the same code as the extension, plus a skill that teaches how to use them.",
   "author": { "name": "imaken" },
   "license": "MIT",
