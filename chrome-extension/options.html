@@ -62,9 +62,11 @@
             gap: 8px;
         }
         .folder-list li:last-child { border-bottom: none; }
-        .folder-list .name { flex: 1; font-weight: 500; }
-        .folder-list .meta { font-size: 11px; color: #999; }
-        .folder-list .perm-warn { color: #c33; font-size: 11px; }
+        .folder-list .name { flex: 1; font-weight: 500; min-width: 0; }
+        .folder-list .path { display: block; font-weight: 400; font-size: 11px; color: #999; overflow-wrap: anywhere; }
+        .folder-list .meta, .meta { font-size: 11px; color: #999; overflow-wrap: anywhere; }
+        .folder-list .ok { color: #066; font-size: 11px; white-space: nowrap; }
+        .folder-list .perm-warn { color: #c33; font-size: 11px; white-space: nowrap; }
         .empty { padding: 12px; color: #999; text-align: center; font-style: italic; }
         code { font-family: monospace; font-size: 12px; background: #f0f0f0; padding: 1px 4px; border-radius: 2px; }
     </style>
@@ -72,16 +74,36 @@
 <body>
     <h1>Fractal Web Clipper — Settings</h1>
 
-    <h2>Note</h2>
+    <h2 data-i18n="options_list_heading">Notes list (.fractal)</h2>
     <div class="row">
-        <button id="addFolderBtn" class="primary">📓 Add Note…</button>
-        <span id="addStatus" class="status" style="display:none"></span>
+        <button id="chooseListBtn" class="primary" data-i18n="options_choose_list">📄 Choose .fractal…</button>
+        <span id="listSummary" class="name"></span>
+        <button id="listReauthBtn" class="small" style="display:none" data-i18n="options_reauth_button">Re-authorize</button>
     </div>
-    <div class="hint" data-i18n="options_note_hint">Register one or more Fractal Notes (directories containing .out files and outline.note). Names are shown using the Note title. Permissions persist, so you will not be asked every time.</div>
+    <div id="listStatus" class="status" style="display:none"></div>
+    <div class="hint" data-i18n="options_list_hint">Choose the .fractal file Fractal uses. The clipper reads your notes from it every time, so notes you add in Fractal show up here by themselves. The default is ~/.fractal/default.fractal (on a Mac, press ⌘⇧G in the dialog and type ~/.fractal).</div>
 
-    <ul id="folderList" class="folder-list">
-        <li class="empty" data-i18n="options_no_notes">(none — add with "Add Note…" above)</li>
+    <h2 data-i18n="options_notes_heading">Notes</h2>
+    <ul id="noteList" class="folder-list">
+        <li class="empty" data-i18n="options_no_list_notes">(choose the .fractal above)</li>
     </ul>
+    <div class="row">
+        <button id="allowFolderBtn" data-i18n="options_allow_folder">📁 Allow a folder…</button>
+        <span id="accessSuggest" class="meta"></span>
+    </div>
+    <div id="accessStatus" class="status" style="display:none"></div>
+    <div class="hint" data-i18n="options_access_hint">Chrome cannot open the folders in the .fractal by itself. Allow the folder that holds your notes once, and you can save to every note inside it.</div>
+
+    <h2 data-i18n="options_roots_heading">Allowed folders</h2>
+    <ul id="rootList" class="folder-list">
+        <li class="empty" data-i18n="options_no_roots">(none)</li>
+    </ul>
+
+    <div id="legacySection" style="display:none">
+        <h2 data-i18n="options_legacy_heading">Registered before</h2>
+        <div class="hint" data-i18n="options_legacy_hint">Notes registered one by one in older versions. They still work. The ones in the .fractal move over by themselves once their permission is granted.</div>
+        <ul id="folderList" class="folder-list"></ul>
+    </div>
 
     <h2 data-i18n="options_preset_heading">Destination Presets</h2>
     <div class="hint" data-i18n="options_preset_hint">Register frequently used destinations (Note + Outliner/Markdown) as presets. The preset marked ★ becomes the initial selection in the popup and the destination for quick clip (Alt+Shift+F).</div>
@@ -110,6 +132,7 @@
     <script src="lib/i18n.js"></script>
     <script src="lib/idb.js"></script>
     <script src="lib/flat-layout-mirror.js"></script>
+    <script src="lib/fractal-list.js"></script>
     <script src="lib/folder-registry.js"></script>
     <script src="options.js"></script>
 </body>

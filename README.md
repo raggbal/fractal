@@ -242,6 +242,7 @@ Save any web page into a Fractal Note — straight from Chrome, without launchin
 
 - Lives in `chrome-extension/` in this repository (load it as an unpacked extension)
 - Click the icon (or `Alt+Shift+F` for a quick clip) → the page is extracted with **Mozilla Readability** and converted through **Fractal Note's own HTML→MD pipeline** (tables, GFM, Medium / dev.to code blocks, and more)
+- **Your notes come from your `.fractal`** — choose the `.fractal` Fractal uses (`~/.fractal/default.fractal` by default) and allow the folder that holds your notes once; notes you add in Fractal show up by themselves
 - Save to an **outliner** (added as a page node) or to **markdown** (a new md is created and a subpage link is appended to the md you picked) — both are supported
 - **Destination presets** — Register multiple "Note + destination" pairs and mark a ★default. The popup opens with the default pre-selected, ready to save immediately
 - Writes directly to disk via the File System Access API — no communication with VS Code needed

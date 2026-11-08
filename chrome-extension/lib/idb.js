@@ -47,4 +47,4 @@
     }
 
     global.FractalIdb = { get: idbGet, set: idbSet, delete: idbDelete };
-})(typeof window !== 'undefined' ? window : this);
+})(typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : globalThis));

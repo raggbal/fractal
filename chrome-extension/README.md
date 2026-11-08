@@ -10,6 +10,12 @@ VSCode と直接通信しません — ブラウザの **File System Access API*
 
 ---
 
+## v0.5.0 で何が変わったか
+
+- **note は .fractal から読む** — note を 1 つずつ登録するのをやめた。設定で Fractal の `.fractal`（既定は `~/.fractal/default.fractal`）を選ぶと、そこに書かれた note が保存先になる。開くたびに読み直すので、Fractal で足した note もそのまま出る
+- **フォルダを 1 回許可するだけ** — Chrome は `.fractal` に書かれたパスを自分では開けない。note が入っているフォルダ（例 `~/workspace/fractal`）を 1 回許可すると、その中の note すべてに保存できる。設定画面は、まだ保存できない note と、許可するとよいフォルダを出す
+- **以前の登録はそのまま引き継ぐ** — 0.4 までに 1 つずつ登録した note は、`.fractal` にあれば許可ごと引き継ぎ、プリセット・前回の選択もそのまま使える。`.fractal` に無いものは「以前の登録」として残り、使える
+
 ## v0.4.1 で何が変わったか
 
 - **保存先の一覧に添付と folder link が出ていた不具合を直した** — Fractal の note のツリーには今、添付ファイル（docx・pdf など）と folder link も入る。それらまで「Outliner」として一覧に出て、選んで保存すると失敗していた。今は Outliner（`.out`）と Markdown だけを出す
@@ -45,10 +51,13 @@ icon が出たら成功。
 ## 初回 setup
 
 1. ツールバーの拡張アイコンを右クリック → **オプション**
-2. **「📁 Add Notes Folder…」** で Fractal の Notes フォルダを選択
-   - これが Fractal で管理している複数 `.out` + `outline.note` を入れたフォルダ
-   - 一度許可すれば毎回聞かれません (Chrome が handle を永続化)
-3. 必要に応じて複数 folder を追加可能 (例: `~/Desktop/notes-work` + `~/Desktop/notes-personal`)
+2. **「📄 .fractal を選ぶ…」** で Fractal の `.fractal` を選ぶ
+   - 既定は `~/.fractal/default.fractal`（Fractal が最初に作る。Fractal の **Fractal List** に出ている一覧）
+   - `~/.fractal` は隠しフォルダ。Mac はダイアログで **⌘⇧G** を押して `~/.fractal` と入力する
+3. **「📁 フォルダを許可…」** で note が入っているフォルダを選ぶ（例 `~/workspace/fractal`）
+   - その中の note すべてに保存できる。画面の「許可するフォルダ」が、まだ保存できない note をまとめて許可できるフォルダ
+   - ホームフォルダそのもの・`~/Documents`・`~/Desktop`・`~/Downloads` は Chrome が選ばせない。その 1 つ下を選ぶ
+4. 必要ならプリセット（よく使う保存先）を足す
 
 ---
 
@@ -57,8 +66,8 @@ icon が出たら成功。
 1. 保存したい Web ページを開く
 2. ツールバーの拡張 icon を click (or `Alt+Shift+F`)
 3. ポップアップで:
-   - **Notes フォルダ** dropdown で対象フォルダを選択 (前回選択を default 復元)
-   - **Outliner** dropdown で対象 outliner を選択 (`outline.note` から読み込み、folder 階層インデント)
+   - **プリセット**（★ が初期選択）か、**Note** と **保存先**（Outliner / Markdown）を選ぶ
+   - Note は `.fractal` の note。許可したフォルダの外の note は選べない（設定で許可する）
 4. **「📌 Bookmark」** ボタンを click → 保存実行
 5. 数秒で完了。VSCode で対象 `.out` を再読み込みすれば先頭にノードが追加されている
 
@@ -99,19 +108,22 @@ icon が出たら成功。
 
 ```
 chrome-extension/
-├── manifest.json              # Chrome 拡張 manifest v3 (v0.2.0)
-├── background.js              # service worker (no-op、将来用)
-├── popup.html / popup.js      # ツールバーポップアップ (folder + outliner 選択 + clip 実行)
-├── options.html / options.js  # 設定 UI (Notes フォルダ複数登録)
-├── icons/icon128.png          # ツールバーアイコン (Fractal アイコン流用)
+├── manifest.json              # Chrome 拡張 manifest v3 (v0.5.0)
+├── background.js              # service worker（quick clip = Alt+Shift+F）
+├── popup.html / popup.js      # ツールバーポップアップ (note + 保存先の選択 + clip 実行)
+├── options.html / options.js  # 設定 UI（.fractal・許可したフォルダ・プリセット・言語）
+├── icons/                     # ツールバーアイコン (Fractal アイコン流用)
 ├── lib/
 │   ├── idb.js                 # IndexedDB helper (FileSystemHandle 永続化)
-│   ├── folder-registry.js     # 複数 folder + outline.note 読み取り (v0.2.0)
-│   ├── turndown.js            # bundled (vendor 由来)
-│   ├── turndown-plugin-gfm.js
+│   ├── fractal-list.js        # .fractal の読み取り（本体 notes-registry.ts と同じ判定）・許可したフォルダの位置決め
+│   ├── folder-registry.js     # note の一覧・許可したフォルダ・outline.note 読み取り・プリセット
+│   ├── clip-writer.js         # 保存の書き込み（popup と quick clip が共用）
+│   ├── clipper-core.js        # node 追加 + page MD 組立 (DOM 非依存)
+│   ├── flat-layout-mirror.js  # 保存先の決め方（本体 flat-layout.ts のミラー）
+│   ├── data-url-image-extractor.js # data: 画像を images/ に実体化
+│   ├── html-md-converter.js   # Fractal の HTML→MD 変換（Turndown + GFM + 独自 rule）
 │   ├── Readability.js         # Mozilla Readability (記事抽出)
-│   ├── fractal-md.js          # Fractal の HTML→MD 変換ロジック
-│   └── clipper-core.js        # node 追加 + page MD 組立 (DOM 非依存)
+│   └── i18n.js / i18n-messages.js # 表示の英語 / 日本語
 └── README.md                  # このファイル
 ```
 
@@ -119,8 +131,9 @@ chrome-extension/
 
 ## 技術選定の補足
 
-- **File System Access API** (`showDirectoryPicker`): Chrome / Edge / Opera で利用可能。Firefox / Safari は未対応 → 本拡張は Chromium 系のみ動作。
-- **handle 永続化**: `FileSystemDirectoryHandle` は IndexedDB に直接 `put` 可能。 chrome.storage.local では serialize 不可なので IDB を使う。複数 folder は配列として 1 entry に保存。
+- **File System Access API** (`showOpenFilePicker` / `showDirectoryPicker`): Chrome / Edge / Opera で利用可能。Firefox / Safari は未対応 → 本拡張は Chromium 系のみ動作。
+- **.fractal と許可したフォルダ**: ブラウザはパスを直接開けないので、`.fractal` は file handle、note はユーザーが許可したフォルダの handle からたどって開く。handle は自分の絶対パスを教えないので、許可したフォルダが `.fractal` のどのパスかは「フォルダ名が note のパスの途中にあり、その下に note（`outline.note`）が実際にある」ことで決める（`lib/fractal-list.js`。同じだけ当てはまる候補が 2 つあれば決めずに、1 つ上のフォルダを頼む）
+- **handle 永続化**: `FileSystemHandle` は IndexedDB に直接 `put` 可能。 chrome.storage.local では serialize 不可なので IDB を使う。
 - **outline.note 読み取り**: Fractal Notes mode と同じ `NoteStructure` JSON を parse、`type: 'file'` アイテムを folder 階層付きで列挙。outline.note が無い folder は disk 上の `*.out` を flat に列挙する fallback。
 - **manifest v3 service worker** は最小限。すべてのロジックは popup ページで実行 (file handle が popup 文脈で扱える必要があるため)。
 
@@ -130,10 +143,13 @@ chrome-extension/
 
 | key | value | 用途 |
 | --- | --- | --- |
-| `notesFolders` | `Array<{ id, name, handle: FileSystemDirectoryHandle }>` | 登録済み folder 一覧 |
-| `lastSelection` | `{ folderId, outId }` | 直前選択 (popup の default 復元) |
+| `fractalList` | `{ handle: FileSystemFileHandle, name, notes: string[] }` | 選んだ `.fractal`（notes は最後に読めた一覧。読めないときに使う） |
+| `accessRoots` | `Array<{ path, handle: FileSystemDirectoryHandle }>` | 許可したフォルダ（path = `.fractal` の中での位置） |
+| `notesFolders` | `Array<{ id, name, handle: FileSystemDirectoryHandle }>` | 0.4 までの 1 つずつの登録（`.fractal` にあるものは引き継いで消える） |
+| `presets` / `defaultPresetId` | `Array<{ id, name, folderId, targetId, targetKind, targetTitle }>` / id | 保存先プリセットと ★ |
+| `lastSelection` | `{ folderId, targetId, targetKind }` | 直前選択 (popup の default 復元) |
 
-旧 schema (`notesFolderHandle` / `notesFolderName` / `targetOutPath`) は v0.2.0 起動時に自動 migration → 削除。
+`folderId` は note のパス（以前の登録は その id）。旧 schema (`notesFolderHandle` / `notesFolderName` / `targetOutPath`) は v0.2.0 起動時に自動 migration → 削除。
 
 ---
 
@@ -141,11 +157,15 @@ chrome-extension/
 
 | 症状 | 対処 |
 |------|------|
-| Options で「許可が得られませんでした」 | Add Notes Folder ボタンを押し直し、ダイアログで「許可」を選ぶ |
-| popup で「未登録」 | Options を開いて Notes フォルダを 1 つ以上 登録する |
+| Options で「許可が得られませんでした」 | ボタンを押し直し、ダイアログで「許可」を選ぶ |
+| popup で「note がまだありません」 | Options で `.fractal` を選ぶ |
+| note が「未許可」 | Options の「📁 フォルダを許可…」で、その note が入っているフォルダを許可する（「許可するフォルダ」に案が出る） |
+| 「そのフォルダには .fractal の note が入っていません」 | 選んだフォルダの中に `.fractal` の note が無い。note のフォルダか、その上のフォルダを選ぶ |
+| 「どのフォルダか決められません」 | 同じ名前のフォルダが `.fractal` に 2 つある。1 つ上のフォルダを選ぶ |
+| popup に「新しい note を読み込むには…許可してください」 | Chrome の再起動などで `.fractal` の許可が切れた。「許可」を押す（それまでは最後に読めた一覧を使う） |
 | Outliner dropdown が空 | 対象 folder の `outline.note` が無いか壊れている。Fractal で folder を一度開いて自動生成、または folder 内に `*.out` があるかチェック |
 | `(.out が見つかりません)` 表示 | folder の root 直下に `.out` ファイルがない (Notes mode の convention 違反)。Fractal で folder を開いて構造を確認 |
-| 「要再許可」表示 | Chrome 再起動などで FileSystemHandle の権限が失効。Options で「再許可」 button を click |
+| 「要再許可」表示 | Chrome 再起動などで FileSystemHandle の権限が失効。Options で「再許可」 button を click（popup でも note を選ぶと聞かれる） |
 | node が追加されたが VSCode で見えない | VSCode 側で `.out` を一度閉じて開き直すか、editor を refresh |
 
 ---

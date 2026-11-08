@@ -1,8 +1,10 @@
-/** Folder registry — 複数 Notes folder の永続化 + outline.note 読み取り。
+/** Folder registry — note の一覧（.fractal）・許可したフォルダ・outline.note 読み取り・保存先プリセット。
  *
  *  Storage schema (IDB):
- *    - notesFolders: Array<{ id: string, name: string, handle: FileSystemDirectoryHandle }>
- *    - lastSelection: { folderId: string, outId: string } | undefined
+ *    - fractalList: { handle: FileSystemFileHandle, name, notes: string[] }（0.5.0〜。notes は最後に読めた一覧）
+ *    - accessRoots: Array<{ path: string, handle: FileSystemDirectoryHandle }>（0.5.0〜。許可したフォルダ）
+ *    - notesFolders: Array<{ id: string, name: string, handle: FileSystemDirectoryHandle }>（〜0.4.x の 1 つずつの登録）
+ *    - lastSelection: { folderId, targetId, targetKind } | undefined（folderId = note のパス、旧登録は その id）
  *
  *  outline.note format (= NoteStructure from notes-file-manager.ts):
  *    {
@@ -17,6 +19,9 @@
  */
 (function (global) {
     'use strict';
+
+    const req = typeof require === 'function' ? require : null; // node（spec）だけ。拡張では lib を先に読み込む
+    const List = global.FractalList || (req && req('./fractal-list.js'));
 
     /** registered folders を取得 (空配列なら未登録) */
     async function listFolders() {
@@ -94,23 +99,169 @@
         return fallbackName || folderHandle.name;
     }
 
-    /** folder の readwrite permission 確認 (granted なら true) */
-    async function hasPermission(handle) {
+    /** handle の permission 確認 (granted なら true)。mode は既定 readwrite（.fractal は read） */
+    async function hasPermission(handle, mode) {
         try {
-            const p = await handle.queryPermission({ mode: 'readwrite' });
+            const p = await handle.queryPermission({ mode: mode || 'readwrite' });
             return p === 'granted';
         } catch {
             return false;
         }
     }
 
-    async function requestPermission(handle) {
+    async function requestPermission(handle, mode) {
         try {
-            const p = await handle.requestPermission({ mode: 'readwrite' });
+            const p = await handle.requestPermission({ mode: mode || 'readwrite' });
             return p === 'granted';
         } catch {
             return false;
         }
+    }
+
+    // ── note の一覧（.fractal）と許可したフォルダ（0.5.0〜）──
+
+    /** .fractal を選ぶ: 読めて .fractal の形のときだけ保存する（読めなければ throw・前の設定はそのまま） */
+    async function setFractalList(handle) {
+        const r = List.parseFractalList(await (await handle.getFile()).text());
+        if (!r.ok) throw new Error(r.error);
+        await FractalIdb.set('fractalList', { handle: handle, name: handle.name, notes: r.notes });
+        return r.notes;
+    }
+
+    /**
+     * 選んだ .fractal を読み直す（Fractal で足した note もここで入る）。未設定なら null。
+     * 返り値 { name, handle, notes, state: 'ok' | 'permission' | 'error', error? }。読めないときの notes は最後に読めた一覧
+     * （一覧の写しは、読めたときだけ書き換える）
+     */
+    async function readFractalList() {
+        const saved = await FractalIdb.get('fractalList');
+        if (!saved || !saved.handle) return null;
+        const last = Array.isArray(saved.notes) ? saved.notes : [];
+        const base = { name: saved.name || saved.handle.name, handle: saved.handle, notes: last };
+        if (!(await hasPermission(saved.handle, 'read'))) return Object.assign(base, { state: 'permission' });
+        let r;
+        try {
+            r = List.parseFractalList(await (await saved.handle.getFile()).text());
+        } catch (e) {
+            return Object.assign(base, { state: 'error', error: e.message || String(e) });
+        }
+        if (!r.ok) return Object.assign(base, { state: 'error', error: r.error });
+        if (JSON.stringify(r.notes) !== JSON.stringify(last)) {
+            await FractalIdb.set('fractalList', { handle: saved.handle, name: base.name, notes: r.notes });
+        }
+        return Object.assign(base, { notes: r.notes, state: 'ok' });
+    }
+
+    async function listAccessRoots() {
+        const arr = await FractalIdb.get('accessRoots');
+        return Array.isArray(arr) ? arr : [];
+    }
+
+    /**
+     * 選んだフォルダを許可したフォルダに足す（.fractal のどのパスかは FractalList.resolvePickedFolder で決める）。
+     * 決められなければ Error（.reason = 'none' | 'ambiguous'）を throw。返り値 { path, notes }
+     */
+    async function addAccessRoot(handle, notePaths) {
+        const r = await List.resolvePickedFolder(handle, notePaths);
+        if (!r.path) {
+            const e = new Error(r.reason);
+            e.reason = r.reason;
+            throw e;
+        }
+        const roots = (await listAccessRoots()).filter((x) => x.path !== r.path); // 同じパスは新しい handle に置き換える
+        roots.push({ path: r.path, handle: handle });
+        await FractalIdb.set('accessRoots', roots);
+        return r;
+    }
+
+    async function removeAccessRoot(rootPath) {
+        await FractalIdb.set('accessRoots', (await listAccessRoots()).filter((x) => x.path !== rootPath));
+    }
+
+    function listNote(notePath, roots) {
+        const root = List.rootFor(roots, notePath);
+        return {
+            id: notePath,
+            name: List.baseName(notePath),
+            path: notePath,
+            source: 'list',
+            root: root,
+            rel: root ? List.relUnder(root.path, notePath) : null,
+            permHandle: root ? root.handle : null
+        };
+    }
+
+    function legacyNote(f) {
+        return { id: f.id, name: f.name, path: null, source: 'legacy', legacy: f, permHandle: f.handle };
+    }
+
+    /**
+     * 保存先の note: .fractal の note（list.notes の順）+ まだ残っている旧登録。
+     * 返り値 Array<{ id, name, path, source: 'list' | 'legacy', root, rel, legacy, permHandle }>
+     * （list の note で root が null = まだ許可したフォルダの下にない。id は note のパス、旧登録は その id）
+     */
+    async function listNotes(list) {
+        const roots = await listAccessRoots();
+        const out = (list ? list.notes : []).map((p) => listNote(p, roots));
+        for (const f of await listFolders()) out.push(legacyNote(f));
+        return out;
+    }
+
+    /** id（preset / lastSelection の folderId）の note。.fractal の最後に読めた一覧に無いパス・消した旧登録は null */
+    async function findNote(id) {
+        if (!id) return null;
+        const f = (await listFolders()).find((x) => x.id === id);
+        if (f) return legacyNote(f);
+        const saved = await FractalIdb.get('fractalList');
+        if (!saved || !Array.isArray(saved.notes) || !saved.notes.includes(id)) return null;
+        return listNote(id, await listAccessRoots());
+    }
+
+    /** note のフォルダの handle（許可したフォルダからたどる）。無ければ throw */
+    async function noteHandle(note) {
+        if (note.source === 'legacy') return note.legacy.handle;
+        if (!note.root) throw new Error('No access to ' + note.path);
+        return List.dirAt(note.root.handle, note.rel);
+    }
+
+    /** pure: preset の folderId を書き換える（idMap: 旧 id → note のパス） */
+    function remapPresets(presets, idMap) {
+        return (Array.isArray(presets) ? presets : []).map((p) => (idMap[p.folderId] ? Object.assign({}, p, { folderId: idMap[p.folderId] }) : p));
+    }
+
+    /**
+     * 旧版で 1 つずつ登録した note を、.fractal の note として引き継ぐ。決め方は選んだフォルダと同じ
+     * （resolvePickedFolder。今 許可があるものだけ見る）。決まったパスが .fractal の note なら、その handle を許可したフォルダに
+     * 足し（もっと上のフォルダを許可済みなら足さない）、preset / lastSelection の folderId を note のパスに書き換え、旧登録から外す。
+     * 書く順は 許可したフォルダ → preset → lastSelection → 旧登録（途中で止まっても保存先を失わない）。返り値 = 引き継いだ数
+     */
+    async function adoptLegacyFolders(notePaths) {
+        const legacy = await listFolders();
+        if (legacy.length === 0 || !notePaths || notePaths.length === 0) return 0;
+        const roots = await listAccessRoots();
+        const idMap = {};
+        for (const f of legacy) {
+            if (!(await hasPermission(f.handle))) continue;
+            let r;
+            try {
+                r = await List.resolvePickedFolder(f.handle, notePaths);
+            } catch {
+                continue;
+            }
+            if (!r.path || !notePaths.includes(r.path)) continue;
+            if (!List.rootFor(roots, r.path)) roots.push({ path: r.path, handle: f.handle });
+            idMap[f.id] = r.path;
+        }
+        const n = Object.keys(idMap).length;
+        if (n === 0) return 0;
+        await FractalIdb.set('accessRoots', roots);
+        await FractalIdb.set('presets', remapPresets(await listPresets(), idMap));
+        const last = normalizeLastSelection(await FractalIdb.get('lastSelection'));
+        if (last && idMap[last.folderId]) {
+            await FractalIdb.set('lastSelection', Object.assign({}, last, { folderId: idMap[last.folderId] }));
+        }
+        await saveFolders(legacy.filter((f) => !idMap[f.id]));
+        return n;
     }
 
     /** outline.note の structure から target 一覧を抽出（pure・unit 対象）。
@@ -330,6 +481,16 @@
         removeFolder,
         hasPermission,
         requestPermission,
+        setFractalList,
+        readFractalList,
+        listAccessRoots,
+        addAccessRoot,
+        removeAccessRoot,
+        listNotes,
+        findNote,
+        noteHandle,
+        adoptLegacyFolders,
+        remapPresets,
         migrateLegacyIfNeeded,
         getNoteLabel,
         extractFirstH1FromMd,
@@ -349,14 +510,8 @@
         setDefaultPreset,
         getDefaultPreset
     };
-    // node（unit テスト）から pure 部分を require できるように
+    // node（spec）から require できるように（IDB を使う関数は global.FractalIdb を用意して呼ぶ）
     if (typeof module !== 'undefined' && module.exports) {
-        module.exports = {
-            extractTargets,
-            extractFirstH1FromMd,
-            normalizeLastSelection,
-            withPreset,
-            withoutPreset
-        };
+        module.exports = global.FractalFolders;
     }
 })(typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : globalThis));

@@ -247,6 +247,7 @@ MCP を登録すれば、Claude Code などのエージェントがリサーチ�
 
 - リポジトリの `chrome-extension/` にあります（unpacked extension として読み込み）
 - アイコンをクリック（または `Alt+Shift+F` でクイッククリップ）→ ページを **Mozilla Readability** で抽出し、**Fractal Note 自身の HTML→MD パイプライン** で変換（テーブル、GFM、Medium / dev.to のコードブロックなどに対応）
+- **note は `.fractal` から読む** — Fractal の `.fractal`（既定は `~/.fractal/default.fractal`）を選び、note が入っているフォルダを 1 回許可するだけ。Fractal で足した note もそのまま出ます
 - 保存先は **アウトライナー**（ページノードとして追加）と **マークダウン**（新規 md を作成し、選んだ md の末尾にサブページリンクを追記）の両方に対応
 - **保存先プリセット** — よく使う「Note + 保存先」の組み合わせを複数登録し、★デフォルトを指定。ポップアップはデフォルト選択済みで開き、即保存できます
 - File System Access API でディスクに直接書き込み — VS Code との通信は不要

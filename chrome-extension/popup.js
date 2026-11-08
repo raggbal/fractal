@@ -11,6 +11,9 @@ const clipBtn = document.getElementById('clipBtn');
 const openOptionsBtn = document.getElementById('openOptionsBtn');
 const optionsLink = document.getElementById('optionsLink');
 const statusEl = document.getElementById('status');
+const listNoticeEl = document.getElementById('listNotice');
+const listNoticeText = document.getElementById('listNoticeText');
+const listAllowLink = document.getElementById('listAllowLink');
 
 const MANUAL_VALUE = '__manual__';
 
@@ -20,7 +23,8 @@ optionsLink.addEventListener('click', (e) => {
     chrome.runtime.openOptionsPage();
 });
 
-let folders = [];          // [{id, name, handle}]
+let list = null;           // FractalFolders.readFractalList()（.fractal 未設定 = null）
+let notes = [];            // FractalFolders.listNotes(list): [{id, name, path, source, root, rel, legacy, permHandle}]
 let presets = [];          // [{id, name, folderId, targetId, targetKind}]
 let currentTargets = [];   // [{id, title, depth, folderPath, kind}]
 
@@ -91,8 +95,8 @@ async function convertActiveTabToMarkdown() {
     return result;
 }
 
-function selectedFolder() {
-    return folders.find((f) => f.id === folderSelect.value);
+function selectedNote() {
+    return notes.find((n) => n.id === folderSelect.value);
 }
 function selectedTarget() {
     return currentTargets.find((o) => o.id === outSelect.value);
@@ -103,19 +107,57 @@ function selectedPreset() {
     return presets.find((p) => p.id === v) || null;
 }
 
-/** 現在の実効保存先 { folder, targetId, targetKind } | null */
+/** 現在の実効保存先 { note, targetId, targetKind } | null */
 function effectiveSelection() {
     const preset = selectedPreset();
     if (preset) {
-        const folder = folders.find((f) => f.id === preset.folderId);
-        if (!folder) return null;
-        return { folder, targetId: preset.targetId, targetKind: preset.targetKind };
+        const note = notes.find((n) => n.id === preset.folderId);
+        if (!note) return null;
+        return { note, targetId: preset.targetId, targetKind: preset.targetKind };
     }
-    const folder = selectedFolder();
+    const note = selectedNote();
     const target = selectedTarget();
-    if (!folder || !target) return null;
-    return { folder, targetId: target.id, targetKind: target.kind || 'out' };
+    if (!note || !target) return null;
+    return { note, targetId: target.id, targetKind: target.kind || 'out' };
 }
+
+/** 表示名: 許可があれば outline.note の noteTitle、無ければフォルダ名（ここでは許可を求めない） */
+async function noteLabel(note) {
+    if (!note.permHandle || !(await FractalFolders.hasPermission(note.permHandle))) return note.name;
+    try {
+        return await FractalFolders.getNoteLabel(await FractalFolders.noteHandle(note), note.name);
+    } catch {
+        return note.name;
+    }
+}
+
+/** preset の保存先タイトル（毎回最新解決: md=本文 H1 / out=outline.note title。開けなければ保存した名前） */
+async function presetTargetTitle(note, p) {
+    const fallback = p.targetTitle || p.targetId;
+    if (!note || !note.permHandle || !(await FractalFolders.hasPermission(note.permHandle))) return fallback;
+    try {
+        return await FractalFolders.getTargetTitle(await FractalFolders.noteHandle(note), p.targetId, p.targetKind, fallback);
+    } catch {
+        return fallback;
+    }
+}
+
+/** .fractal を読めなかったとき（許可切れ・壊れている）の 1 行。note は最後に読めた一覧を使う */
+function showListNotice() {
+    listNoticeEl.style.display = 'none';
+    if (!list || list.state === 'ok') return;
+    listNoticeEl.style.display = '';
+    const needsPermission = list.state === 'permission';
+    listNoticeText.textContent = needsPermission
+        ? FractalI18n.t('popup_list_needs_permission', { name: list.name })
+        : FractalI18n.t('popup_list_read_failed', { name: list.name, message: list.error });
+    listAllowLink.style.display = needsPermission ? '' : 'none';
+}
+
+listAllowLink.addEventListener('click', async (e) => {
+    e.preventDefault();
+    if (list && (await FractalFolders.requestPermission(list.handle, 'read'))) location.reload();
+});
 
 function updateClipBtn() {
     clipBtn.disabled = !effectiveSelection();
@@ -127,7 +169,7 @@ function updateManualVisibility() {
 }
 
 async function loadTargetsForCurrentFolder() {
-    const f = selectedFolder();
+    const f = selectedNote();
     if (!f) {
         currentTargets = [];
         outSelect.innerHTML = '<option>' + FractalI18n.t('popup_select_note_first') + '</option>';
@@ -135,8 +177,16 @@ async function loadTargetsForCurrentFolder() {
         updateClipBtn();
         return;
     }
-    if (!(await FractalFolders.hasPermission(f.handle))) {
-        const ok = await FractalFolders.requestPermission(f.handle);
+    if (!f.permHandle) {
+        currentTargets = [];
+        outSelect.innerHTML = '<option>' + FractalI18n.t('popup_permission_needed') + '</option>';
+        outSelect.disabled = true;
+        setStatus(FractalI18n.t('popup_no_access', { name: f.name }), 'err');
+        updateClipBtn();
+        return;
+    }
+    if (!(await FractalFolders.hasPermission(f.permHandle))) {
+        const ok = await FractalFolders.requestPermission(f.permHandle);
         if (!ok) {
             outSelect.innerHTML = '<option>' + FractalI18n.t('popup_permission_needed') + '</option>';
             outSelect.disabled = true;
@@ -147,7 +197,7 @@ async function loadTargetsForCurrentFolder() {
     }
     try {
         // FR-CL-03: outliner (.out) と md の両方を種別付きで一覧
-        currentTargets = await FractalFolders.readTargetsFromOutlineNote(f.handle);
+        currentTargets = await FractalFolders.readTargetsFromOutlineNote(await FractalFolders.noteHandle(f));
     } catch (e) {
         currentTargets = [];
         setStatus(FractalI18n.t('popup_outline_read_failed', { message: e.message }), 'err');
@@ -204,22 +254,28 @@ function clipLabels() {
 }
 
 /** 保存（lib/clip-writer.js — quick clip の background.js と同じもの）。途中の経過を status に出す */
-function clipTo(sel, extracted) {
+async function clipTo(sel, extracted) {
     const opts = { labels: clipLabels(), onStatus: (key, params) => setStatus(FractalI18n.t(key, params), 'info') };
+    const handle = await FractalFolders.noteHandle(sel.note);
     return sel.targetKind === 'md'
-        ? FractalClipWriter.clipToMd(sel.folder.handle, sel.targetId, extracted, opts)
-        : FractalClipWriter.clipToOutliner(sel.folder.handle, sel.targetId, extracted, opts);
+        ? FractalClipWriter.clipToMd(handle, sel.targetId, extracted, opts)
+        : FractalClipWriter.clipToOutliner(handle, sel.targetId, extracted, opts);
 }
 
 clipBtn.addEventListener('click', async () => {
     const sel = effectiveSelection();
     if (!sel) return;
+    if (!sel.note.permHandle) {
+        // .fractal の note で、許可したフォルダの下にない（preset が指している場合）
+        setStatus(FractalI18n.t('popup_no_access', { name: sel.note.name }), 'err');
+        return;
+    }
     clipBtn.disabled = true;
     setStatus(FractalI18n.t('popup_processing'), 'info');
     try {
-        // 1. permission 確認
-        if (!(await FractalFolders.hasPermission(sel.folder.handle))) {
-            const ok = await FractalFolders.requestPermission(sel.folder.handle);
+        // 1. permission 確認（.fractal の note は許可したフォルダの許可）
+        if (!(await FractalFolders.hasPermission(sel.note.permHandle))) {
+            const ok = await FractalFolders.requestPermission(sel.note.permHandle);
             if (!ok) throw new Error(FractalI18n.t('popup_note_write_permission_denied'));
         }
 
@@ -231,7 +287,7 @@ clipBtn.addEventListener('click', async () => {
         const result = await clipTo(sel, extracted);
 
         // 4. last selection 記憶
-        await FractalFolders.setLastSelection(sel.folder.id, sel.targetId, sel.targetKind);
+        await FractalFolders.setLastSelection(sel.note.id, sel.targetId, sel.targetKind);
 
         setStatus(FractalI18n.t('popup_clip_done', { title: result.title, dest: result.dest }), 'ok');
     } catch (e) {
@@ -250,19 +306,23 @@ clipBtn.addEventListener('click', async () => {
     // 言語切替 UI は options（Settings）のみ（ユーザー決定 2026-07-27: popup には置かない）。
     // popup は storage の 'language' を読んで表示するだけ。
     await FractalFolders.migrateLegacyIfNeeded();
-    folders = await FractalFolders.listFolders();
-    if (folders.length === 0) {
+    // note は .fractal から毎回読む（Fractal で足した note もそのまま出る）+ まだ残っている以前の登録
+    list = await FractalFolders.readFractalList();
+    if (list && list.state === 'ok') await FractalFolders.adoptLegacyFolders(list.notes);
+    notes = await FractalFolders.listNotes(list);
+    if (notes.length === 0) {
         setupRequiredEl.style.display = '';
         pickerEl.style.display = 'none';
         return;
     }
     setupRequiredEl.style.display = 'none';
     pickerEl.style.display = '';
+    showListNotice();
 
     // Note 表示名（outline.note の noteTitle 優先。フォルダ名 fallback）
     const noteLabels = {};
-    for (const f of folders) {
-        noteLabels[f.id] = await FractalFolders.getNoteLabel(f.handle, f.name);
+    for (const n of notes) {
+        noteLabels[n.id] = await noteLabel(n);
     }
 
     // presets（default 初期選択・FR-CL-04）
@@ -274,14 +334,10 @@ clipBtn.addEventListener('click', async () => {
         for (const p of presets) {
             const opt = document.createElement('option');
             opt.value = p.id;
-            const noteLabel = noteLabels[p.folderId] || '?';
+            const pn = notes.find((n) => n.id === p.folderId);
             const icon = p.targetKind === 'md' ? '📝' : '📄';
-            // 保存先タイトルは毎回最新解決（md=本文 H1 / out=outline.note title）
-            const pf = folders.find((f) => f.id === p.folderId);
-            const targetTitle = pf
-                ? await FractalFolders.getTargetTitle(pf.handle, p.targetId, p.targetKind, p.targetTitle || p.targetId)
-                : (p.targetTitle || p.targetId);
-            opt.textContent = (defaultPreset && defaultPreset.id === p.id ? '★ ' : '') + p.name + ' (' + noteLabel + ' / ' + icon + ' ' + targetTitle + ')';
+            const targetTitle = await presetTargetTitle(pn, p);
+            opt.textContent = (defaultPreset && defaultPreset.id === p.id ? '★ ' : '') + p.name + ' (' + (pn ? noteLabels[pn.id] : '?') + ' / ' + icon + ' ' + targetTitle + ')';
             presetSelect.appendChild(opt);
         }
         const manualOpt = document.createElement('option');
@@ -293,16 +349,27 @@ clipBtn.addEventListener('click', async () => {
         presetRowEl.style.display = 'none';
     }
 
+    // .fractal の note（許可したフォルダの下にないものは選べない）+ 以前の登録
     folderSelect.innerHTML = '';
-    for (const f of folders) {
+    for (const n of notes) {
         const opt = document.createElement('option');
-        opt.value = f.id;
-        opt.textContent = noteLabels[f.id] || f.name;
+        opt.value = n.id;
+        const label = noteLabels[n.id] || n.name;
+        if (n.source === 'legacy') {
+            opt.textContent = FractalI18n.t('popup_note_legacy', { name: label });
+        } else if (!n.permHandle) {
+            opt.textContent = FractalI18n.t('popup_note_no_access', { name: label });
+            opt.disabled = true;
+        } else {
+            opt.textContent = label;
+        }
         folderSelect.appendChild(opt);
     }
+    const usable = notes.filter((n) => n.permHandle);
+    if (usable.length) folderSelect.value = usable[0].id;
     // restore last selection
     const last = await FractalFolders.getLastSelection();
-    if (last && folders.find((f) => f.id === last.folderId)) {
+    if (last && usable.find((n) => n.id === last.folderId)) {
         folderSelect.value = last.folderId;
     }
     await loadTargetsForCurrentFolder();

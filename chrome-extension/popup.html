@@ -80,6 +80,10 @@
     </div>
 
     <div id="picker" style="display:none">
+        <div id="listNotice" class="status warn" style="display:none">
+            <span id="listNoticeText"></span>
+            <a href="#" id="listAllowLink" style="display:none" data-i18n="popup_list_allow">Allow</a>
+        </div>
         <div id="presetRow" style="display:none">
             <label for="presetSelect" data-i18n="popup_preset_label">Preset</label>
             <select id="presetSelect"></select>
@@ -104,6 +108,7 @@
     <script src="lib/i18n.js"></script>
     <script src="lib/idb.js"></script>
     <script src="lib/flat-layout-mirror.js"></script>
+    <script src="lib/fractal-list.js"></script>
     <script src="lib/folder-registry.js"></script>
     <script src="lib/clipper-core.js"></script>
     <script src="lib/data-url-image-extractor.js"></script>

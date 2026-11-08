@@ -5,6 +5,10 @@
  * folder, and Fractal reads the result: the page md and its image are where Fractal's flat-layout.ts looks, the
  * md clip is a subpage link Fractal's parser recognizes, the clipped node draws as a page in the outliner, and
  * Fractal still loads the note. The destination list skips attachments and folder links.
+ *
+ * The notes come from the .fractal Fractal writes (src/shared/notes-registry.ts): the clipper reads it like Fractal
+ * does (lib/fractal-list.js), works out where a folder the user allowed sits in it, and saves into the right note
+ * (lib/folder-registry.js — the code the popup, the options page and the quick clip run). IDB is a Map here.
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
@@ -12,15 +16,29 @@ import * as os from 'os';
 import * as path from 'path';
 import { NotesFileManager } from '../../src/shared/notes-file-manager';
 import { resolveImagesDir, resolvePageFilePath } from '../../src/shared/flat-layout';
+import { createRegistryFile, parseRegistry, serializeRegistry, updateRegistryNotes, writeRegistryAtomic } from '../../src/shared/notes-registry';
 
 /* eslint-disable @typescript-eslint/no-var-requires */
 const writer = require(path.resolve(__dirname, '../../chrome-extension/lib/clip-writer.js'));
 const registry = require(path.resolve(__dirname, '../../chrome-extension/lib/folder-registry.js'));
 const linkParser = require(path.resolve(__dirname, '../../src/shared/markdown-link-parser.js'));
+const fractalList = require(path.resolve(__dirname, '../../chrome-extension/lib/fractal-list.js'));
+
+/** IDB of the extension (lib/idb.js) — a Map */
+const idb = new Map<string, unknown>();
+(globalThis as any).FractalIdb = {
+    get: async (k: string) => idb.get(k),
+    set: async (k: string, v: unknown) => void idb.set(k, v),
+    delete: async (k: string) => void idb.delete(k),
+};
 
 /** FileSystemDirectoryHandle / FileSystemFileHandle over a real folder — the subset the clipper uses. */
 class FileHandle {
-    constructor(readonly file: string) {}
+    readonly kind = 'file';
+    constructor(readonly file: string, public perm: PermissionState = 'granted') {}
+    async queryPermission(): Promise<PermissionState> {
+        return this.perm;
+    }
     get name(): string {
         return path.basename(this.file);
     }
@@ -39,7 +57,11 @@ class FileHandle {
     }
 }
 class DirHandle {
-    constructor(readonly dir: string) {}
+    readonly kind = 'directory';
+    constructor(readonly dir: string, public perm: PermissionState = 'granted') {}
+    async queryPermission(): Promise<PermissionState> {
+        return this.perm;
+    }
     get name(): string {
         return path.basename(this.dir);
     }
@@ -170,5 +192,209 @@ test.describe('web clipper × the current Fractal note format', () => {
         } finally {
             fs.rmSync(n.dir, { recursive: true, force: true });
         }
+    });
+});
+
+/** Notes made by Fractal under a temp "home", and the .fractal that lists them (written by Fractal's own code). */
+function makeNotesHome(): { tmp: string; work: string; alpha: string; beta: string; gamma: string; listFile: string } {
+    const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'fx-clipper-list-')));
+    const work = path.join(tmp, 'Users', 'me', 'workspace', 'fractal');
+    const mk = (dir: string, outTitle: string) => {
+        fs.mkdirSync(dir, { recursive: true });
+        const fm = new NotesFileManager(dir);
+        fm.loadStructure();
+        fm.createFile(outTitle);
+        fm.dispose();
+        return dir;
+    };
+    const alpha = mk(path.join(work, 'alpha'), 'Alpha clips');
+    const beta = mk(path.join(work, 'beta'), 'Beta clips');
+    const gamma = mk(path.join(tmp, 'Users', 'me', 'Documents', 'gamma'), 'Gamma clips');
+    // a folder with the same name as the parent and a note's name, but not a note: the clipper must not take it for one
+    fs.mkdirSync(path.join(tmp, 'repos', 'fractal', 'alpha'), { recursive: true });
+    fs.mkdirSync(path.join(tmp, 'Users', 'me', '.fractal'), { recursive: true });
+    const listFile = createRegistryFile(path.join(tmp, 'Users', 'me', '.fractal'), 'default', [alpha, beta, gamma]);
+    return { tmp, work, alpha, beta, gamma, listFile };
+}
+
+function outIdIn(noteDir: string): string {
+    return path.basename(fs.readdirSync(noteDir).find((f) => f.endsWith('.out'))!, '.out');
+}
+
+test.describe('web clipper × the .fractal notes list', () => {
+    test.beforeEach(() => idb.clear());
+
+    test('TC-CC-04 the clipper reads a .fractal the way Fractal does', () => {
+        const inputs = [
+            serializeRegistry({ version: 1, notes: ['/a/b', '/a/b/', '/a/./c', '/a/x/../d', '/a//e'] }),
+            serializeRegistry({ version: 1, notes: ['/n'], name: 'kept-unknown-key' }),
+            '{"version":1,"notes":[]}',
+            'not json',
+            '[]',
+            '{"notes":["/a"]}',
+            '{"version":2,"notes":["/a"]}',
+            '{"version":1,"notes":[1]}',
+            '{"version":1}',
+        ];
+        for (const text of inputs) {
+            const fractal = parseRegistry(text);
+            const clipper = fractalList.parseFractalList(text);
+            expect(clipper.ok, text).toBe(fractal.ok);
+            if (fractal.ok) expect(clipper.notes, text).toEqual(fractal.doc.notes);
+        }
+    });
+
+    test('TC-CC-05 a folder the user allows is placed in the .fractal by its name and the notes inside it', async () => {
+        const h = makeNotesHome();
+        try {
+            const notes = [h.alpha, h.beta, h.gamma];
+            // the parent of the notes → both notes in it
+            expect(await fractalList.resolvePickedFolder(new DirHandle(h.work), notes)).toEqual({ path: h.work, notes: [h.alpha, h.beta] });
+            // a note folder itself
+            expect(await fractalList.resolvePickedFolder(new DirHandle(h.alpha), notes)).toEqual({ path: h.alpha, notes: [h.alpha] });
+            // another folder named "fractal" with an "alpha" in it that is not a note → none
+            expect((await fractalList.resolvePickedFolder(new DirHandle(path.join(h.tmp, 'repos', 'fractal')), notes)).reason).toBe('none');
+            // two notes with the same folder name: picking one of them can't tell which → ambiguous; its parent can
+            const one = path.join(h.tmp, 'one', 'n');
+            const two = path.join(h.tmp, 'two', 'n');
+            for (const d of [one, two]) {
+                fs.mkdirSync(d, { recursive: true });
+                const fm = new NotesFileManager(d);
+                fm.loadStructure();
+                fm.dispose();
+            }
+            expect((await fractalList.resolvePickedFolder(new DirHandle(one), [one, two])).reason).toBe('ambiguous');
+            expect(await fractalList.resolvePickedFolder(new DirHandle(path.dirname(one)), [one, two])).toEqual({ path: path.dirname(one), notes: [one] });
+        } finally {
+            fs.rmSync(h.tmp, { recursive: true, force: true });
+        }
+    });
+
+    test('TC-CC-06 choose the .fractal, allow the parent folder once, and a clip lands in the note picked; a note Fractal adds later shows up by itself', async () => {
+        const h = makeNotesHome();
+        try {
+            await registry.setFractalList(new FileHandle(h.listFile));
+            let list = await registry.readFractalList();
+            expect(list).toMatchObject({ name: 'default.fractal', state: 'ok', notes: [h.alpha, h.beta, h.gamma] });
+            let notes = await registry.listNotes(list);
+            expect(notes.map((n: { permHandle: unknown }) => n.permHandle)).toEqual([null, null, null]); // nothing allowed yet
+            // what to allow, on the paths as they are on a Mac (the temp home is not at /Users/<name>): not the home itself
+            const asOnMac = (p: string) => p.slice(h.tmp.length);
+            expect(fractalList.suggestFolders(notes.map((n: { path: string }) => asOnMac(n.path)))).toEqual([asOnMac(h.gamma), asOnMac(h.work)]);
+
+            const r = await registry.addAccessRoot(new DirHandle(h.work), list.notes);
+            expect(r).toEqual({ path: h.work, notes: [h.alpha, h.beta] });
+            notes = await registry.listNotes(list);
+            expect(notes.map((n: { id: string; rel: string | null }) => [n.id, n.rel])).toEqual([[h.alpha, 'alpha'], [h.beta, 'beta'], [h.gamma, null]]);
+
+            // the clip goes into beta (the note found by its id, the way a preset / the quick clip finds it)
+            const betaOut = path.join(h.beta, outIdIn(h.beta) + '.out');
+            const alphaBefore = fs.readFileSync(path.join(h.alpha, outIdIn(h.alpha) + '.out'), 'utf8');
+            const note = await registry.findNote(h.beta);
+            const saved = await writer.clipToOutliner(await registry.noteHandle(note), outIdIn(h.beta), EXTRACTED, { labels: LABELS });
+            const out = JSON.parse(fs.readFileSync(betaOut, 'utf8'));
+            expect(out.nodes[saved.nodeId]).toMatchObject({ text: EXTRACTED.title, isPage: true });
+            expect(fs.existsSync(resolvePageFilePath(betaOut, saved.pageId, h.beta, { pageDir: out.pageDir }))).toBe(true);
+            expect(fs.readFileSync(path.join(h.alpha, outIdIn(h.alpha) + '.out'), 'utf8')).toBe(alphaBefore); // the other note is untouched
+            const fm = new NotesFileManager(h.beta);
+            expect(Object.keys(fm.loadStructure().items)).toContain(outIdIn(h.beta));
+            fm.dispose();
+
+            // Fractal adds a note under the allowed folder: the next read has it, and it can be saved to with no new grant
+            const delta = path.join(h.work, 'delta');
+            fs.mkdirSync(delta);
+            const fm2 = new NotesFileManager(delta);
+            fm2.loadStructure();
+            fm2.dispose();
+            updateRegistryNotes(h.listFile, (n) => [...n, delta]);
+            list = await registry.readFractalList();
+            expect(list.notes).toEqual([h.alpha, h.beta, h.gamma, delta]);
+            const d = (await registry.listNotes(list)).find((n: { id: string }) => n.id === delta);
+            expect(d.rel).toBe('delta');
+            expect((await registry.noteHandle(d)).dir).toBe(delta);
+
+            // a note no longer in the .fractal is not a destination any more
+            updateRegistryNotes(h.listFile, (n) => n.filter((p) => p !== h.beta));
+            await registry.readFractalList();
+            expect(await registry.findNote(h.beta)).toBeNull();
+        } finally {
+            fs.rmSync(h.tmp, { recursive: true, force: true });
+        }
+    });
+
+    test('TC-CC-07 a .fractal that cannot be read keeps the last list (and is not overwritten); a bad file is not taken', async () => {
+        const h = makeNotesHome();
+        try {
+            const fh = new FileHandle(h.listFile);
+            await registry.setFractalList(fh);
+            fs.writeFileSync(h.listFile, '{ broken');
+            let list = await registry.readFractalList();
+            expect(list).toMatchObject({ state: 'error', notes: [h.alpha, h.beta, h.gamma] });
+            expect((idb.get('fractalList') as { notes: string[] }).notes).toEqual([h.alpha, h.beta, h.gamma]);
+            writeRegistryAtomic(h.listFile, { version: 1, notes: [h.alpha] });
+            fh.perm = 'prompt'; // the permission ran out (e.g. Chrome restarted)
+            list = await registry.readFractalList();
+            expect(list).toMatchObject({ state: 'permission', notes: [h.alpha, h.beta, h.gamma] });
+            fh.perm = 'granted';
+            expect((await registry.readFractalList()).notes).toEqual([h.alpha]);
+            // choosing a file that is not a .fractal leaves the setting as it was
+            const bad = path.join(h.tmp, 'other.fractal');
+            fs.writeFileSync(bad, '{"version":1,"notes":"x"}');
+            await expect(registry.setFractalList(new FileHandle(bad))).rejects.toThrow();
+            expect((idb.get('fractalList') as { name: string }).name).toBe('default.fractal');
+        } finally {
+            fs.rmSync(h.tmp, { recursive: true, force: true });
+        }
+    });
+
+    test('TC-CC-08 notes registered one by one before move over to the .fractal, with their presets and last selection', async () => {
+        const h = makeNotesHome();
+        try {
+            const zeta = path.join(h.tmp, 'elsewhere', 'zeta');
+            fs.mkdirSync(zeta, { recursive: true });
+            idb.set('notesFolders', [
+                { id: 'f1', name: 'alpha', handle: new DirHandle(h.alpha) },
+                { id: 'f2', name: 'zeta', handle: new DirHandle(zeta) }, // not in the .fractal → stays
+                { id: 'f3', name: 'beta', handle: new DirHandle(h.beta, 'prompt') }, // no permission now → stays, untouched
+            ]);
+            idb.set('presets', [
+                { id: 'p1', name: 'A', folderId: 'f1', targetId: 'o1', targetKind: 'out' },
+                { id: 'p2', name: 'Z', folderId: 'f2', targetId: 'o2', targetKind: 'out' },
+            ]);
+            idb.set('lastSelection', { folderId: 'f1', outId: 'o1' });
+            await registry.setFractalList(new FileHandle(h.listFile));
+            const list = await registry.readFractalList();
+
+            expect(await registry.adoptLegacyFolders(list.notes)).toBe(1);
+            expect((await registry.listAccessRoots()).map((r: { path: string }) => r.path)).toEqual([h.alpha]);
+            expect((idb.get('presets') as { folderId: string }[]).map((p) => p.folderId)).toEqual([h.alpha, 'f2']);
+            expect(idb.get('lastSelection')).toEqual({ folderId: h.alpha, targetId: 'o1', targetKind: 'out' });
+            expect((idb.get('notesFolders') as { id: string }[]).map((f) => f.id)).toEqual(['f2', 'f3']);
+            const notes = await registry.listNotes(list);
+            expect(notes.map((n: { id: string; source: string }) => [n.id, n.source])).toEqual([
+                [h.alpha, 'list'], [h.beta, 'list'], [h.gamma, 'list'], ['f2', 'legacy'], ['f3', 'legacy'],
+            ]);
+            expect((await registry.noteHandle(await registry.findNote(h.alpha))).dir).toBe(h.alpha);
+
+            // once the parent is allowed, beta (granted again) moves over without adding a second folder
+            await registry.addAccessRoot(new DirHandle(h.work), list.notes);
+            (idb.get('notesFolders') as { id: string; handle: DirHandle }[]).find((f) => f.id === 'f3')!.handle.perm = 'granted';
+            expect(await registry.adoptLegacyFolders(list.notes)).toBe(1);
+            expect((await registry.listAccessRoots()).map((r: { path: string }) => r.path)).toEqual([h.alpha, h.work]);
+            expect((idb.get('notesFolders') as { id: string }[]).map((f) => f.id)).toEqual(['f2']);
+        } finally {
+            fs.rmSync(h.tmp, { recursive: true, force: true });
+        }
+    });
+
+    test('TC-CC-09 the folder to allow: the common parent, split where it would be the home or too broad', () => {
+        expect(fractalList.suggestFolders(['/Users/me/workspace/fractal/a', '/Users/me/workspace/fractal/b'])).toEqual(['/Users/me/workspace/fractal']);
+        expect(fractalList.suggestFolders(['/Users/me/notes/a'])).toEqual(['/Users/me/notes/a']);
+        expect(fractalList.suggestFolders(['/Users/me/a', '/Users/me/b'])).toEqual(['/Users/me/a', '/Users/me/b']);
+        expect(fractalList.suggestFolders(['/Users/me/Documents/a', '/Users/me/Documents/b'])).toEqual(['/Users/me/Documents/a', '/Users/me/Documents/b']);
+        expect(fractalList.suggestFolders(['C:\\Users\\me\\w\\a', 'C:\\Users\\me\\w\\b'])).toEqual(['C:/Users/me/w']);
+        expect(fractalList.isTooBroad('/')).toBe(true);
+        expect(fractalList.isTooBroad('/Users/me')).toBe(true);
+        expect(fractalList.isTooBroad('/Users/me/workspace')).toBe(false);
     });
 });

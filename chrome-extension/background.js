@@ -1,37 +1,16 @@
 'use strict';
 
-/** v0.3.0:
- *  icon click → popup.html (manifest default_popup) で preset / folder + target 選択 → Bookmark 実行
+/** v0.5.0:
+ *  icon click → popup.html (manifest default_popup) で preset / note + target 選択 → Bookmark 実行
  *  keyboard shortcut (Alt+Shift+F) → default preset（無ければ lastSelection）で quick clip（out/md 両対応）
- *  service worker (this file) は keyboard shortcut のみ処理。
+ *  service worker (this file) は keyboard shortcut のみ処理。note は .fractal の note（許可したフォルダからたどる）か以前の登録。
  *  保存先はフラットレイアウト（ADRL-0018: lib/flat-layout-mirror.js = 本体 flat-layout.ts のミラー）。
  */
 
-// MV3 service worker: 共有 lib を importScripts で読み込む（global = self）
-importScripts('lib/i18n-messages.js', 'lib/i18n.js', 'lib/flat-layout-mirror.js', 'lib/clipper-core.js', 'lib/data-url-image-extractor.js', 'lib/clip-writer.js');
+// MV3 service worker: 共有 lib を importScripts で読み込む（global = self）。note の解決は popup と同じ lib/folder-registry.js
+importScripts('lib/i18n-messages.js', 'lib/i18n.js', 'lib/idb.js', 'lib/fractal-list.js', 'lib/folder-registry.js', 'lib/flat-layout-mirror.js', 'lib/clipper-core.js', 'lib/data-url-image-extractor.js', 'lib/clip-writer.js');
 
 console.log('[Fractal Clipper] SW loaded at', new Date().toISOString());
-
-// ── IDB helper (popup と独立) ──
-const DB_NAME = 'fractal-clipper';
-const STORE = 'kv';
-function openDb() {
-    return new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME, 1);
-        req.onupgradeneeded = () => req.result.createObjectStore(STORE);
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-    });
-}
-async function idbGet(key) {
-    const db = await openDb();
-    return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, 'readonly');
-        const r = tx.objectStore(STORE).get(key);
-        r.onsuccess = () => resolve(r.result);
-        r.onerror = () => reject(r.error);
-    });
-}
 
 // 初回 install 時のみ Options を自動 open (folder 未登録案内)
 chrome.runtime.onInstalled.addListener((details) => {
@@ -117,8 +96,9 @@ async function quickClip(tab) {
     if (tab && tab.id) showBanner(tab.id, FractalI18n.t('bg_clip_in_progress', { title: tab.title || '' }), 'progress');
 
     // 保存先: default preset 優先 → lastSelection fallback（FR-CL-06）。旧 lastSelection {outId} も正規化。
-    const folders = (await idbGet('notesFolders')) || [];
-    if (!Array.isArray(folders) || folders.length === 0) {
+    const list = await FractalIdb.get('fractalList');
+    const legacy = await FractalFolders.listFolders();
+    if (!(list && Array.isArray(list.notes) && list.notes.length) && legacy.length === 0) {
         setBadge('!', '#cc3333');
         notify(FractalI18n.t('bg_not_configured_title'), FractalI18n.t('bg_not_configured_body'), true);
         if (tab && tab.id) showBanner(tab.id, FractalI18n.t('bg_no_folder_banner'), 'err');
@@ -126,38 +106,29 @@ async function quickClip(tab) {
         return;
     }
     let sel = null; // { folderId, targetId, targetKind }
-    const defaultPresetId = await idbGet('defaultPresetId');
-    if (defaultPresetId) {
-        const presets = (await idbGet('presets')) || [];
-        const p = presets.find((x) => x.id === defaultPresetId);
-        if (p) sel = { folderId: p.folderId, targetId: p.targetId, targetKind: p.targetKind === 'md' ? 'md' : 'out' };
-    }
-    if (!sel) {
-        const lastSel = await idbGet('lastSelection');
-        if (lastSel && lastSel.folderId && (lastSel.targetId || lastSel.outId)) {
-            sel = {
-                folderId: lastSel.folderId,
-                targetId: lastSel.targetId || lastSel.outId,
-                targetKind: lastSel.targetKind === 'md' ? 'md' : 'out'
-            };
-        }
-    }
+    const p = await FractalFolders.getDefaultPreset();
+    if (p) sel = { folderId: p.folderId, targetId: p.targetId, targetKind: p.targetKind === 'md' ? 'md' : 'out' };
+    if (!sel) sel = await FractalFolders.getLastSelection();
     if (!sel) {
         setBadge('!', '#cc3333');
         notify(FractalI18n.t('bg_no_selection_title'), FractalI18n.t('bg_no_selection_body'), true);
         if (tab && tab.id) showBanner(tab.id, FractalI18n.t('bg_no_dest_banner'), 'err');
         return;
     }
-    const folder = folders.find((f) => f.id === sel.folderId);
-    if (!folder) {
+    const note = await FractalFolders.findNote(sel.folderId);
+    if (!note) {
         setBadge('!', '#cc3333');
         notify(FractalI18n.t('bg_folder_not_found_title'), FractalI18n.t('bg_folder_not_found_body'), true);
         return;
     }
+    if (!note.permHandle) {
+        setBadge('!', '#cc3333');
+        notify(FractalI18n.t('bg_no_access_title'), FractalI18n.t('bg_no_access_body', { name: note.name }), true);
+        return;
+    }
 
     // 許可確認
-    const perm = await folder.handle.queryPermission({ mode: 'readwrite' });
-    if (perm !== 'granted') {
+    if (!(await FractalFolders.hasPermission(note.permHandle))) {
         // SW から requestPermission は user gesture が必要 → popup 経由を促す
         setBadge('!', '#cc3333');
         notify(FractalI18n.t('bg_reauth_title'), FractalI18n.t('bg_reauth_body'), true);
@@ -219,18 +190,19 @@ async function quickClip(tab) {
         author: FractalI18n.t('core_label_author'),
         site: FractalI18n.t('core_label_site')
     };
+    const handle = await FractalFolders.noteHandle(note);
     const saved = sel.targetKind === 'md'
-        ? await FractalClipWriter.clipToMd(folder.handle, sel.targetId, result, { labels })
-        : await FractalClipWriter.clipToOutliner(folder.handle, sel.targetId, result, { labels });
+        ? await FractalClipWriter.clipToMd(handle, sel.targetId, result, { labels })
+        : await FractalClipWriter.clipToOutliner(handle, sel.targetId, result, { labels });
     const title = saved.title;
     const destLabel = saved.dest;
 
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
     setBadge('✓', '#2da44e');
     setTimeout(() => setBadge('', ''), 5000);
-    notify(FractalI18n.t('bg_clip_done_title', { sec: elapsed }), title + '\n→ ' + folder.name + '/' + destLabel);
+    notify(FractalI18n.t('bg_clip_done_title', { sec: elapsed }), title + '\n→ ' + note.name + '/' + destLabel);
     if (tab && tab.id) {
-        showBanner(tab.id, FractalI18n.t('bg_clip_done_banner', { sec: elapsed, dest: folder.name + '/' + destLabel, title: title }), 'ok');
+        showBanner(tab.id, FractalI18n.t('bg_clip_done_banner', { sec: elapsed, dest: note.name + '/' + destLabel, title: title }), 'ok');
     }
 }
 
