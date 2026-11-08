@@ -570,13 +570,8 @@ var MindmapRender = (function() {
             box.appendChild(imgWrap);
         }
 
-        // タグ
-        if (node.tags && node.tags.length) {
-            var tagWrap = document.createElementNS(XHTMLNS, 'span');
-            tagWrap.setAttribute('class', 'mindmap-node-tags');
-            tagWrap.textContent = node.tags.join(' ');
-            box.appendChild(tagWrap);
-        }
+        // タグ: 本文の renderInlineText が #tag / @name を pill（.outliner-tag）で描くので、tags[] を別に描かない
+        // （以前の右上の .mindmap-node-tags は同じタグを 2 回出していた — L-20261108-mindmap-tag-twice）
 
         // チェックボックス (Task Mode)
         if (node.checked !== null && node.checked !== undefined) {

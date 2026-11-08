@@ -198,12 +198,6 @@
     object-fit: cover;
 }
 
-.mindmap-node-tags {
-    flex: 0 0 auto;
-    font-size: 11px;
-    color: var(--fr-color-primary-strong);
-}
-
 .mindmap-node-checkbox {
     flex: 0 0 auto;
     margin: 0;
