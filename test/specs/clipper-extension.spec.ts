@@ -131,9 +131,10 @@ test.describe('web clipper in Chromium', () => {
             await opts.click('#chooseListBtn');
             await expect(opts.locator('#listSummary')).toHaveText('default.fractal — 3 notes');
             await expect(opts.locator('#noteList li')).toHaveCount(3);
-            await expect(opts.locator('#noteList li button:not(.fav)')).toHaveText(['Enable…', 'Enable…']);
+            // the rows only say how each note is (no buttons but ☆); what to do is in the banner, once per folder
+            await expect(opts.locator('#noteList li button:not(.fav)')).toHaveCount(0);
+            await expect(opts.locator('#noteList li > span:last-child')).toHaveText(['Not enabled yet', 'Not enabled yet', 'Not on this computer']);
             await expect(opts.locator('#noteList li').nth(2)).toContainText('ttt');
-            await expect(opts.locator('#noteList li').nth(2)).toContainText('Not on this computer');
             await expect(opts.locator('#enableBannerText')).toContainText('2 notes cannot be saved to yet');
             await expect(opts.locator('#enableRows .suggest code')).toHaveText([W]);
             await expect(opts.locator('#enableRows .suggest .meta')).toHaveText(['2 notes']);
@@ -147,6 +148,27 @@ test.describe('web clipper in Chromium', () => {
             expect(await opts.evaluate(() => (window as any).__copied)).toBe(W);
             await expect(opts.locator('#noteList li .ok')).toHaveText(['✓ Ready', '✓ Ready']);
             await expect(opts.locator('#enableBanner')).toBeHidden();
+
+            // Chrome forgot the permission (e.g. after a restart): the rows say so, and the banner has one Allow again for the folder
+            await opts.evaluate(() => {
+                const w = window as any;
+                const P = w.FileSystemHandle.prototype;
+                const q = P.queryPermission;
+                const r = P.requestPermission;
+                w.__asked = 0;
+                P.queryPermission = async () => 'prompt';
+                P.requestPermission = async () => { w.__asked++; P.queryPermission = q; P.requestPermission = r; return 'granted'; };
+            });
+            await opts.evaluate(() => (window as any).refresh());
+            await expect(opts.locator('#noteList li > span:last-child')).toHaveText(['Needs permission again', 'Needs permission again', 'Not on this computer']);
+            await expect(opts.locator('#enableBannerText')).toHaveText('2 notes need your permission again (Chrome can forget it, for example after a restart). Press Allow again.');
+            await expect(opts.locator('#enableRows .suggest code')).toHaveText([W]);
+            await expect(opts.locator('#enableRows .suggest button')).toHaveText(['Allow again']);
+            await expect(opts.locator('#enableHint')).toBeHidden(); // no folder dialog for this
+            await opts.click('#enableRows .suggest button');
+            await expect(opts.locator('#noteList li .ok')).toHaveText(['✓ Ready', '✓ Ready']);
+            await expect(opts.locator('#enableBanner')).toBeHidden();
+            expect(await opts.evaluate(() => (window as any).__asked)).toBe(1); // one request for the folder, not one per note
 
             // ☆ beta → ★
             await opts.locator('#noteList li').nth(1).locator('.fav').click();
@@ -208,14 +230,14 @@ test.describe('web clipper in Chromium', () => {
             await expect(opts.locator('#listSummary')).toHaveText('default.fractal — 5 notes');
             await expect(opts.locator('#noteList li')).toHaveCount(5);
             await expect(opts.locator('#noteList li').nth(2)).toContainText('✓ Ready'); // gamma
-            await expect(opts.locator('#noteList li').nth(3)).toContainText('Enable…'); // delta
+            await expect(opts.locator('#noteList li').nth(3)).toContainText('Not enabled yet'); // delta
             await expect(opts.locator('#noteList li').nth(4)).toContainText('Not on this computer'); // the other machine's, last
             await expect(opts.locator('#enableBannerText')).toContainText('1 note cannot be saved to yet');
             await expect(opts.locator('#enableRows .suggest code')).toHaveText(['/Users/me/Documents/delta']);
             await expect(opts.locator('#enableRows .suggest .meta')).toHaveText(['1 note']);
-            // the row's Enable… copies the folder to choose for that note; choosing a folder with none of the notes says so
+            // Choose… copies that folder; choosing a folder with none of the notes says so
             await opts.evaluate(() => { (window as any).__pick = 'Users/me/elsewhere'; });
-            await opts.locator('#noteList li').nth(3).locator('button:not(.fav)').click();
+            await opts.click('#enableRows .suggest button');
             await expect(opts.locator('#accessStatus')).toHaveText('❌ That folder has none of the notes in the .fractal. Choose the folder that holds them');
             expect(await opts.evaluate(() => (window as any).__copied)).toBe('/Users/me/Documents/delta');
             const popup2 = await s.ctx.newPage();
@@ -228,7 +250,7 @@ test.describe('web clipper in Chromium', () => {
             // 日本語
             await opts.selectOption('#langSelect', 'ja');
             await expect(opts.locator('#listSummary')).toHaveText('default.fractal — note 5 件');
-            await expect(opts.locator('#noteList li').nth(3)).toContainText('有効にする…');
+            await expect(opts.locator('#noteList li').nth(3)).toContainText('まだ有効ではありません');
             await expect(opts.locator('#noteList li').nth(4)).toContainText('このコンピューターにはありません');
             await expect(opts.locator('#noteList li').nth(0)).toContainText('✓ 保存できます');
             await expect(opts.locator('#enableRows .suggest button')).toHaveText(['選ぶ…']);
@@ -263,7 +285,7 @@ test.describe('web clipper in Chromium', () => {
             await expect(opts.locator('#accessStatus')).toHaveText('✅ Moved 1 note registered before over to the .fractal');
             await expect(opts.locator('#legacySection')).toBeHidden();
             await expect(opts.locator('#noteList li').nth(0)).toContainText('✓ Ready'); // with the old permission
-            await expect(opts.locator('#noteList li').nth(1)).toContainText('Enable…');
+            await expect(opts.locator('#noteList li').nth(1)).toContainText('Not enabled yet');
             await expect(opts.locator('#noteList li').nth(0).locator('.fav')).toHaveText('★'); // the ★default preset's note
             const stored = await opts.evaluate(async () => {
                 const idb = (window as any).FractalIdb;

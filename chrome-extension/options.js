@@ -22,7 +22,6 @@ const tn = (key, params) => t(params.count === 1 ? key + '_one' : key, params);
 
 let list = null;  // FractalFolders.readFractalList()（未設定 = null）
 let notes = [];   // FractalFolders.listNotes(list)
-let enableFolders = []; // まだ保存できない note をまとめて選べるフォルダ（バナーの行）
 
 const IS_MAC = FractalList.localOs(navigator) === 'mac';
 
@@ -116,6 +115,7 @@ async function renderNotes() {
     }
     const favorites = await FractalFolders.listFavorites();
     const notEnabled = [];
+    const reauth = new Map(); // 許可が切れたフォルダのパス → { root, count }
     for (const n of listed) {
         const li = document.createElement('li');
         const on = favorites.includes(n.id);
@@ -137,60 +137,73 @@ async function renderNotes() {
         nameEl.appendChild(pathEl);
         li.appendChild(nameEl);
 
+        // 行には状態だけを出す（操作は上の黄色い枠に、フォルダごとにまとめる）
         const state = await noteState(n);
-        if (state === 'ok') {
-            const st = document.createElement('span');
-            st.className = 'ok';
-            st.textContent = t('options_note_ready');
-            li.appendChild(st);
-        } else if (state === 'reauth') {
-            // 有効にしたときに選んだフォルダの許可が切れた（Chrome の再起動など）。同じフォルダの note はまとめて戻る
-            li.appendChild(smallButton(t('options_note_allow_again'), 'small', async () => {
-                if (await FractalFolders.requestPermission(n.permHandle)) await refresh();
-                else setStatus(accessStatus, t('options_permission_denied'), 'err');
-            }));
-        } else if (state === 'none') {
-            notEnabled.push(n.path);
-            li.appendChild(smallButton(t('options_note_enable'), 'primary small', () => enableFolder(folderToChoose(n.path))));
-        } else {
-            const st = document.createElement('span');
-            st.className = state === 'elsewhere' ? 'meta' : 'perm-warn';
-            st.textContent = t(state === 'elsewhere' ? 'options_note_elsewhere' : 'options_note_missing');
-            li.appendChild(st);
+        const st = document.createElement('span');
+        st.className = state === 'ok' ? 'ok' : (state === 'reauth' || state === 'missing') ? 'perm-warn' : 'meta';
+        st.textContent = t({
+            ok: 'options_note_ready',
+            none: 'options_note_not_enabled',
+            reauth: 'options_note_needs_permission',
+            missing: 'options_note_missing',
+            elsewhere: 'options_note_elsewhere'
+        }[state]);
+        li.appendChild(st);
+        if (state === 'none') notEnabled.push(n.path);
+        if (state === 'reauth') {
+            // 有効にしたときに選んだフォルダの許可が切れた（Chrome の再起動など）。フォルダごとにまとめて戻す
+            const r = reauth.get(n.root.path) || { root: n.root, count: 0 };
+            r.count++;
+            reauth.set(n.root.path, r);
         }
         items.appendChild(li);
     }
     noteListEl.replaceChildren(items);
-
-    // まだ保存できない note があれば、選ぶフォルダ（共通の親）ごとに 1 行: パス・note の数・「選ぶ…」
-    enableFolders = FractalList.suggestFolders(notEnabled);
-    if (notEnabled.length) {
-        enableBannerText.textContent = tn('options_enable_banner', { count: notEnabled.length });
-        const rows = document.createDocumentFragment();
-        for (const path of enableFolders) {
-            const row = document.createElement('div');
-            row.className = 'suggest';
-            const code = document.createElement('code');
-            code.textContent = path;
-            row.appendChild(code);
-            const count = document.createElement('span');
-            count.className = 'meta';
-            count.textContent = tn('options_enable_count', { count: notEnabled.filter((p) => FractalList.relUnder(path, p) !== null).length });
-            row.appendChild(count);
-            row.appendChild(smallButton(t('options_enable_choose'), 'primary small', () => enableFolder(path)));
-            rows.appendChild(row);
-        }
-        enableRows.replaceChildren(rows);
-        enableHint.textContent = t(IS_MAC ? 'options_enable_dialog_hint' : 'options_enable_dialog_hint_other');
-        enableBanner.style.display = '';
-    } else {
-        enableBanner.style.display = 'none';
-    }
+    renderBanner(notEnabled, reauth);
 }
 
-/** note を有効にするために選ぶフォルダ（バナーの行のうち、その note を含むもの。無ければ note のフォルダ） */
-function folderToChoose(notePath) {
-    return enableFolders.find((f) => FractalList.relUnder(f, notePath) !== null) || notePath;
+/** 黄色い枠: まだ有効ではない note を選ぶフォルダ（共通の親）ごと、許可が切れたフォルダごとに 1 行（パス・note の数・ボタン） */
+function renderBanner(notEnabled, reauth) {
+    if (notEnabled.length === 0 && reauth.size === 0) {
+        enableBanner.style.display = 'none';
+        return;
+    }
+    const lines = [];
+    if (notEnabled.length) lines.push(tn('options_enable_banner', { count: notEnabled.length }));
+    let reauthCount = 0;
+    for (const r of reauth.values()) reauthCount += r.count;
+    if (reauthCount) lines.push(tn('options_reauth_banner', { count: reauthCount }));
+    enableBannerText.textContent = lines.join(' ');
+
+    const rows = document.createDocumentFragment();
+    const row = (path, count, button) => {
+        const el = document.createElement('div');
+        el.className = 'suggest';
+        const code = document.createElement('code');
+        code.textContent = path;
+        el.appendChild(code);
+        const meta = document.createElement('span');
+        meta.className = 'meta';
+        meta.textContent = tn('options_enable_count', { count });
+        el.appendChild(meta);
+        el.appendChild(button);
+        rows.appendChild(el);
+    };
+    for (const path of FractalList.suggestFolders(notEnabled)) {
+        const count = notEnabled.filter((p) => FractalList.relUnder(path, p) !== null).length;
+        row(path, count, smallButton(t('options_enable_choose'), 'primary small', () => enableFolder(path)));
+    }
+    for (const r of reauth.values()) {
+        row(r.root.path, r.count, smallButton(t('options_note_allow_again'), 'primary small', async () => {
+            if (await FractalFolders.requestPermission(r.root.handle)) await refresh();
+            else setStatus(accessStatus, t('options_permission_denied'), 'err');
+        }));
+    }
+    enableRows.replaceChildren(rows);
+    // ⌘⇧G の手順は「選ぶ…」があるときだけ（「もう一度許可」は画面を開かない）
+    enableHint.style.display = notEnabled.length ? '' : 'none';
+    enableHint.textContent = t(IS_MAC ? 'options_enable_dialog_hint' : 'options_enable_dialog_hint_other');
+    enableBanner.style.display = '';
 }
 
 async function renderLegacy() {
