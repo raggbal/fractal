@@ -5,6 +5,37 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-11-08
+
+### Added
+- **Desktop app for macOS** — Fractal Note as a standalone app (Apple Silicon, macOS 13 or later), no VS Code needed. It runs the extension's own code, so your notes look and work the same. The window shows the Fractal List and Notes on the left (it folds into a thin bar), switches notes in place, marks the notes you have open with ● (× closes one) and can open a note in a new window. Download it from [the website](https://raggbal.github.io/fractal/) or [Releases](https://github.com/raggbal/fractal/releases). It is not signed with an Apple Developer ID nor notarized yet, so macOS asks you to allow it the first time. S3 sync, translation, draw.io in an external editor and automatic updates are not in the desktop app yet
+- **Notes lists are `.fractal` files** — the first start creates `~/.fractal/default.fractal` with your notes. The **Fractal List** view switches between lists, adds existing ones and creates new ones; the **Notes** view shows the notes of the active list
+- **New Note…** in the Notes view (asks for a place and a name, creates the folder and opens it), and **Reveal in Finder / Explorer** on notes and lists
+- **Several files at once** — select files (md or attachments) and move them with drag & drop or `Cmd/Ctrl+X` → `V`, or copy them with `Cmd/Ctrl+C` → `V`, between markdown, the outliner, the note tree and linked folders
+- **Delete / Backspace in a linked folder** moves the selected files to the trash
+- **Recent works as a history** with Back / Forward; with the left panel closed, the buttons sit next to ≡ in the note's header
+- **Scope in the table and mindmap views**, as in the outliner (the scope node on top / in the center), and Scope / Clear Scope in the mindmap's right-click menu
+- **Markdown**: Reveal in Finder on md / subpage / file links, and Export bundle / Export folder for a selection that contains links
+- **AI agents** — the `fractal` MCP server and skill for Claude Code, Codex (as a plugin) and Kiro (as a Power), installed from `agent-capability/`. The server runs the extension's own code
+- **HTML files run their scripts by default** in the viewer (`fractal.viewerHtmlAllowScripts`, on by default; the per-file toggle stays)
+
+### Changed
+- **A modern look** — a white note body, a soft purple left panel and one blue accent; rounded rows, thin dividers, light menus, a dark theme in the order of VS Code Dark Modern, and text that meets WCAG AA contrast everywhere
+- **A Notion-like left panel** — ≡ and the note name on top, a search box that is always there (`Cmd/Ctrl+K`), icon tabs; search results open in their own Results tab
+- **Headers line up** — the md editor, the outliner, the file viewer and linked folders all have 36px header rows with ≡ and < > in the same place. The outliner's header has two rows (title with undo / redo, then search and the view switch), and its view history buttons are ← →
+- **Tables start in cell selection** — the arrow keys move between cells, Enter edits a cell and Esc goes back to selecting, the same for every column type
+- **Search results are easier to scan** — type icons, links to each kind of result, and Fractal's blue instead of the theme's link color
+- **Drag & drop between a linked folder and Fractal always copies** — the original is never removed
+- The AI agent installer no longer registers the MCP server for Cursor
+
+### Fixed
+- **Undo in markdown lists** — replacing a selection inside a list item could not be undone and could delete text beyond the selection
+- **Date / Date & Time cells in tables** — the chosen date no longer disappears, the year no longer turns into six digits, and the calendar / clock buttons open the picker
+- **Word documents in a narrow or zoomed-out viewer** no longer shift to the right
+- **Files opened in the side panel viewer** (outliner attachments, links in a side panel md) are recorded in Recent
+- **Side panel** — Copy file path no longer stays on the check mark, and the … menu follows the light theme
+- **Hard-to-read colors** — markdown quotes, the dark mindmap background and some tag colors
+
 ## [1.3.19] - 2026-10-15
 
 ### Added
