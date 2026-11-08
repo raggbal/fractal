@@ -151,4 +151,8 @@
         parseDataUrl,
         processDataUrlsInMd
     };
-})(typeof self !== 'undefined' ? self : this);
+    // node（spec）から require できるように（clip-writer.js と同じ形）
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = { DataUrlImageExtractor: global.DataUrlImageExtractor };
+    }
+})(typeof self !== 'undefined' ? self : globalThis);

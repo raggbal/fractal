@@ -56,15 +56,21 @@ test.describe('A. clipper パス解決（flat-layout-mirror）', () => {
         expect(flat.resolveImagesDirRel({})).toBe('images');
         expect(flat.resolveImagesDirRel({ imageDir: './images' })).toBe('images');
         expect(flat.resolveImagesDirRel({ imageDir: './assets/img' })).toBe('assets/img');
-        // 配線確認（dead code 防止）: popup/background が resolveImagesDirRel を呼び、
-        // extractor に imagesSubdir を渡している（source-text。FS Access 実書き込みは手動 US）
+        // 配線確認（dead code 防止）: 保存の書き込みは lib/clip-writer.js の 1 つで、popup と quick clip（background）の
+        // 両方がそれを使う（自前の写しを持たない）。writer が resolveImagesDirRel の結果を extractor に渡している。
+        // 実際の書き込み（.out の imageDir どおりの images/ に画像ができる）は clipper-compat.spec.ts の TC-CC-02
         const fs = require('fs');
-        const popup = fs.readFileSync(path.resolve(__dirname, '../../chrome-extension/popup.js'), 'utf-8');
-        const bg = fs.readFileSync(path.resolve(__dirname, '../../chrome-extension/background.js'), 'utf-8');
-        expect(popup).toContain('resolveImagesDirRel');
-        expect(bg).toContain('resolveImagesDirRel');
-        expect(popup).toMatch(/processDataUrlsInMd\([^)]*imagesSubdir\)/);
-        expect(bg).toMatch(/processDataUrlsInMd\([^)]*imagesSubdir\)/);
+        const read = (f: string) => fs.readFileSync(path.resolve(__dirname, '../../chrome-extension', f), 'utf-8');
+        const writerSrc = read('lib/clip-writer.js');
+        expect(writerSrc).toContain('Flat.resolveImagesDirRel(hints)');
+        expect(writerSrc).toMatch(/processDataUrlsInMd\([^)]*imagesSubdir\)/);
+        for (const f of ['popup.js', 'background.js']) {
+            expect(read(f)).toContain('FractalClipWriter.clipToOutliner');
+            expect(read(f)).toContain('FractalClipWriter.clipToMd');
+            expect(read(f)).not.toContain('processDataUrlsInMd');
+        }
+        expect(read('background.js')).toMatch(/importScripts\([^)]*'lib\/clip-writer\.js'/);
+        expect(read('popup.html')).toContain('<script src="lib/clip-writer.js"></script>');
     });
 });
 

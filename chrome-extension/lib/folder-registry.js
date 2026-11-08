@@ -114,7 +114,8 @@
     }
 
     /** outline.note の structure から target 一覧を抽出（pure・unit 対象）。
-     *  kind: item.ext === 'md' → 'md'、それ以外 → 'out'（NoteTreeFile.ext の規約 = notes-file-manager.ts:23）。
+     *  kind: ext 'md' → 'md'、ext なし / 'out' → 'out'（NoteTreeFile.ext の規約 = notes-file-manager.ts の NoteTreeFile）。
+     *  添付（ext 'file'）と folder link（ext 'folder'）は保存先にならないので出さない（以前は 'out' として出て、選ぶと失敗した）。
      *  folder アイテム自身は含めない。 */
     function extractTargets(structure) {
         if (!structure || !structure.items || !Array.isArray(structure.rootIds)) return null;
@@ -127,12 +128,14 @@
                 const children = item.childIds || [];
                 for (const cid of children) visit(cid, depth + 1, childPath);
             } else if (item.type === 'file') {
+                const kind = item.ext === 'md' ? 'md' : (!item.ext || item.ext === 'out') ? 'out' : null;
+                if (!kind) return;
                 result.push({
                     id: item.id,
                     title: item.title || '(untitled)',
                     depth,
                     folderPath: folderPath || '',
-                    kind: item.ext === 'md' ? 'md' : 'out'
+                    kind
                 });
             }
         };

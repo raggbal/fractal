@@ -10,6 +10,11 @@ VSCode と直接通信しません — ブラウザの **File System Access API*
 
 ---
 
+## v0.4.1 で何が変わったか
+
+- **保存先の一覧に添付と folder link が出ていた不具合を直した** — Fractal の note のツリーには今、添付ファイル（docx・pdf など）と folder link も入る。それらまで「Outliner」として一覧に出て、選んで保存すると失敗していた。今は Outliner（`.out`）と Markdown だけを出す
+- 保存の書き込みを `lib/clip-writer.js` の 1 つにまとめた（popup の保存と quick clip（Alt+Shift+F）が同じものを使う）。今の Fractal が作った note に実際に保存して、Fractal がそれを読めることを `test/specs/clipper-compat.spec.ts` が確かめる
+
 ## v0.3.0 で何が変わったか
 
 - **フラットレイアウト対応** — 本体のフラット化（page md = note 直下・画像 = 共有 `images/`）に追従。`.out` の `pageDir` ヒントを尊重し、本体と同じ判定順（note 直下に md があれば flat）で保存先を決める。未移行 note には従来位置に保存（混在を作らない）

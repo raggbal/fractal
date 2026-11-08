@@ -34,52 +34,6 @@ function clearStatus() {
     statusEl.style.display = 'none';
 }
 
-/** Folder handle 内のサブパス path (例: "subdir/foo.out") の file handle を取得 */
-async function getNestedFileHandle(rootHandle, relPath, opts) {
-    const parts = relPath.split('/').filter((p) => p);
-    let cur = rootHandle;
-    for (let i = 0; i < parts.length - 1; i++) {
-        cur = await cur.getDirectoryHandle(parts[i], { create: !!opts?.createDirs });
-    }
-    const fileName = parts[parts.length - 1];
-    return cur.getFileHandle(fileName, { create: !!opts?.create });
-}
-
-async function getNestedDirHandle(rootHandle, relDir) {
-    const parts = (relDir || '').split('/').filter((p) => p);
-    let cur = rootHandle;
-    for (const p of parts) {
-        cur = await cur.getDirectoryHandle(p, { create: true });
-    }
-    return cur;
-}
-
-async function readJsonFile(fileHandle) {
-    const file = await fileHandle.getFile();
-    return JSON.parse(await file.text());
-}
-
-async function writeJsonFile(fileHandle, obj) {
-    const writable = await fileHandle.createWritable();
-    await writable.write(JSON.stringify(obj, null, 2));
-    await writable.close();
-}
-
-async function writeTextFile(fileHandle, text) {
-    const writable = await fileHandle.createWritable();
-    await writable.write(text);
-    await writable.close();
-}
-
-/**
- * outline.note の md item の実ファイル handle を解決（新フラットレイアウト前提: <folder>/<id>.md 固定）。
- * 見つからなければ throw（呼び出し側で表示）。
- */
-async function resolveMdTarget(folderHandle, mdId) {
-    const fh = await folderHandle.getFileHandle(mdId + '.md');
-    return { fileHandle: fh, dirHandle: folderHandle };
-}
-
 async function convertActiveTabToMarkdown() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) throw new Error('Active tab not found');
@@ -240,94 +194,21 @@ outSelect.addEventListener('change', () => {
 
 // ── clip 実行 ──
 
-/** outliner (.out) への clip（フラット規約・ADRL-0018） */
-async function clipToOutliner(folder, outId, extracted) {
-    const title = extracted.title || '(untitled)';
-    const pageMd = FractalClipperCore.buildPageMd({
-        title,
-        url: extracted.url,
-        byline: extracted.byline,
-        siteName: extracted.siteName,
-        markdown: extracted.markdown,
-        // FR-CI-05: 生成 MD ラベルも言語設定に従う（core は labels 引数で受ける = i18n 非依存）
-        labels: {
-            source: FractalI18n.t('core_label_source'),
-            author: FractalI18n.t('core_label_author'),
-            site: FractalI18n.t('core_label_site')
-        }
-    });
-
-    setStatus(FractalI18n.t('popup_loading_out'), 'info');
-    const outFileHandle = await getNestedFileHandle(folder.handle, outId + '.out');
-    const outData = await readJsonFile(outFileHandle);
-
-    const result = FractalClipperCore.prependClipNode(outData, { title });
-
-    // 保存先解決: 新フラットレイアウト前提（hint 尊重・無ければ note 直下）
-    const hints = { pageDir: outData.pageDir, imageDir: outData.imageDir, fileDir: outData.fileDir };
-    const writeDirRel = FractalFlatLayout.chooseWriteDirRel(hints, outId);
-    const pageDirHandle = writeDirRel ? await getNestedDirHandle(folder.handle, writeDirRel) : folder.handle;
-
-    setStatus(FractalI18n.t('popup_saving_page_md'), 'info');
-    // data:image/... を page md 隣の画像 dir に実体化（imageDir ヒント尊重・default 'images' = FR-CL-02）
-    const imagesSubdir = FractalFlatLayout.resolveImagesDirRel(hints);
-    let finalMd = pageMd;
-    try {
-        const { newMd, savedCount } = await DataUrlImageExtractor.processDataUrlsInMd(pageMd, pageDirHandle, imagesSubdir);
-        finalMd = newMd;
-        if (savedCount > 0) setStatus(FractalI18n.t('popup_saving_images', { count: savedCount }), 'info');
-    } catch (e) {
-        console.warn('[clipper] data URL extract failed, fallback to inline', e);
-    }
-    const pageMdHandle = await pageDirHandle.getFileHandle(result.pageId + '.md', { create: true });
-    await writeTextFile(pageMdHandle, finalMd);
-
-    setStatus(FractalI18n.t('popup_writing_out'), 'info');
-    await writeJsonFile(outFileHandle, result.outData);
-    return { title, dest: outId + '.out' };
+/** 生成 md のラベル（FR-CI-05: 言語設定に従う。core は labels で受ける = i18n 非依存） */
+function clipLabels() {
+    return {
+        source: FractalI18n.t('core_label_source'),
+        author: FractalI18n.t('core_label_author'),
+        site: FractalI18n.t('core_label_site')
+    };
 }
 
-/** md への clip（FR-CL-05: 新規 <uuid>.md を対象 md と同じ dir に + 末尾に subpage リンク追記・ADRL-0018 decision 4） */
-async function clipToMd(folder, mdId, extracted) {
-    const title = extracted.title || '(untitled)';
-    const pageMd = FractalClipperCore.buildPageMd({
-        title,
-        url: extracted.url,
-        byline: extracted.byline,
-        siteName: extracted.siteName,
-        markdown: extracted.markdown,
-        // FR-CI-05: 生成 MD ラベルも言語設定に従う（core は labels 引数で受ける = i18n 非依存）
-        labels: {
-            source: FractalI18n.t('core_label_source'),
-            author: FractalI18n.t('core_label_author'),
-            site: FractalI18n.t('core_label_site')
-        }
-    });
-
-    setStatus(FractalI18n.t('popup_loading_target_md'), 'info');
-    const { fileHandle: targetMdHandle, dirHandle: targetDirHandle } = await resolveMdTarget(folder.handle, mdId);
-    const targetFile = await targetMdHandle.getFile();
-    const targetText = await targetFile.text();
-
-    // 新規 md 名 + 対象 md の追記本文（pure）
-    const clip = FractalClipperCore.buildMdClipResult({ targetMdText: targetText, title });
-
-    setStatus(FractalI18n.t('popup_saving_new_md'), 'info');
-    // 画像は新規 md 隣の images/（= 対象 md と同 dir の images/。本体 resolveImagesDirForMd と一致）
-    let finalMd = pageMd;
-    try {
-        const { newMd, savedCount } = await DataUrlImageExtractor.processDataUrlsInMd(pageMd, targetDirHandle);
-        finalMd = newMd;
-        if (savedCount > 0) setStatus(FractalI18n.t('popup_saving_images', { count: savedCount }), 'info');
-    } catch (e) {
-        console.warn('[clipper] data URL extract failed, fallback to inline', e);
-    }
-    const newMdHandle = await targetDirHandle.getFileHandle(clip.newMdName, { create: true });
-    await writeTextFile(newMdHandle, finalMd);
-
-    setStatus(FractalI18n.t('popup_appending_subpage_link'), 'info');
-    await writeTextFile(targetMdHandle, clip.appendedTargetText);
-    return { title, dest: mdId + '.md' };
+/** 保存（lib/clip-writer.js — quick clip の background.js と同じもの）。途中の経過を status に出す */
+function clipTo(sel, extracted) {
+    const opts = { labels: clipLabels(), onStatus: (key, params) => setStatus(FractalI18n.t(key, params), 'info') };
+    return sel.targetKind === 'md'
+        ? FractalClipWriter.clipToMd(sel.folder.handle, sel.targetId, extracted, opts)
+        : FractalClipWriter.clipToOutliner(sel.folder.handle, sel.targetId, extracted, opts);
 }
 
 clipBtn.addEventListener('click', async () => {
@@ -347,9 +228,7 @@ clipBtn.addEventListener('click', async () => {
         const extracted = await convertActiveTabToMarkdown();
 
         // 3. 保存（out / md 分岐）
-        const result = sel.targetKind === 'md'
-            ? await clipToMd(sel.folder, sel.targetId, extracted)
-            : await clipToOutliner(sel.folder, sel.targetId, extracted);
+        const result = await clipTo(sel, extracted);
 
         // 4. last selection 記憶
         await FractalFolders.setLastSelection(sel.folder.id, sel.targetId, sel.targetKind);
