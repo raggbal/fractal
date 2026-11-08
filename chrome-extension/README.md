@@ -72,7 +72,7 @@ icon が出たら成功（ツールバーのパズルのアイコンから📌�
 
 ## 初回 setup
 
-1. ツールバーの拡張アイコンを右クリック → **オプション**
+1. 設定を開く: 初めて入れたときは自動で開く（あとから開くときは、ツールバーの拡張アイコンを右クリック → **オプション**）。英語で開くので、右上の **Language** で「日本語」を選ぶと、この手順と同じ表示になる
 2. **「📄 .fractal を選ぶ…」** で Fractal の `.fractal` を選ぶ
    - 既定は `~/.fractal/default.fractal`（Fractal が最初に作る。Fractal の **Fractal List** に出ている一覧）
    - `~/.fractal` は隠しフォルダ。Mac はダイアログで **⌘⇧G** を押して `~/.fractal` と入力する
@@ -89,13 +89,12 @@ icon が出たら成功（ツールバーのパズルのアイコンから📌�
 ## 使い方
 
 1. 保存したい Web ページを開く
-2. ツールバーの拡張 icon を click (or `Alt+Shift+F`)
-3. ポップアップで:
-   - **Note**（★ が先）と **保存先**（Outliner / Markdown）を選ぶ。最初は最後に保存した note、保存先はその note で前回保存したもの
-   - まだ有効ではない note は選べない（設定で有効にする）
-   - `Alt+Shift+F` は popup を開かずに、最後に保存した場所に保存する
-4. **「📌 Bookmark」** ボタンを click → 保存実行
-5. 数秒で完了。VSCode で対象 `.out` を再読み込みすれば先頭にノードが追加されている
+2. ツールバーの拡張 icon を click して popup を開く
+3. **Note**（★ が先）と **保存先**（Outliner / Markdown）を選ぶ。最初は最後に保存した note、保存先はその note で前回保存したもの。まだ有効ではない note は選べない（設定で有効にする）
+4. **「📌 Bookmark」** ボタンを click → 保存実行。数秒で完了
+5. Fractal（VS Code 版・デスクトップ版）で開いていれば、そのまま画面に反映される（外からの変更を読み込むため）
+
+**`Alt+Shift+F`**（quick clip）は popup を開かずに、最後に保存した場所へ保存する（ページの右上と通知に結果が出る）。
 
 ---
 
@@ -104,14 +103,16 @@ icon が出たら成功（ツールバーのパズルのアイコンから📌�
 ```markdown
 # <ページタイトル>
 
-元ページ: [<URL>](<URL>)
+Source: [<URL>](<URL>)
 
-著者: <byline>  (Readability が取得できた場合のみ)
+Author: <byline>  (Readability が取得できた場合のみ)
 
-サイト: <siteName>  (同上)
+Site: <siteName>  (同上)
 
 <Markdown 本文>
 ```
+
+見出しの語は設定の言語に従う（日本語なら 元ページ / 著者 / サイト）。
 
 ---
 
@@ -122,7 +123,8 @@ icon が出たら成功（ツールバーのパズルのアイコンから📌�
 | ノード位置 | `rootIds` の先頭に prepend (一番上) |
 | ノード id | `n + base36(timestamp) + random` (Fractal と同じスキーム) |
 | pageId | `crypto.randomUUID()` |
-| pageDir | `.out` の `pageDir` field を尊重（`"."` = note 直下フラット）。未指定は本体 `flat-layout.ts` と同じ順（note 直下に md があれば flat → legacy `<outlinerId>/` に md 実在なら legacy → flat）で解決（`lib/flat-layout-mirror.js`） |
+| page md の場所 | `.out` の `pageDir` を尊重（`"."` = note 直下）。無ければ note 直下（フラット。`lib/flat-layout-mirror.js` の `chooseWriteDirRel`） |
+| 画像 | ページの中の data: の画像（SVG など）は、`.out` の `imageDir`（無ければ共有の `images/`）にファイルとして保存し、md から相対で参照。ふつうの画像は元の URL のまま |
 | 既存ノード | 一切触らない |
 | 既存 page MD | 一切触らない |
 
@@ -134,7 +136,7 @@ icon が出たら成功（ツールバーのパズルのアイコンから📌�
 
 ```
 chrome-extension/
-├── manifest.json              # Chrome 拡張 manifest v3 (v0.5.0)
+├── manifest.json              # Chrome 拡張 manifest v3 (v0.6.2)
 ├── background.js              # service worker（quick clip = Alt+Shift+F）
 ├── popup.html / popup.js      # ツールバーポップアップ (note + 保存先の選択 + clip 実行)
 ├── options.html / options.js  # 設定 UI（.fractal・note の有効化と ★・言語）
@@ -160,8 +162,8 @@ chrome-extension/
 - **File System Access API** (`showOpenFilePicker` / `showDirectoryPicker`): Chrome / Edge / Opera で利用可能。Firefox / Safari は未対応 → 本拡張は Chromium 系のみ動作。
 - **.fractal と許可したフォルダ**: ブラウザはパスを直接開けないので、`.fractal` は file handle、note はユーザーが許可したフォルダの handle からたどって開く。handle は自分の絶対パスを教えないので、許可したフォルダが `.fractal` のどのパスかは「フォルダ名が note のパスの途中にあり、その下に note（`outline.note`）が実際にある」ことで決める（`lib/fractal-list.js`。同じだけ当てはまる候補が 2 つあれば決めずに、1 つ上のフォルダを頼む）
 - **handle 永続化**: `FileSystemHandle` は IndexedDB に直接 `put` 可能。 chrome.storage.local では serialize 不可なので IDB を使う。
-- **outline.note 読み取り**: Fractal Notes mode と同じ `NoteStructure` JSON を parse、`type: 'file'` アイテムを folder 階層付きで列挙。outline.note が無い folder は disk 上の `*.out` を flat に列挙する fallback。
-- **manifest v3 service worker** は最小限。すべてのロジックは popup ページで実行 (file handle が popup 文脈で扱える必要があるため)。
+- **outline.note 読み取り**: Fractal Notes mode と同じ `NoteStructure` JSON を parse し、Outliner（`.out`）と Markdown の項目を folder 階層付きで列挙（添付と folder link は保存先にならないので出さない）。outline.note が無い folder は disk 上の `*.out` を flat に列挙する fallback。
+- **popup と service worker**: popup の保存も quick clip（service worker）も、同じ lib（note の解決 = `folder-registry.js`、書き込み = `clip-writer.js`）を使う。FileSystemHandle は IDB から読めばどちらの文脈でも使える（許可を求めるのは画面のある popup / 設定だけ）。
 
 ---
 
@@ -193,11 +195,11 @@ note の id（`folderId` など）は note のパス（以前の登録は その
 | 「そのフォルダには .fractal の note が入っていません」 | 選んだフォルダの中に `.fractal` の note が無い。note のフォルダか、その上のフォルダを選ぶ |
 | 「どのフォルダか決められません」 | 同じ名前のフォルダが `.fractal` に 2 つある。1 つ上のフォルダを選ぶ |
 | popup に「新しい note を読み込むには…許可してください」 | Chrome の再起動などで `.fractal` の許可が切れた。「許可」を押す（それまでは最後に読めた一覧を使う） |
-| Outliner dropdown が空 | 対象 folder の `outline.note` が無いか壊れている。Fractal で folder を一度開いて自動生成、または folder 内に `*.out` があるかチェック |
-| `(.out が見つかりません)` 表示 | folder の root 直下に `.out` ファイルがない (Notes mode の convention 違反)。Fractal で folder を開いて構造を確認 |
+| 保存先（Outliner / Markdown）の一覧が空 | 対象 note の `outline.note` が無いか壊れている。Fractal で note を一度開いて自動生成、または note の中に `*.out` があるかチェック |
+| `(.out / .md が見つかりません)` 表示 | note に Outliner も Markdown も無い。Fractal で note を開いて作る |
 | 以前の登録に「要再許可」表示 | Chrome 再起動などで FileSystemHandle の権限が失効。Options の以前の登録の「再許可」を押す（popup でも保存するときに聞かれる） |
 | Alt+Shift+F で「保存先がまだありません」 | popup で 1 回保存する。Alt+Shift+F はその場所に保存する |
-| node が追加されたが VSCode で見えない | VSCode 側で `.out` を一度閉じて開き直すか、editor を refresh |
+| node が追加されたが Fractal で見えない | ふつうはそのまま反映される。見えなければ `.out` を一度閉じて開き直す |
 
 ---
 
