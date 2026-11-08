@@ -78,6 +78,12 @@
   .meta { color: var(--text-3); font-size: 14px; margin-top: 14px; }
   .shot { margin: 48px auto 0; max-width: 1080px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); background: var(--bg); }
   .shot img { display: block; width: 100%; height: auto; }
+  .gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 24px; }
+  .gallery figure { margin: 0; }
+  .gallery figure.wide { grid-column: 1 / -1; }
+  .gallery a { display: block; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); background: var(--bg); }
+  .gallery img { display: block; width: 100%; height: auto; }
+  .gallery figcaption { margin-top: 10px; font-size: 14px; color: var(--text-2); }
 
   section { padding: 64px 0; border-top: 1px solid var(--divider); }
   section h2 { font-size: 30px; line-height: 1.25; letter-spacing: -.01em; margin: 0 0 8px; }
@@ -110,7 +116,7 @@
   footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
   footer a { color: var(--text-2); }
   :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-  @media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 760px) { .grid, .gallery { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 640px) {
     .nav-links a { display: none; }
     .hero { padding-top: 48px; }
@@ -179,6 +185,38 @@
       </div>
     </div>
   </div>
+
+  <section id="screens">
+    <div class="wrap">
+      <h2><span lang="en">See it</span><span lang="ja">画面</span></h2>
+      <p class="sub">
+        <span lang="en">The desktop app on a sample note. The VS Code extension looks and works the same.</span>
+        <span lang="ja">サンプルの note を開いたデスクトップ版です。VS Code 版も同じ見た目・同じ操作です。</span>
+      </p>
+      <div class="gallery">
+        <figure class="wide">
+          <a href="images/shot-markdown.png" target="_blank" rel="noopener"><img src="images/shot-markdown.png" width="2000" height="1165" loading="lazy" alt="Markdown — tables, code and Mermaid diagrams, edited as they look"></a>
+          <figcaption><span lang="en">Markdown — tables, code and Mermaid diagrams, edited as they look</span><span lang="ja">Markdown — 表・コード・Mermaid の図を、見たまま編集</span></figcaption>
+        </figure>
+        <figure>
+          <a href="images/shot-outliner-sidepanel.png" target="_blank" rel="noopener"><img src="images/shot-outliner-sidepanel.png" width="2000" height="1165" loading="lazy" alt="Outliner, with a page open in the side panel"></a>
+          <figcaption><span lang="en">Outliner, with a page open in the side panel</span><span lang="ja">アウトライナーと、サイドパネルに開いたページ</span></figcaption>
+        </figure>
+        <figure>
+          <a href="images/shot-database-sidepanel.png" target="_blank" rel="noopener"><img src="images/shot-database-sidepanel.png" width="2000" height="1168" loading="lazy" alt="Database view — status and owner columns — with a page in the side panel"></a>
+          <figcaption><span lang="en">Database view — status and owner columns — with a page in the side panel</span><span lang="ja">データベース表示（Status・Owner の列）と、サイドパネルのページ</span></figcaption>
+        </figure>
+        <figure>
+          <a href="images/shot-mindmap-sidepanel.png" target="_blank" rel="noopener"><img src="images/shot-mindmap-sidepanel.png" width="2000" height="1165" loading="lazy" alt="The same outline as a mindmap, with a page in the side panel"></a>
+          <figcaption><span lang="en">The same outline as a mindmap, with a page in the side panel</span><span lang="ja">同じアウトラインをマインドマップで。サイドパネルにページ</span></figcaption>
+        </figure>
+        <figure>
+          <a href="images/shot-outliner-html.png" target="_blank" rel="noopener"><img src="images/shot-outliner-html.png" width="2000" height="1168" loading="lazy" alt="Files next to your notes — an HTML file shown in the side panel"></a>
+          <figcaption><span lang="en">Files next to your notes — an HTML file shown in the side panel</span><span lang="ja">ファイルもノートの隣に — HTML のファイルをサイドパネルで表示</span></figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
 
   <section id="desktop">
     <div class="wrap">
