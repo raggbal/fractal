@@ -294,6 +294,19 @@ npm run compile
 # F5 でデバッグモードで起動
 ```
 
+### AI エージェントの plugin（Claude Code / Codex / Kiro）
+MCP サーバーと skill です。このリポジトリから作って入れます（Node.js 18 以降）:
+
+```bash
+git clone https://github.com/raggbal/fractal && cd fractal && npm install
+agent-capability/install.sh            # 作って、見つかったエージェントすべてに入れる:
+                                       #   Claude Code / Codex は plugin、Kiro は Power
+agent-capability/install.sh --update   # git pull のあとに更新
+agent-capability/install.sh --uninstall
+```
+
+新しいセッションで `fractal_*` の tool が使えます（Claude Code は `/reload-plugins` でも）。`--only claude,codex,kiro` でエージェントを絞れ、`--dry-run` で何をするかだけ見られます。手で入れるとき（`npm run build:mcp` のあと）: Claude Code は `/plugin marketplace add <repo>/agent-capability` → `/plugin install fractal@fractal-local`、Codex は `codex plugin marketplace add <repo>/agent-capability` → `codex plugin add fractal@fractal-local`、Kiro は `kiro-cli powers install <repo>/agent-capability/plugin`。詳しくは [agent-capability/README.md](agent-capability/README.md)。
+
 ### オプション: AWS 認証情報（S3 同期 & 翻訳）
 コア機能は AWS なしで動作します。S3 同期と Amazon Translate を使うには、VS Code の設定で認証情報を設定するだけです（AWS SDK を内蔵しており、CLI のインストールは不要）。なお、HTTP(S) プロキシ経由の接続には現在対応していません:
 

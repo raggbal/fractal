@@ -289,6 +289,19 @@ npm run compile
 # press F5 to launch in debug mode
 ```
 
+### AI agent plugin (Claude Code / Codex / Kiro)
+The MCP server and skill of [🤖 AI skills](#-ai-skills--make-fractal-note-your-agents-notebook), built from this repository (Node.js 18 or later):
+
+```bash
+git clone https://github.com/raggbal/fractal && cd fractal && npm install
+agent-capability/install.sh            # builds it and installs it into every agent found:
+                                       #   Claude Code / Codex as a plugin, Kiro as a Power
+agent-capability/install.sh --update   # after git pull
+agent-capability/install.sh --uninstall
+```
+
+Start a new session (Claude Code: or `/reload-plugins`) to get the `fractal_*` tools. `--only claude,codex,kiro` limits the agents, `--dry-run` shows what it would do. By hand (after `npm run build:mcp`): Claude Code `/plugin marketplace add <repo>/agent-capability` → `/plugin install fractal@fractal-local`; Codex `codex plugin marketplace add <repo>/agent-capability` → `codex plugin add fractal@fractal-local`; Kiro `kiro-cli powers install <repo>/agent-capability/plugin`. Details: [agent-capability/README.md](agent-capability/README.md).
+
 ### Optional: AWS credentials (S3 sync & translation)
 Core features work without AWS. To use S3 sync and Amazon Translate, just configure credentials in VS Code settings — the extension talks to AWS directly (built-in AWS SDK; no CLI installation needed). Note: connections through an HTTP(S) proxy are not currently supported for these features:
 

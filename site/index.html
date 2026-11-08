@@ -123,6 +123,7 @@
     <nav class="nav-links">
       <a href="#desktop"><span lang="en">Desktop app</span><span lang="ja">デスクトップ版</span></a>
       <a href="#vscode"><span lang="en">VS Code</span><span lang="ja">VS Code 版</span></a>
+      <a href="#plugin"><span lang="en">AI plugin</span><span lang="ja">AI の plugin</span></a>
       <a class="hide-sm" href="https://github.com/raggbal/fractal">GitHub</a>
       <span class="lang" role="group" aria-label="Language">
         <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
@@ -273,6 +274,72 @@
             <span lang="ja">VSCodium・Cursor・Kiro・Gitpod・Eclipse Theia など、Open VSX Registry を使うエディタ向けです。</span>
           </p>
           <p style="margin-top:16px"><a class="btn" href="https://open-vsx.org/extension/imaken/fractal"><span lang="en">Open in Open VSX</span><span lang="ja">Open VSX で開く</span></a></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="plugin">
+    <div class="wrap">
+      <h2><span lang="en">AI agent plugin</span><span lang="ja">AI エージェントの plugin</span></h2>
+      <p class="sub">
+        <span lang="en">An MCP server and a skill that let Claude Code, Codex and Kiro search, read and edit your notes — outlines, markdown pages, attachments — with the same code as the app, so the result is the same as doing it on screen.</span>
+        <span lang="ja">Claude Code・Codex・Kiro が、ノート（アウトライン・Markdown のページ・添付）を探して、読んで、書けるようにする MCP サーバーと skill です。アプリと同じコードで動くので、画面で操作したのと同じ結果になります。</span>
+      </p>
+      <ul class="req">
+        <li><span lang="en">Node.js 18 or later</span><span lang="ja">Node.js 18 以降</span></li>
+        <li>git</li>
+        <li><span lang="en">Built from this repository</span><span lang="ja">このリポジトリから作って入れます</span></li>
+      </ul>
+      <ol class="steps">
+        <li>
+          <strong><span lang="en">Get the repository</span><span lang="ja">リポジトリを取ってくる</span></strong>
+          <div class="cmd"><code>git clone https://github.com/raggbal/fractal &amp;&amp; cd fractal &amp;&amp; npm install</code><button class="copy" type="button" data-copy="git clone https://github.com/raggbal/fractal &amp;&amp; cd fractal &amp;&amp; npm install"><span lang="en">Copy</span><span lang="ja">コピー</span></button></div>
+        </li>
+        <li>
+          <strong><span lang="en">Install the plugin</span><span lang="ja">plugin を入れる</span></strong>
+          <p>
+            <span lang="en">Builds the plugin and installs it into every agent it finds: Claude Code and Codex as a plugin, Kiro as a Power. For Antigravity it prints the command to set by hand.</span>
+            <span lang="ja">plugin を作り、見つかったエージェントすべてに入れます。Claude Code と Codex は plugin、Kiro は Power として入ります。Antigravity には手で設定するコマンドを表示します。</span>
+          </p>
+          <div class="cmd"><code>agent-capability/install.sh</code><button class="copy" type="button" data-copy="agent-capability/install.sh"><span lang="en">Copy</span><span lang="ja">コピー</span></button></div>
+          <p>
+            <span lang="en">Only some agents: <code>--only claude,codex,kiro</code>. See what it would do: <code>--dry-run</code>.</span>
+            <span lang="ja">一部のエージェントだけ: <code>--only claude,codex,kiro</code>。何をするかだけ見る: <code>--dry-run</code>。</span>
+          </p>
+        </li>
+        <li>
+          <strong><span lang="en">Start a new session</span><span lang="ja">新しいセッションで使う</span></strong>
+          <p>
+            <span lang="en">The tools (<code>fractal_search</code>, <code>fractal_get</code>, <code>fractal_add</code>, …) appear in a new session (Claude Code: or <code>/reload-plugins</code>). Ask, for example, “Summarize this week's meeting notes in Fractal”.</span>
+            <span lang="ja">新しいセッションで tool（<code>fractal_search</code>・<code>fractal_get</code>・<code>fractal_add</code> など）が使えます（Claude Code は <code>/reload-plugins</code> でも）。たとえば「Fractal の今週の議事録をまとめて」と頼めます。</span>
+          </p>
+        </li>
+      </ol>
+      <div class="grid">
+        <div class="card">
+          <h3><span lang="en">Install by hand</span><span lang="ja">手で入れるとき</span></h3>
+          <p>
+            <span lang="en">After <code>npm install</code> and <code>npm run build:mcp</code> in the repository:</span>
+            <span lang="ja">リポジトリで <code>npm install</code> と <code>npm run build:mcp</code> をしてから:</span>
+          </p>
+          <ul class="plain">
+            <li>Claude Code: <code>/plugin marketplace add &lt;repo&gt;/agent-capability</code> → <code>/plugin install fractal@fractal-local</code></li>
+            <li>Codex: <code>codex plugin marketplace add &lt;repo&gt;/agent-capability</code> → <code>codex plugin add fractal@fractal-local</code></li>
+            <li>Kiro: <code>kiro-cli powers install &lt;repo&gt;/agent-capability/plugin</code><span lang="en"> (or Powers → Add Custom Power → Import power from a folder)</span><span lang="ja">（または Powers → Add Custom Power → Import power from a folder）</span></li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3><span lang="en">Update and remove</span><span lang="ja">更新と削除</span></h3>
+          <p>
+            <span lang="en">Update after <code>git pull</code>:</span>
+            <span lang="ja"><code>git pull</code> のあとに更新:</span>
+          </p>
+          <div class="cmd"><code>agent-capability/install.sh --update</code><button class="copy" type="button" data-copy="agent-capability/install.sh --update"><span lang="en">Copy</span><span lang="ja">コピー</span></button></div>
+          <p style="margin-top:12px">
+            <span lang="en">Remove: <code>agent-capability/install.sh --uninstall</code>. Details: <a href="https://github.com/raggbal/fractal/blob/main/agent-capability/README.md">agent-capability/README.md</a></span>
+            <span lang="ja">外す: <code>agent-capability/install.sh --uninstall</code>。詳しくは <a href="https://github.com/raggbal/fractal/blob/main/agent-capability/README.md">agent-capability/README.md</a></span>
+          </p>
         </div>
       </div>
     </div>
