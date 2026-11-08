@@ -80,7 +80,6 @@
   .shot img { display: block; width: 100%; height: auto; }
   .gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 24px; }
   .gallery figure { margin: 0; }
-  .gallery figure.wide { grid-column: 1 / -1; }
   .gallery a { display: block; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); background: var(--bg); }
   .gallery img { display: block; width: 100%; height: auto; }
   .gallery figcaption { margin-top: 10px; font-size: 14px; color: var(--text-2); }
@@ -194,9 +193,13 @@
         <span lang="ja">サンプルの note を開いたデスクトップ版です。VS Code 版も同じ見た目・同じ操作です。</span>
       </p>
       <div class="gallery">
-        <figure class="wide">
+        <figure>
           <a href="images/shot-markdown.png" target="_blank" rel="noopener"><img src="images/shot-markdown.png" width="2000" height="1165" loading="lazy" alt="Markdown — tables, code and Mermaid diagrams, edited as they look"></a>
           <figcaption><span lang="en">Markdown — tables, code and Mermaid diagrams, edited as they look</span><span lang="ja">Markdown — 表・コード・Mermaid の図を、見たまま編集</span></figcaption>
+        </figure>
+        <figure>
+          <a href="images/shot-markdown-subpage.png" target="_blank" rel="noopener"><img src="images/shot-markdown-subpage.png" width="2000" height="1168" loading="lazy" alt="Markdown can hold other markdown pages as subpages — one opened in the side panel"></a>
+          <figcaption><span lang="en">Markdown can hold other markdown pages as subpages — one opened in the side panel</span><span lang="ja">Markdown の中に Markdown を subpage として埋め込むこともできます（subpage をサイドパネルで表示）</span></figcaption>
         </figure>
         <figure>
           <a href="images/shot-outliner-sidepanel.png" target="_blank" rel="noopener"><img src="images/shot-outliner-sidepanel.png" width="2000" height="1165" loading="lazy" alt="Outliner, with a page open in the side panel"></a>
