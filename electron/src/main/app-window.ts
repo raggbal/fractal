@@ -17,6 +17,7 @@ import type { WindowBounds } from './app-state';
 import type { PanelContainer, PanelView } from './panel-host';
 import { clampSidebarWidth, SIDEBAR_COLLAPSED_WIDTH, SIDEBAR_DEFAULT_WIDTH, type SidebarPageModel } from './sidebar-model';
 import type { SidebarOwner, SidebarService, SidebarView } from './sidebar-view';
+import { surfaceColors } from './theme';
 
 const DEFAULT_SIZE = { width: 1280, height: 860 };
 /** The note never gets narrower than this because of the sidebar. */
@@ -52,8 +53,9 @@ export interface AppWindowDelegate {
     closed(w: AppWindow): void;
 }
 
+/** The sidebar view before its page paints: the design's panel color (tokens.css). */
 export function sidebarBackground(dark: boolean): string {
-    return dark ? '#181818' : '#f8f8f8';
+    return surfaceColors(dark).panel;
 }
 
 export class AppWindow implements PanelContainer, SidebarOwner {
@@ -86,7 +88,7 @@ export class AppWindow implements PanelContainer, SidebarOwner {
             minHeight: MIN_WINDOW.height,
             title: 'Fractal',
             show: false,
-            backgroundColor: dark ? '#1f1f1f' : '#ffffff',
+            backgroundColor: surfaceColors(dark).app,
         });
         this.sidebar = sidebars.create(this, sidebarBackground(dark));
         this.win.contentView.addChildView(this.sidebar.view);
@@ -349,7 +351,7 @@ export class AppWindow implements PanelContainer, SidebarOwner {
 
     applyTheme(dark: boolean): void {
         if (!this.isDestroyed) {
-            this.win.setBackgroundColor(dark ? '#1f1f1f' : '#ffffff');
+            this.win.setBackgroundColor(surfaceColors(dark).app);
             this.sidebar.setBackground(sidebarBackground(dark));
         }
     }

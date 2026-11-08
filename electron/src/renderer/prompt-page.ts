@@ -290,7 +290,7 @@
 
     api.getRequest().then(
         (req) => {
-            document.documentElement.classList.toggle('dark', !!(req && req.dark));
+            document.documentElement.setAttribute('data-fr-theme', req && req.dark ? 'dark' : 'light');
             const root = document.getElementById('root') || document.body;
             if (!req || (req.kind !== 'input' && req.kind !== 'pick')) {
                 finish(null);

@@ -42,7 +42,7 @@ export const SIDEBAR_ICONS: Readonly<Record<string, IconDef>> = {
     'layout-sidebar-left': { paths: [{ d: 'M1.5 2.5h13v11h-13z' }, { d: 'M2 3h4v10H2z', fill: true }, { d: 'M6 2.5v11' }] },
     'layout-sidebar-left-off': { paths: [{ d: 'M1.5 2.5h13v11h-13z' }, { d: 'M6 2.5v11' }] },
     'circle-filled': { paths: [{ d: 'M8 4.75a3.25 3.25 0 1 0 0 6.5a3.25 3.25 0 1 0 0-6.5z', fill: true }] },
-    ellipsis: { paths: [{ d: 'M3.5 8h.01M8 8h.01M12.5 8h.01' }] },
+    ellipsis: { paths: [{ d: 'M2.4 8a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 1 0-2.2 0zM6.9 8a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 1 0-2.2 0zM11.4 8a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 1 0-2.2 0z', fill: true }] },
 };
 
 /** The chrome icons the page always needs. */

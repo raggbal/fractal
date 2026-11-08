@@ -1,12 +1,12 @@
 /**
  * The --vscode-* CSS variables VS Code injects into a webview (the extension's webview CSS reads ~36
- * of them: focus border, inputs, buttons, menus, lists, editor colors / fonts), plus the side bar ones
- * the desktop sidebar page reads (sidebar-view.ts serves this same set to it). Values follow VS Code's
- * default Light Modern / Dark Modern themes. The dark set applies when the page's own Fractal theme is
- * "dark", or "auto" (no attribute = auto) and the OS is dark — so the variables always agree with
- * data-fr-theme, which the webview's tokens.css uses.
+ * of them: focus border, inputs, buttons, menus, lists, editor colors / fonts) — for the note views
+ * only. Values follow VS Code's default Light Modern / Dark Modern themes. The dark set applies when
+ * the page's own Fractal theme is "dark", or "auto" (no attribute = auto) and the OS is dark — so the
+ * variables always agree with data-fr-theme, which the webview's tokens.css uses. The shell's own
+ * pages (sidebar, prompt) use the Fractal design itself (design-tokens.ts), not these.
  */
-// No Electron import: the sidebar unit spec reads these (every variable the sidebar page uses exists).
+// No Electron import (unit-tested).
 
 export const COMMON: Record<string, string> = {
     'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans", sans-serif',
@@ -72,18 +72,6 @@ export const LIGHT: Record<string, string> = {
     'dropdown-background': '#ffffff',
     'dropdown-foreground': '#3b3b3b',
     'dropdown-border': '#cecece',
-    // the desktop sidebar (spec 20261107-0431): VS Code's side bar / section header / toolbar colors
-    'sideBar-background': '#f8f8f8',
-    'sideBar-foreground': '#3b3b3b',
-    'sideBar-border': '#e5e5e5',
-    'sideBarTitle-foreground': '#3b3b3b',
-    'sideBarSectionHeader-background': '#f8f8f8',
-    'sideBarSectionHeader-foreground': '#3b3b3b',
-    'sideBarSectionHeader-border': '#e5e5e5',
-    'icon-foreground': '#3b3b3b',
-    'toolbar-hoverBackground': 'rgba(184, 184, 184, 0.31)',
-    'list-focusOutline': '#005fb8',
-    'sash-hoverBorder': '#005fb8',
 };
 
 export const DARK: Record<string, string> = {
@@ -141,17 +129,6 @@ export const DARK: Record<string, string> = {
     'dropdown-background': '#313131',
     'dropdown-foreground': '#cccccc',
     'dropdown-border': '#3c3c3c',
-    'sideBar-background': '#181818',
-    'sideBar-foreground': '#cccccc',
-    'sideBar-border': '#2b2b2b',
-    'sideBarTitle-foreground': '#cccccc',
-    'sideBarSectionHeader-background': '#181818',
-    'sideBarSectionHeader-foreground': '#cccccc',
-    'sideBarSectionHeader-border': '#2b2b2b',
-    'icon-foreground': '#cccccc',
-    'toolbar-hoverBackground': 'rgba(90, 93, 94, 0.31)',
-    'list-focusOutline': '#0078d4',
-    'sash-hoverBorder': '#0078d4',
 };
 
 function block(vars: Record<string, string>): string {
@@ -160,7 +137,7 @@ function block(vars: Record<string, string>): string {
         .join(' ');
 }
 
-/** Injected into every panel document (webFrame.insertCSS — not subject to the page CSP); the sidebar page's sidebar.css starts with it. */
+/** Injected into every panel document (webFrame.insertCSS — not subject to the page CSP). */
 export function webviewThemeCss(): string {
     const light = block({ ...COMMON, ...LIGHT });
     const dark = block(DARK);

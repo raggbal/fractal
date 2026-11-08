@@ -3,13 +3,15 @@
  * when none is open) showing fractal-ui://prompt/index.html. The page is the app's own code
  * (src/renderer/prompt-page.ts) served from a dedicated session; it gets the request over IPC and
  * renders it with textContent only. Like VS Code's quick input, a new prompt replaces an open one
- * (the old one resolves as dismissed).
+ * (the old one resolves as dismissed). Its look is the Fractal design (docs/design/modern-2026.md
+ * §7.4 / §7.5 / §7.7): prompt.css is the extension's tokens.css + fr-base.css, then the page's own CSS.
  */
 import { BrowserWindow, ipcMain, session, type BaseWindow, type IpcMainEvent, type IpcMainInvokeEvent, type Session } from 'electron';
 import * as fs from 'fs';
 import type { InputBoxRequest, QuickPickRequest, ShimLogger } from '../vscode-shim/adapters';
 import { PROMPT_CH, UI_SCHEME } from './ipc';
 import { plainLabel } from './labels';
+import { surfaceColors } from './theme';
 
 interface PromptPayload {
     kind: 'input' | 'pick';
@@ -38,10 +40,12 @@ export interface PromptServiceOptions {
     pageScriptPath: string;
     parentWindow(): BaseWindow | undefined;
     isDark(): boolean;
+    /** The extension's tokens.css + fr-base.css (design-tokens.ts) */
+    designCss(): string;
 }
 
 const PAGE_HTML = `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-fr-theme="auto">
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src 'none'; form-action 'none'; frame-ancestors 'none'">
@@ -52,38 +56,46 @@ const PAGE_HTML = `<!DOCTYPE html>
 </html>
 `;
 
+/**
+ * After tokens.css + fr-base.css: the sheet on bg-elevated; title 14px / 600, text 13px; the input
+ * 28px on fill-subtle (no frame until focus: focus-ring + halo); the items 28px, corners 6px, the
+ * active one fill-active (not blue); group names 11px / 600 tertiary, not uppercased; the buttons 28px,
+ * Cancel secondary, OK primary (the right one).
+ */
 const PAGE_CSS = `
-:root { color-scheme: light; --bg: #ffffff; --fg: #1f1f1f; --muted: #6b6b6b; --border: #d0d0d0; --row: #f2f2f2; --active: #e4efff;
-  --accent: #2f7de1; --error: #c42b1c; --field: #ffffff; }
-:root.dark { color-scheme: dark; --bg: #252526; --fg: #e6e6e6; --muted: #a0a0a0; --border: #454545; --row: #2d2e30; --active: #04395e;
-  --accent: #3794ff; --error: #f48771; --field: #313131; }
-* { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
-  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", sans-serif; }
+html, body { margin: 0; height: 100%; background: var(--fr-color-bg-elevated); color: var(--fr-color-text-primary);
+  font-family: var(--fr-font-sans); font-size: var(--fr-text-base); line-height: 1.4; }
 #root { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; height: 100%; }
-.title { font-weight: 600; }
-.prompt { color: var(--muted); white-space: pre-wrap; }
-.field { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--field); color: var(--fg);
-  font: inherit; outline: none; }
-.field:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.field.invalid { border-color: var(--error); box-shadow: 0 0 0 1px var(--error); }
-.validation { color: var(--error); font-size: 12px; white-space: pre-wrap; }
-.list { flex: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: 5px; padding: 3px 0; min-height: 60px; }
-.row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 10px; cursor: default; }
-.row.active { background: var(--active); }
+.title { font-size: var(--fr-text-md); font-weight: 600; }
+.prompt { color: var(--fr-color-text-secondary); line-height: 1.5; white-space: pre-wrap; }
+.field { width: 100%; height: 28px; flex: none; padding: 0 8px; border: 1px solid transparent; border-radius: var(--fr-radius-sm);
+  background: var(--fr-color-fill-subtle); color: var(--fr-color-text-primary); font: inherit; outline: none; }
+.field::placeholder { color: var(--fr-color-text-tertiary); }
+.field:hover:not(:focus) { background: var(--fr-color-fill-hover); }
+.field:focus { background: var(--fr-color-bg-elevated); border-color: var(--fr-color-focus-ring); box-shadow: var(--fr-shadow-focus); }
+.field.invalid { border-color: var(--fr-color-danger); box-shadow: 0 0 0 3px var(--fr-color-danger-soft); }
+.validation { color: var(--fr-color-danger); font-size: var(--fr-text-sm); white-space: pre-wrap; }
+.list { flex: 1; overflow-y: auto; min-height: 60px; }
+.row { display: flex; align-items: flex-start; gap: 8px; min-height: 28px; padding: 5px 10px; border-radius: var(--fr-radius-sm); cursor: default; }
+.row.active { background: var(--fr-color-fill-active); }
 .row .text { min-width: 0; flex: 1; }
 .row .line { display: flex; gap: 8px; align-items: baseline; }
 .row .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row .description { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row .detail { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .description, .row .detail { color: var(--fr-color-text-tertiary); font-size: var(--fr-text-sm); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.row.active .description, .row.active .detail { color: var(--fr-color-text-secondary); }
 .row .check { margin: 2px 0 0; }
-.separator { padding: 6px 10px 2px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
-.separator.rule { padding: 0; margin: 4px 10px; border-top: 1px solid var(--border); }
-.empty { padding: 8px 10px; color: var(--muted); }
+.separator { padding: 6px 10px 2px; color: var(--fr-color-text-tertiary); font-size: var(--fr-text-xs); font-weight: 600; }
+.separator.rule { padding: 0; margin: 4px 10px; border-top: 1px solid var(--fr-color-border); }
+.empty { padding: 8px 10px; color: var(--fr-color-text-tertiary); }
 .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; }
-button { appearance: none; border: 1px solid var(--border); background: transparent; color: var(--fg); border-radius: 5px;
-  padding: 4px 14px; font: inherit; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button { appearance: none; height: 28px; padding: 0 12px; border-radius: var(--fr-radius-sm); font: inherit; font-weight: 500; cursor: pointer; }
+button.secondary { border: 1px solid var(--fr-color-border-strong); background: var(--fr-color-bg-elevated); color: var(--fr-color-text-primary); }
+button.secondary:hover { background-image: linear-gradient(var(--fr-color-fill-hover), var(--fr-color-fill-hover)); }
+button.secondary:active { background-image: linear-gradient(var(--fr-color-fill-active), var(--fr-color-fill-active)); }
+button.primary { border: 1px solid transparent; background: var(--fr-color-primary); color: var(--fr-color-primary-fg); }
+button.primary:hover { background: var(--fr-color-primary-hover); }
+button.primary:active { background: var(--fr-color-primary-active); }
 `;
 
 function textResponse(body: string, type: string): Response {
@@ -178,7 +190,7 @@ export class PromptService {
             alwaysOnTop: !parent,
             show: false,
             title: payload.title || 'Fractal',
-            backgroundColor: payload.dark ? '#252526' : '#ffffff',
+            backgroundColor: surfaceColors(payload.dark).elevated,
             webPreferences: {
                 preload: this.o.preloadPath,
                 session: this.ses,
@@ -253,7 +265,7 @@ export class PromptService {
             case '/index.html':
                 return textResponse(PAGE_HTML, 'text/html');
             case '/prompt.css':
-                return textResponse(PAGE_CSS, 'text/css');
+                return textResponse(`${this.o.designCss()}\n${PAGE_CSS}`, 'text/css');
             case '/prompt.js': {
                 let js = '';
                 try {

@@ -524,11 +524,9 @@ test.describe('desktop app (Electron) — the sidebar (spec 20261107-0431)', () 
         }
     });
 
-    test('AC-2 the sidebar uses the same --vscode-* variables as the note views, light and dark (fractal.theme)', async () => {
-        for (const [theme, bg, fg] of [
-            ['dark', 'rgb(24, 24, 24)', 'rgb(204, 204, 204)'],
-            ['light', 'rgb(248, 248, 248)', 'rgb(59, 59, 59)'],
-        ] as const) {
+    test('AC-2 the sidebar uses the note views\' own Fractal design tokens (tokens.css), light and dark (fractal.theme)', async () => {
+        const looks: Record<string, string> = {};
+        for (const theme of ['dark', 'light'] as const) {
             const fx = makeFixture(['note-a']);
             fs.mkdirSync(path.join(fx.userData, 'User'), { recursive: true });
             fs.writeFileSync(path.join(fx.userData, 'User', 'settings.json'), JSON.stringify({ 'fractal.theme': theme }));
@@ -536,14 +534,31 @@ test.describe('desktop app (Electron) — the sidebar (spec 20261107-0431)', () 
                 const { app, sidebar, first } = await start(fx);
                 try {
                     await expect(sidebar.locator('html')).toHaveAttribute('data-fr-theme', theme);
+                    // the sidebar's surface and text are the tokens' colors (resolved through a probe element)
                     const look = await sidebar.evaluate(() => {
+                        const probe = (name: string) => {
+                            const d = document.createElement('div');
+                            d.style.color = `var(${name})`;
+                            document.body.appendChild(d);
+                            const c = getComputedStyle(d).color;
+                            d.remove();
+                            return c;
+                        };
                         const b = getComputedStyle(document.body);
                         const label = document.querySelector('.pane[data-view="notesExplorer"] .row:not(.shown) .label, .pane[data-view="notesLists"] .row .label') as HTMLElement;
-                        return { bg: b.backgroundColor, fg: b.color, label: label ? getComputedStyle(label).color : '' };
+                        return {
+                            bg: b.backgroundColor,
+                            fg: b.color,
+                            label: label ? getComputedStyle(label).color : '',
+                            panel: probe('--fr-color-bg-panel'),
+                            text: probe('--fr-color-text-primary'),
+                            vscode: getComputedStyle(document.documentElement).getPropertyValue('--vscode-sideBar-background').trim(),
+                        };
                     });
-                    expect(look, theme).toEqual({ bg, fg, label: fg });
-                    // the very same variables (and values) the note page got
-                    const vars = ['--vscode-sideBar-background', '--vscode-foreground', '--vscode-list-activeSelectionBackground', '--vscode-focusBorder'];
+                    expect(look, theme).toEqual({ bg: look.panel, fg: look.text, label: look.text, panel: look.panel, text: look.text, vscode: '' });
+                    looks[theme] = look.bg;
+                    // the very same tokens (and values) the note page got from tokens.css
+                    const vars = ['--fr-color-bg-panel', '--fr-color-text-primary', '--fr-color-fill-active', '--fr-color-selection-bg', '--fr-color-focus-ring', '--fr-color-divider'];
                     const read = (p: Page) => p.evaluate((names) => names.map((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim()), vars);
                     const inSidebar = await read(sidebar);
                     expect(inSidebar.every((v) => v !== ''), JSON.stringify(inSidebar)).toBe(true);
@@ -555,6 +570,7 @@ test.describe('desktop app (Electron) — the sidebar (spec 20261107-0431)', () 
                 rmrf(fx.tmp);
             }
         }
+        expect(looks.dark).not.toBe(looks.light);
     });
 
     test('AC-2b open notes have a ●; on the ● it is a × that closes the note (flushed, its page gone); then the last viewed open note, else the empty view; right-click Close and Cmd+W do the same; the row × still removes from the list', async () => {

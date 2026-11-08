@@ -768,7 +768,7 @@ chip の 8 色は §3.11（light 4.93–6.85、dark 6.82–8.46）。
 | mindmap の node の大きさの値 | mindmap-render.js / mindmap-interactions.js、iteration15 / 30 の test | 色・角・影だけ変える |
 | SVG の icon の文字列は 3 ファイルで同一 | TC-FV-61 | 線の太さは CSS で変える |
 | 密度（B案: 2026-05 に全体を 0.9 倍） | commit c4426e0 | 行・余白は今の密度。文字だけ 9–10px を 11–13px に上げる |
-| Electron の側（electron/）は別の作業が触っている | — | **変更しない**。theme.ts の最初の描画色（`#ffffff` / `#1f1f1f`）と新しい本文の色（`#FFFFFF` / `#1F1F22`）はほぼ同じなので、開いた瞬間のちらつきも出ない |
+| Electron の側（electron/）は別の作業が触っている | — | 刷新のときは変更しなかった。**2026-11-08 に Electron にも入れた**（§14。Electron が自分で描く所も tokens.css を読む） |
 
 frasco の設計のルール（§1 の区分 A–L）に当たる判断はこの変更に無い（配色・形は区分 J の「FE フレームワーク・レンダリング戦略」ではない）。accepted ADR（ADRL-0115）には反しない。よって ADR は作らず、判断は次の §9 に残す。
 
@@ -822,7 +822,7 @@ frasco の設計のルール（§1 の区分 A–L）に当たる判断はこの
 | `src/shared/notes-file-panel.js` | :4190-4225 の S3 の確認 dialog（§7.8） |
 | `src/fileViewerContent.ts` | tokens.css を読み、`<html data-fr-theme>` を書く（Phase 3） |
 | `src/notesWebviewContent.ts`, `src/outlinerWebviewContent.ts`, `src/webviewContent.ts` | Inter の `<link>` 2 本と CSP の外部 font を外す（Phase 3・任意） |
-| 触らない | `electron/`（別の作業）、`src/sync-conflict-dialog.ts` と `src/notesMigrationGate.ts`（VS Code の UI として描く別の webview）、`fr-components.css`、`node_modules` / `vendor` / `.harness` / `test/html/viewer-fixtures`（main への symlink） |
+| 触らない | `electron/`（刷新のときは別の作業。2026-11-08 に §14 で入れた）、`src/sync-conflict-dialog.ts` と `src/notesMigrationGate.ts`（VS Code の UI として描く別の webview）、`fr-components.css`、`node_modules` / `vendor` / `.harness` / `test/html/viewer-fixtures`（main への symlink） |
 
 ### 10.3 存在しない token 名の付け替え（alias は作らない）
 
@@ -891,7 +891,7 @@ frasco の設計のルール（§1 の区分 A–L）に当たる判断はこの
 3. Playwright は自分の設定 `test/pw-wt.config.ts`（testDir = この worktree の test、port 3100、`reuseExistingServer: false`）を作り、`npx playwright test -c test/pw-wt.config.ts --reporter=json > /tmp/fractal-design/pw.json` → `scripts/check-known-red.sh /tmp/fractal-design/pw.json` で**新しく落ちたものだけ**を見る。終わったら設定を消す（commit しない）
 4. 撮影: `node /tmp/fractal-design/capture.cjs after`（12px）と `node /tmp/fractal-design/capture.cjs after --font-size 13 --out /tmp/fractal-design/after-13`（§11 Q1 の比較用）。`/tmp/fractal-design/compare.html` で before と並べる。17 場面 × light / dark
 5. 目で見る所: dark で outliner と notes の panel の色が同じか / blockquote が読めるか / table の chip（light）/ mindmap の dark / menu の hover が見えるか / tree の hover・現在地・複数選択の 3 つが見分けられるか / 新規の行が 248px で切れないか / PDF の紙面の縁が見えるか
-6. VS Code（light / dark / auto で OS を切り替える）。Electron は別の作業の持ち物なので見るだけ
+6. VS Code（light / dark / auto で OS を切り替える）。Electron は §14.3
 
 ### 10.7 危ないところ
 
@@ -1094,6 +1094,39 @@ A 系は本文を白にして左パネルの色を変えた案、B 系は左パ�
 4. この文書の値（§0・§2・§4.2・§4.4・§4.5・§9 D2・付録 C）と、`docs/fractal/design.md`「面」・`docs/specs/frontend.md`「Surfaces」の左パネルの色を直す
 5. commit → vsix
 
+**Electron 版**: ほかの案にするときは Electron 側（`electron/`）を直さなくてよい。Electron が自分で描く所（サイドバー・入力の小窓・通知・描く前の地の色）も tokens.css をそのまま読む（§14）ので、`.app` を作り直すだけで同じ案になる（`cd electron && npm run build:app-dir`）。**元の状態に戻すときは、Electron の commit（tag `design/electron`）も一緒に revert する** — Electron の CSS は刷新で足した token（`fill-hover`・`fill-active`・`focus-ring`・`border-strong`・`primary-hover` など）を使うので、tokens.css だけ刷新の前に戻すと hover や選択の塗りが消える
+
 **元の状態（刷新の前）に戻す**: 刷新を main に入れた commit（tag `design/adopt`）を `git revert design/adopt` で打ち消す。触ったファイルは 37（CSS・JS・docs・test）。その後に案を替えた commit があれば先にそれも revert し、後から同じファイルを直した commit と衝突したらその所だけ直す。刷新の前の状態は tag `design/before`（`git diff design/before design/adopt` で全部の差分が見られる）。
 
 **案を見比べる**（main を変えずに）: `git worktree add ../wt-x design/B4` → `node_modules` を main への symlink に・`vendor` を copy → `npm run test:build:all` → `test/html/standalone-*.html` を開く。vsix にするなら `npx @vscode/vsce package --no-dependencies`（worktree の中の directory の symlink は vsce の秘密情報の検査で EISDIR になるので、`.harness` などは置かない）。
+
+---
+
+## 14. Electron 版への反映（2026-11-08）
+
+依頼: 「electron も新デザインを反映してください」。Electron 版の note の中（webview）は拡張機能の CSS をそのまま使うので、`.app` を作り直すだけで刷新が入る。Electron が自分で描いている所（左のサイドバー・入力の小窓・通知・note が無いときの画面・ページを描く前の地の色）を、同じ token で描くように変えた。撮影（変更前 / 後、light / dark）: `/tmp/fractal-electron-design/before/`・`after2/`（一時）。
+
+### 14.1 決まり
+
+| 部位 | 決まり | 出典 |
+|---|---|---|
+| token の読み方 | Electron のページ（サイドバー・入力の小窓）は、拡張機能の `out/webview/tokens.css` と `fr-base.css`（note の webview が読むのと同じファイル）をそのまま読み、`--fr-*` だけを使う。`--vscode-*` は読まない。値を Electron 側に写さない — tokens.css の案を替えると（§13.2）Electron も同じになる | P7・L-20261023-vscode-theme-color-leak・L-20261027-mcp-mirror-drift |
+| 描く前の地の色 | window・note の view・サイドバーの view・入力の小窓がページを描く前に塗る色も、tokens.css の light / dark のブロックの `bg-app` / `bg-panel` / `bg-elevated` を起動時に読む（`electron/src/main/design-tokens.ts`）。読めない値は A5 の値 | — |
+| サイドバー | note の左パネルと同じ面と行。地 `bg-panel` + 右に 1px `divider`。上の行は 36px で、真ん中の高さを隣の note の左パネルのヘッダー（≡ note 名）にそろえる（19px。たたんだ縦のバーのボタンも同じ高さ）。名前 13px / 600。section の見出しは 28px・12px / 600 `text-secondary`・大文字化しない・左 17px（行の最初の列と同じ線）・ボタンはいつも出す・開閉の chevron（12px `text-tertiary`）は右端（Recent と同じ）。section の間に `divider` 1 本。行は 26px・角 6px・panel の端から 6px 内側の塗り（透明な縁 + background-clip）・icon 14px `text-secondary`。状態: hover `fill-hover`、表示中の note `fill-active` + 500、キーボードの focus 行 `selection-bg`（ring なし）。開いている note の ● は `primary-strong`、重ねると ×（`fill-hover`）。幅を変える境目は hover で 2px の `primary` | §5.3・§6・§7.1・§7.2・FR-TKN-01/06 |
+| 空の案内（viewsWelcome） | 文 13px / 1.5 `text-secondary`。ボタン 28px・角 6px で、**最初の 1 つだけ主ボタン**（`primary`）、残りは副ボタン（`bg-elevated` + 1px `border-strong`）— 主は 1 つの panel に 1 個まで。link は `primary-strong` | §7.4 |
+| note が無いときの画面 | 地 `bg-app`、案内の文 13px `text-tertiary` | §5.4 |
+| 入力の小窓（showInputBox / showQuickPick） | 地 `bg-elevated`、題 14px / 600、説明 13px `text-secondary`。入力欄 28px・地 `fill-subtle`・縁なし → focus で `focus-ring` + halo、誤りは `danger`。候補の行 28px・角 6px・選んでいる行は `fill-active`（青をやめる）、群の名前 11px / 600 `text-tertiary`（大文字化しない）。ボタン 28px: Cancel は副、OK は主（右端） | §7.4・§7.5・§7.7 |
+| 通知（VS Code の非 modal の message。note の右下） | 浮く面の card: `bg-elevated` + 1px `border` + 角 10px + `--fr-shadow-3`。重さは左の色の線をやめて 8px の丸（info `primary-strong`・warning `warning`・error `danger`）。閉じるは 12px の Lucide の x（20 × 20・角 4px）。ボタン 24px・最初の 1 つが主。token は note のページのもの（shadow root にも custom property は継がれる） | §5.1・§5.5・§7.4 |
+| 変えないもの | native の menu・title bar・message box・file の dialog（OS が描く）。note の webview に入れる `--vscode-*`（VS Code が入れる値の再現 — `theme-vars.ts`。サイドバーのためだけに足していた sideBar 系の 11 個は消した） | — |
+
+§7.8 の toast（md の外部変更の通知: 暗い小片の `bg-inverse`）の形は、通知には使わなかった。通知は操作のボタンと詳細を持ち、VS Code の通知と同じく読んで押すための面なので、menu・dialog と同じ浮く面にした。
+
+### 14.2 test
+
+- `test/unit/electron-sidebar.spec.ts`: サイドバーの CSS が読む `--fr-*` はすべて tokens.css にある（色と影は light と dark の両方のブロック）・`--vscode-*` を読まない・ページは `data-fr-theme="auto"` で始まる・design の CSS は拡張機能の 2 つのファイルをそのまま読む・描く前の色は tokens.css の値（無い値・16 進でない値は 1 つずつ fallback）
+- `test/e2e-electron-app/sidebar.spec.ts` AC-2: サイドバーの地と文字が `bg-panel` / `text-primary` の色で、6 つの token の値が note のページと同じ（light / dark）。`--vscode-sideBar-background` は無い
+
+### 14.3 確かめ方
+
+1. `cd electron && npm run build:e2e && cd .. && npx playwright test test/e2e-electron-app`（窓が開いて focus を取る）
+2. 目で見る所（light / dark）: 開いている note が 2 つ・行の hover・● の上・キーボードの focus（↓）・通知・入力の小窓・たたんだ縦のバー・空の list（案内のボタン）。撮影は一時の spec（`FRACTAL_E2E_DEV=1` で開発版を動かし、view ごとに `capturePage` して 1 枚に並べる）で行った。commit していない

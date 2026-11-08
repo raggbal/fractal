@@ -36,8 +36,9 @@ import {
     type SidebarPageModel,
     type TreeSource,
 } from './sidebar-model';
+import { readDesignCss } from './design-tokens';
 import { SidebarService } from './sidebar-view';
-import { isDarkTheme, webviewThemeCss } from './theme';
+import { isDarkTheme, useDesignTokens, webviewThemeCss } from './theme';
 import { ElectronUi } from './ui';
 
 export interface DesktopShellOptions {
@@ -106,6 +107,8 @@ export class DesktopShell implements AppWindowDelegate {
     private readonly panels: PanelHost;
     private readonly prompts: PromptService;
     private readonly ui: ElectronUi;
+    /** The extension's tokens.css + fr-base.css: the look of the sidebar and the prompt sheet (design-tokens.ts) */
+    private readonly designCss: string;
     private ext: BootedExtension | undefined;
     private contributes: SidebarContributes = readSidebarContributes(undefined);
     private readonly snapshots = new SnapshotHistory();
@@ -125,12 +128,14 @@ export class DesktopShell implements AppWindowDelegate {
     constructor(private readonly o: DesktopShellOptions) {
         this.log = createFileLogger(path.join(o.userData, 'logs'));
         this.state = new AppStateStore(path.join(o.userData, 'desktop-state.json'), (err) => this.log.warn('[shell] state write failed:', err));
+        this.designCss = readDesignCss(o.extensionRoot, (file, err) => this.log.error(`[shell] design file missing (the sidebar / prompts are unstyled): ${file}`, err));
+        useDesignTokens(this.designCss);
         const rendererDir = path.join(__dirname, '..', 'renderer');
         this.sidebars = new SidebarService({
             log: this.log,
             preloadPath: path.join(rendererDir, 'sidebar-preload.js'),
             pageScriptPath: path.join(rendererDir, 'sidebar-page.js'),
-            themeCss: () => webviewThemeCss(),
+            designCss: () => this.designCss,
         });
         this.windows = new WindowManager({
             delegate: this,
@@ -160,6 +165,7 @@ export class DesktopShell implements AppWindowDelegate {
             pageScriptPath: path.join(rendererDir, 'prompt-page.js'),
             parentWindow: () => this.ui.parentWindow(),
             isDark: () => this.isDark(),
+            designCss: () => this.designCss,
         });
         this.ui = new ElectronUi({ panels: this.panels, prompts: this.prompts, log: this.log, currentWindow: () => this.windows.current()?.win });
     }

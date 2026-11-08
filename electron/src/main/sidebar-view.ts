@@ -6,7 +6,8 @@
  * D4: sandbox + contextIsolation, no Node; the preload exposes the list model, handle / token based
  * calls and the sidebar's UI state only. Every IPC message is answered only for the top frame of a
  * window's own sidebar page (acceptSidebarSender) — anything else is dropped (and logged). The page
- * never navigates and opens nothing; its CSP allows only its own script and style.
+ * never navigates and opens nothing; its CSP allows only its own script and style (sidebar.css is the
+ * extension's tokens.css + fr-base.css and the page's own CSS, one file of this origin).
  */
 import { ipcMain, session, WebContentsView, type IpcMainEvent, type IpcMainInvokeEvent, type Session } from 'electron';
 import * as fs from 'fs';
@@ -46,8 +47,8 @@ export interface SidebarServiceOptions {
     preloadPath: string;
     /** out/renderer/sidebar-page.js */
     pageScriptPath: string;
-    /** The --vscode-* variables of the note views (theme.ts) */
-    themeCss(): string;
+    /** The extension's tokens.css + fr-base.css (design-tokens.ts) */
+    designCss(): string;
 }
 
 export class SidebarView {
@@ -183,7 +184,7 @@ export class SidebarService {
             case '/index.html':
                 return textResponse(SIDEBAR_PAGE_HTML, 'text/html', { 'content-security-policy': SIDEBAR_CSP });
             case '/sidebar.css':
-                return textResponse(`${this.o.themeCss()}\n${SIDEBAR_PAGE_CSS}`, 'text/css');
+                return textResponse(`${this.o.designCss()}\n${SIDEBAR_PAGE_CSS}`, 'text/css');
             case '/sidebar.js': {
                 let js = '';
                 try {

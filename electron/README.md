@@ -12,7 +12,8 @@ and `20261107-0431-electron-sidebar` (the window model and the sidebar).
   (`sidebar-view.ts`, a WebContentsView) + one WebContentsView per webview panel on the right (`panel-host.ts`);
   the sidebar model and page assets (`sidebar-contributes.ts`, `sidebar-model.ts`, `sidebar-icons.ts`,
   `sidebar-assets.ts` — no Electron imports, unit-tested); dialogs / messages / prompts (`ui.ts`,
-  `prompt-window.ts`), menu, D6 opener, theme variables (`theme-vars.ts`, shared by the note views and the sidebar).
+  `prompt-window.ts`), menu, D6 opener, the theme (`theme.ts`; `theme-vars.ts` = the note views' `--vscode-*`
+  variables, `design-tokens.ts` = the Fractal design the shell's own pages use).
 - `src/renderer/` — sandboxed preloads (a note page gets `acquireVsCodeApi()` only, the sidebar page
   `window.fractalSidebar` only), the sidebar page and the prompt page.
 
@@ -40,8 +41,13 @@ outside that subset hides its entry). A click runs the item's `TreeItem.command`
   (`<userData>/desktop-state.json`) and used by the next window and the next start. The note always gets the rest
   of the window (never less than 320px).
 - Window > lists the open notes (also those outside the active .fractal). The window title is the shown note's.
-- Theme: the sidebar page reads the same `--vscode-*` variables as the note views (VS Code's Light / Dark Modern
-  values, `theme-vars.ts`) and follows `fractal.theme`, else the OS appearance.
+- Look: the sidebar, the prompt sheet and the toasts use the Fractal design (`docs/design/modern-2026.md` §14, the
+  same as the note's own left panel). The sidebar and prompt pages load the extension's own `out/webview/tokens.css`
+  and `fr-base.css` — the files the note views load, read, not copied (`design-tokens.ts`), so another design in
+  tokens.css reaches the app with the next build — and read only their `--fr-*` tokens; the toasts read the note
+  page's. The colors the views paint before their page are tokens.css's `bg-app` / `bg-panel` / `bg-elevated`.
+  Light / dark follow `fractal.theme`, else the OS appearance. The note views also get the `--vscode-*` variables
+  VS Code would inject (Light / Dark Modern values, `theme-vars.ts`).
 - Not yet (spec D5): drag and drop in the lists (reorder, drop a folder to add), searching the lists, nested items.
 
 Security (spec D4): the sidebar page is sandboxed with contextIsolation and no Node, served from its own
@@ -124,7 +130,7 @@ Notes with the package.json titles / buttons / tooltips / icons; choosing a note
 and the previous note's page comes back unreloaded; the 28px bar and the note's wider bounds; collapsed and the
 dragged width survive a restart; New Note… / Reveal / Remove / welcome buttons run the extension's commands;
 right-click (native menu, captured) Open in New Window, also moving an open note's page; the welcome content of
-an empty Fractal List / Notes (when-clauses); the light / dark look from the note views' own variables; the ● / ×
+an empty Fractal List / Notes (when-clauses); the light / dark look from the note views' own design tokens; the ● / ×
 close with the typed text saved, the last viewed note or the empty view after it, right-click Close Note and Cmd+W;
 Cmd+W / Shift+Cmd+W with no key window (minimized) closing nothing; Open in New Window on a note whose close is
 under way; a message from a window that shows no note as a message box there (not a toast in another window's

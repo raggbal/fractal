@@ -169,26 +169,47 @@ function flushPageInMainWorld(mode: string): { outliner: boolean; hidden: boolea
 // Toasts (VS Code's non-modal notifications): a closed shadow root on <html>, outside the page's DOM
 // ---------------------------------------------------------------------------------------------
 
+/*
+ * The Fractal design (docs/design/modern-2026.md §5.1 / §7.4 / §7.8): a floating card — bg-elevated,
+ * 1px border, corners 10px, shadow 3 — with a severity dot instead of a colored left edge, a 12px ×,
+ * the first action a primary button. The --fr-* tokens come from the note page's own tokens.css
+ * (custom properties inherit into the shadow root); the fallbacks are only for a page without them.
+ */
 const TOAST_CSS = `
 :host { all: initial; }
 .stack { position: fixed; right: 14px; bottom: 14px; z-index: 2147483647; display: flex; flex-direction: column;
-  gap: 8px; align-items: flex-end; pointer-events: none; font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-.toast { pointer-events: auto; box-sizing: border-box; width: 380px; max-width: calc(100vw - 28px); padding: 10px 12px 10px 14px;
-  border-radius: 8px; background: #ffffff; color: #1f1f1f; border: 1px solid rgba(0,0,0,.14);
-  box-shadow: 0 6px 24px rgba(0,0,0,.18); display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; border-left: 4px solid #2f7de1; }
-.toast.dark { background: #252526; color: #e6e6e6; border-color: rgba(255,255,255,.14); }
-.toast.warning { border-left-color: #d89614; }
-.toast.error { border-left-color: #e5484d; }
-.msg { white-space: pre-wrap; word-break: break-word; }
-.detail { grid-column: 1 / span 2; white-space: pre-wrap; word-break: break-word; opacity: .75; font-size: 12px; }
-.close { appearance: none; border: 0; background: transparent; color: inherit; opacity: .55; cursor: pointer; font-size: 14px; line-height: 1; padding: 2px 4px; }
-.close:hover { opacity: 1; }
-.buttons { grid-column: 1 / span 2; display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; margin-top: 4px; }
-.buttons button { appearance: none; border: 1px solid rgba(127,127,127,.45); background: transparent; color: inherit; border-radius: 5px;
-  padding: 3px 10px; font: inherit; cursor: pointer; }
-.buttons button:first-child { background: #2f7de1; border-color: #2f7de1; color: #fff; }
-.spinner { display: inline-block; width: 10px; height: 10px; margin-right: 7px; border: 2px solid currentColor; border-right-color: transparent;
-  border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; opacity: .7; }
+  gap: 8px; align-items: flex-end; pointer-events: none; font-family: var(--fr-font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-size: 13px; line-height: 1.4; }
+.toast { --fb-bg: #ffffff; --fb-fg: #18181b; --fb-sub: #52525b; --fb-border: #e2e2e6; --fb-hover: rgba(24,24,27,.055);
+  pointer-events: auto; box-sizing: border-box; width: 380px; max-width: calc(100vw - 28px); padding: 10px 8px 10px 12px;
+  border-radius: var(--fr-radius-lg, 10px); background: var(--fr-color-bg-elevated, var(--fb-bg)); color: var(--fr-color-text-primary, var(--fb-fg));
+  border: 1px solid var(--fr-color-border, var(--fb-border));
+  box-shadow: var(--fr-shadow-3, 0 2px 6px rgba(17,17,20,.06), 0 12px 32px rgba(17,17,20,.14));
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: start; }
+.toast.dark { --fb-bg: #2a2a2e; --fb-fg: #ededef; --fb-sub: #b4b4bc; --fb-border: #38383e; --fb-hover: rgba(255,255,255,.06); }
+.msg { position: relative; padding: 1px 0 0 16px; white-space: pre-wrap; word-break: break-word; }
+.msg::before { content: ''; position: absolute; left: 1px; top: 7px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--fr-color-primary-strong, #0256c3); }
+.toast.warning .msg::before { background: var(--fr-color-warning, #d97706); }
+.toast.error .msg::before { background: var(--fr-color-danger, #c21d1d); }
+.spinner + .msg { display: inline; padding-left: 0; }
+.spinner + .msg::before { display: none; }
+.detail { grid-column: 1 / span 2; padding-left: 16px; white-space: pre-wrap; word-break: break-word; font-size: 12px;
+  color: var(--fr-color-text-secondary, var(--fb-sub)); }
+.close { appearance: none; border: 0; margin: -1px 0 0; padding: 0; width: 20px; height: 20px; border-radius: var(--fr-radius-xs, 4px);
+  background: transparent; color: var(--fr-color-text-tertiary, var(--fb-sub)); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.close:hover { background: var(--fr-color-fill-hover, var(--fb-hover)); color: var(--fr-color-text-primary, var(--fb-fg)); }
+.close svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.buttons { grid-column: 1 / span 2; display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; margin-top: 4px; padding-right: 4px; }
+.buttons button { appearance: none; height: 24px; padding: 0 10px; border-radius: var(--fr-radius-sm, 6px); font: inherit; font-size: 12px;
+  font-weight: 500; cursor: pointer; border: 1px solid var(--fr-color-border-strong, var(--fb-border));
+  background: var(--fr-color-bg-elevated, var(--fb-bg)); color: var(--fr-color-text-primary, var(--fb-fg)); }
+.buttons button:hover { background-image: linear-gradient(var(--fr-color-fill-hover, var(--fb-hover)), var(--fr-color-fill-hover, var(--fb-hover))); }
+.buttons button:first-child { border-color: transparent; background: var(--fr-color-primary, #0a68e6); color: var(--fr-color-primary-fg, #ffffff); }
+.buttons button:first-child:hover { background: var(--fr-color-primary-hover, #0256c3); }
+.close:focus-visible, .buttons button:focus-visible { outline: 2px solid var(--fr-color-focus-ring, #0a68e6); outline-offset: 1px; }
+.spinner { display: inline-block; width: 10px; height: 10px; margin-right: 7px; border: 2px solid var(--fr-color-primary-strong, currentColor);
+  border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 `;
 
@@ -271,7 +292,15 @@ function showToast(req: ToastRequest): void {
     const close = document.createElement('button');
     close.className = 'close';
     close.title = 'Close';
-    close.textContent = '✕';
+    close.setAttribute('aria-label', 'Close');
+    // Lucide x (12px): the glyph buttons other than ☰ are icons (docs/design/modern-2026.md §5.5)
+    const x = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    x.setAttribute('viewBox', '0 0 24 24');
+    x.setAttribute('aria-hidden', 'true');
+    const xPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    xPath.setAttribute('d', 'M18 6 6 18M6 6l12 12');
+    x.appendChild(xPath);
+    close.appendChild(x);
     close.addEventListener('click', () => removeToast(req.id, true, -1));
     el.appendChild(close);
     if (req.detail) {

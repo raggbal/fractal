@@ -161,12 +161,9 @@
         return local !== undefined ? local : s.expanded !== false;
     }
 
+    // tokens.css: "auto" follows the OS (its auto-dark block needs the attribute)
     function applyTheme(theme: Model['theme']): void {
-        if (theme === 'light' || theme === 'dark') {
-            document.documentElement.setAttribute('data-fr-theme', theme);
-        } else {
-            document.documentElement.removeAttribute('data-fr-theme');
-        }
+        document.documentElement.setAttribute('data-fr-theme', theme === 'light' || theme === 'dark' ? theme : 'auto');
     }
 
     function clampWidth(w: number): number {

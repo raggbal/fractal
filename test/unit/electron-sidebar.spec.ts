@@ -40,7 +40,7 @@ import {
     type TreeSource,
 } from '../../electron/src/main/sidebar-model';
 import { AppStateStore, notesToReopen } from '../../electron/src/main/app-state';
-import { COMMON, DARK, LIGHT, webviewThemeCss } from '../../electron/src/main/theme-vars';
+import { FALLBACK_SURFACES, parseDesignSurfaces, readDesignCss, themeBlock } from '../../electron/src/main/design-tokens';
 import { SIDEBAR_CSP, SIDEBAR_META_CSP, SIDEBAR_PAGE_CSS, SIDEBAR_PAGE_HTML } from '../../electron/src/main/sidebar-assets';
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
@@ -336,18 +336,27 @@ test.describe('electron sidebar — AC-3 package.json contributes', () => {
     });
 });
 
-test.describe('electron sidebar — the page: theme variables and CSP', () => {
-    test('the sidebar page reads only --vscode-* variables the note views get, each defined for light and dark; its CSP runs only its own script and style', () => {
-        const used = [...new Set([...SIDEBAR_PAGE_CSS.matchAll(/var\(--vscode-([A-Za-z0-9-]+)\)/g)].map((m) => m[1]))];
+test.describe('electron sidebar — the page: the Fractal design tokens and CSP', () => {
+    const TOKENS = fs.readFileSync(path.join(REPO_ROOT, 'src', 'webview', 'tokens.css'), 'utf8');
+
+    test('the sidebar page reads only --fr-* tokens of the extension\'s tokens.css — every color / shadow for light and dark — and no --vscode-* (P7); its CSP runs only its own script and style', () => {
+        const used = [...new Set([...SIDEBAR_PAGE_CSS.matchAll(/var\(--(fr-[A-Za-z0-9-]+)/g)].map((m) => m[1]))];
         expect(used.length).toBeGreaterThan(15);
-        expect(used).toEqual(expect.arrayContaining(['sideBar-background', 'sideBar-foreground', 'list-activeSelectionBackground', 'focusBorder']));
-        const css = webviewThemeCss();
+        expect(used).toEqual(expect.arrayContaining(['fr-color-bg-panel', 'fr-color-text-primary', 'fr-color-fill-active', 'fr-color-selection-bg', 'fr-color-divider']));
+        expect(SIDEBAR_PAGE_CSS).not.toMatch(/--vscode-/);
+        const light = themeBlock(TOKENS, 'light');
+        const dark = themeBlock(TOKENS, 'dark');
+        expect(light && dark).toBeTruthy();
         for (const v of used) {
-            expect(v in COMMON || (v in LIGHT && v in DARK), `--vscode-${v} is not defined for both light and dark (theme-vars.ts)`).toBe(true);
-            expect(css).toContain(`--vscode-${v}:`);
+            if (/^fr-(color|shadow)-/.test(v)) {
+                expect(light!, `--${v} is not in the light block of tokens.css`).toMatch(new RegExp(`--${v}\\s*:`));
+                expect(dark!, `--${v} is not in the dark block of tokens.css`).toMatch(new RegExp(`--${v}\\s*:`));
+            } else {
+                expect(TOKENS, `--${v} is not defined in tokens.css`).toMatch(new RegExp(`--${v}\\s*:`));
+            }
         }
-        // light and dark differ where the side bar draws text and background
-        expect([LIGHT['sideBar-background'], LIGHT['sideBar-foreground']]).not.toEqual([DARK['sideBar-background'], DARK['sideBar-foreground']]);
+        // until the model brings fractal.theme the page follows the OS (tokens.css: auto)
+        expect(SIDEBAR_PAGE_HTML).toContain('<html lang="en" data-fr-theme="auto">');
         // CSP: nothing but its own script / style; no inline code, no frames, no network
         for (const csp of [SIDEBAR_CSP, SIDEBAR_META_CSP]) {
             expect(csp).toContain("default-src 'none'");
@@ -362,6 +371,46 @@ test.describe('electron sidebar — the page: theme variables and CSP', () => {
         expect(SIDEBAR_PAGE_HTML).toContain(`content="${SIDEBAR_META_CSP}"`);
         expect([...SIDEBAR_PAGE_HTML.matchAll(/<script\b[^>]*>/g)].map((m) => m[0])).toEqual(['<script src="sidebar.js">']);
         expect(SIDEBAR_PAGE_HTML).not.toMatch(/<style|\sstyle=|\son[a-z]+=/i); // no inline style / event handler attributes
+    });
+
+    test('the design CSS is the extension\'s own out/webview/tokens.css + fr-base.css (read, not copied); a missing file is left out and reported', () => {
+        const ext = mkTmp('fx-design-');
+        try {
+            fs.mkdirSync(path.join(ext, 'out', 'webview'), { recursive: true });
+            fs.writeFileSync(path.join(ext, 'out', 'webview', 'tokens.css'), TOKENS);
+            const missing: string[] = [];
+            expect(readDesignCss(ext, (file) => missing.push(path.basename(file)))).toBe(TOKENS);
+            expect(missing).toEqual(['fr-base.css']);
+            const base = fs.readFileSync(path.join(REPO_ROOT, 'src', 'webview', 'fr-base.css'), 'utf8');
+            fs.writeFileSync(path.join(ext, 'out', 'webview', 'fr-base.css'), base);
+            const css = readDesignCss(ext, (file) => missing.push(file));
+            expect(css.indexOf(TOKENS)).toBe(0); // tokens first, as the note views load them
+            expect(css).toContain(base);
+            expect(missing).toHaveLength(1);
+        } finally {
+            rmrf(ext);
+        }
+    });
+
+    test('the colors the native views paint before their page: tokens.css\'s own bg-app / bg-panel / bg-elevated, light and dark; a value that is missing or not #RRGGBB falls back on its own', () => {
+        const s = parseDesignSurfaces(TOKENS);
+        const val = (block: string | undefined, token: string) => new RegExp(`--fr-color-${token}:\\s*(#[0-9A-Fa-f]{6});`).exec(block || '')?.[1];
+        for (const theme of ['light', 'dark'] as const) {
+            const block = themeBlock(TOKENS, theme);
+            expect(s[theme]).toEqual({ app: val(block, 'bg-app'), panel: val(block, 'bg-panel'), elevated: val(block, 'bg-elevated') });
+        }
+        expect(s.light.app).not.toBe(s.dark.app);
+        expect(s.light.panel).not.toBe(s.dark.panel);
+        // the selector in a comment or in a longer selector is not the block; each value on its own
+        const css = `/* :root[data-fr-theme="dark"] { --fr-color-bg-app: #000000; } */
+            :root[data-fr-theme="dark"] .x { --fr-color-bg-app: #111111; }
+            :root, :root[data-fr-theme="light"], :root[data-fr-theme="auto"] { --fr-color-bg-app: #FAFAFA; --fr-color-bg-panel: var(--x); }
+            :root[data-fr-theme="dark"] { --fr-color-bg-panel: #222222; }`;
+        expect(parseDesignSurfaces(css)).toEqual({
+            light: { app: '#FAFAFA', panel: FALLBACK_SURFACES.light.panel, elevated: FALLBACK_SURFACES.light.elevated },
+            dark: { app: FALLBACK_SURFACES.dark.app, panel: '#222222', elevated: FALLBACK_SURFACES.dark.elevated },
+        });
+        expect(parseDesignSurfaces('')).toEqual(FALLBACK_SURFACES);
     });
 });
 

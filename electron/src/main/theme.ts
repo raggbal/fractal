@@ -1,10 +1,15 @@
 /**
- * The theme of the desktop app: the --vscode-* variables (theme-vars.ts, shared by the note views and
- * the sidebar page) and which set applies (the extension's fractal.theme, else the OS appearance).
+ * The theme of the desktop app: which set applies (the extension's fractal.theme, else the OS
+ * appearance), the --vscode-* variables VS Code would inject into the note views (theme-vars.ts), and
+ * the surface colors of the Fractal design (design-tokens.ts: the extension's tokens.css) that the
+ * native views paint before their page does.
  */
 import { nativeTheme } from 'electron';
+import { FALLBACK_SURFACES, parseDesignSurfaces, type DesignSurfaces, type Surfaces } from './design-tokens';
 
 export { webviewThemeCss } from './theme-vars';
+
+let surfaces: DesignSurfaces = FALLBACK_SURFACES;
 
 /** 'light' | 'dark' | 'auto' (the extension's fractal.theme) → whether the window is dark. */
 export function isDarkTheme(fractalTheme: unknown): boolean {
@@ -17,7 +22,12 @@ export function isDarkTheme(fractalTheme: unknown): boolean {
     return nativeTheme.shouldUseDarkColors;
 }
 
-/** Window background before the page paints (no white flash in dark mode). */
-export function windowBackground(dark: boolean): string {
-    return dark ? '#1f1f1f' : '#ffffff';
+/** Takes the surface colors from the extension's tokens.css (the shell, once at start). */
+export function useDesignTokens(tokensCss: string): void {
+    surfaces = parseDesignSurfaces(tokensCss);
+}
+
+/** The colors a view paints before its page does (no flash of another color). */
+export function surfaceColors(dark: boolean): Surfaces {
+    return dark ? surfaces.dark : surfaces.light;
 }

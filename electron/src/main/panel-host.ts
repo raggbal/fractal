@@ -41,6 +41,7 @@ import { contentTypeFor, resolveResourceRequest, webviewResourcePath } from '../
 import type { PanelBinding, PanelController, PanelInit, ShimLogger, WebviewHostAdapter } from '../vscode-shim/adapters';
 import { PANEL_CH, PANEL_SCHEME } from './ipc';
 import { GUARDED_URL_PATTERNS, mayLoadInPanelSession, WEBVIEW_RESOURCE_BASE_HOST } from './request-guard';
+import { surfaceColors } from './theme';
 const ALLOWED_PERMISSIONS = new Set(['clipboard-read', 'clipboard-sanitized-write', 'fullscreen']);
 const FLUSH_TIMEOUT_MS = 3000;
 const DRAIN_TIMEOUT_MS = 5000;
@@ -283,7 +284,7 @@ export class PanelView {
                 devTools: true,
             },
         });
-        this.view.setBackgroundColor(o.isDark() ? '#1f1f1f' : '#ffffff');
+        this.view.setBackgroundColor(surfaceColors(o.isDark()).app);
         this.wc = this.view.webContents;
         this.webContentsId = this.wc.id;
         this.installProtocols();
