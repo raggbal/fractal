@@ -1,8 +1,8 @@
 'use strict';
 
-/** v0.5.0:
- *  icon click → popup.html (manifest default_popup) で preset / note + target 選択 → Bookmark 実行
- *  keyboard shortcut (Alt+Shift+F) → default preset（無ければ lastSelection）で quick clip（out/md 両対応）
+/** v0.6.0:
+ *  icon click → popup.html (manifest default_popup) で note + target 選択 → Bookmark 実行
+ *  keyboard shortcut (Alt+Shift+F) → 最後に保存した場所（lastSelection）に quick clip（out/md 両対応）
  *  service worker (this file) は keyboard shortcut のみ処理。note は .fractal の note（許可したフォルダからたどる）か以前の登録。
  *  保存先はフラットレイアウト（ADRL-0018: lib/flat-layout-mirror.js = 本体 flat-layout.ts のミラー）。
  */
@@ -95,7 +95,7 @@ async function quickClip(tab) {
     setBadge('…', '#0969da');
     if (tab && tab.id) showBanner(tab.id, FractalI18n.t('bg_clip_in_progress', { title: tab.title || '' }), 'progress');
 
-    // 保存先: default preset 優先 → lastSelection fallback（FR-CL-06）。旧 lastSelection {outId} も正規化。
+    // 保存先: 最後に保存した場所（popup で保存すると覚える）。旧 lastSelection {outId} も正規化。〜0.5.x の ★default プリセットは移してから読む
     const list = await FractalIdb.get('fractalList');
     const legacy = await FractalFolders.listFolders();
     if (!(list && Array.isArray(list.notes) && list.notes.length) && legacy.length === 0) {
@@ -105,10 +105,8 @@ async function quickClip(tab) {
         chrome.runtime.openOptionsPage();
         return;
     }
-    let sel = null; // { folderId, targetId, targetKind }
-    const p = await FractalFolders.getDefaultPreset();
-    if (p) sel = { folderId: p.folderId, targetId: p.targetId, targetKind: p.targetKind === 'md' ? 'md' : 'out' };
-    if (!sel) sel = await FractalFolders.getLastSelection();
+    await FractalFolders.migratePresetsIfNeeded();
+    const sel = await FractalFolders.getLastSelection(); // { folderId, targetId, targetKind }
     if (!sel) {
         setBadge('!', '#cc3333');
         notify(FractalI18n.t('bg_no_selection_title'), FractalI18n.t('bg_no_selection_body'), true);

@@ -62,12 +62,14 @@
         return b && q.startsWith(prefix) ? q.slice(prefix.length) : null;
     }
 
-    /** note のパスの途中で、名前が folderName のフォルダのパス（= 選ばれたフォルダの候補）。深い順 */
+    /** note のパスの途中で、名前が folderName のフォルダのパス（= 選ばれたフォルダの候補）。深い順。
+     *  名前は Unicode の正規化をそろえて比べる（Mac のファイル名は NFD のことがある） */
     function candidateBases(folderName, notePath) {
+        const name = String(folderName || '').normalize('NFC');
         const segs = normalizePath(notePath).split('/');
         const out = [];
         for (let i = segs.length; i >= 1; i--) {
-            if (segs[i - 1] === folderName) out.push(segs.slice(0, i).join('/'));
+            if (segs[i - 1].normalize('NFC') === name) out.push(segs.slice(0, i).join('/'));
         }
         return out;
     }

@@ -10,6 +10,8 @@
 
 🌐 **Website: [raggbal.github.io/fractal](https://raggbal.github.io/fractal/)** — also available as a **desktop app for macOS** (no VS Code needed).
 
+📦 **Install:** [Desktop app (macOS)](#desktop-app-macos) · [VS Code extension](#vs-code-extension) · [AI agent plugin](#ai-agent-plugin) · [Web clipper (Chrome)](#web-clipper-chrome-extension)
+
 ---
 
 ## Why Fractal Note
@@ -23,6 +25,112 @@
 - 🧩 **Beyond the editor** — A Chrome extension for clipping web pages, Amazon Translate integration, and published **AI skills** that let AI agents read and write your notes in Fractal Note (use Fractal Note instead of Obsidian).
 
 `.md` and `.out` files work standalone, but Fractal Note shines when everything is connected in the **Notes manager**.
+
+---
+
+## 📦 Installation
+
+Pick what you need — they all work on the same notes:
+
+| | What it is | Where |
+| --- | --- | --- |
+| 🖥 [Desktop app (macOS)](#desktop-app-macos) | Fractal Note as a standalone app, no VS Code needed | [Download `Fractal-mac-arm64.zip`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.zip) |
+| 🧩 [VS Code extension](#vs-code-extension) | Fractal Note inside VS Code and compatible editors | [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=imaken.fractal) · [Open VSX](https://open-vsx.org/extension/imaken/fractal) |
+| 🤖 [AI agent plugin](#ai-agent-plugin) | Lets Claude Code, Codex and Kiro search, read and edit your notes | this repository (`agent-capability/install.sh`) |
+| 🌐 [Web clipper](#web-clipper-chrome-extension) | Saves web pages into a note from Chrome or Edge | this repository (`chrome-extension/`) |
+
+The same steps, with screenshots of the app, are on [the website](https://raggbal.github.io/fractal/).
+
+### Desktop app (macOS)
+Fractal Note as a standalone app — no VS Code needed. It runs the very same code as the VS Code extension, so your notes look and work the same in both.
+
+- Apple Silicon Mac (M1 or later), macOS 13 Ventura or later
+- Not yet for Intel Macs, Windows or Linux
+
+1. **Download and open the zip** — Download [`Fractal-mac-arm64.zip`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.zip) and double-click it. `Fractal.app` appears next to it.
+2. **Move it to Applications** — Drag `Fractal.app` into the Applications folder.
+3. **Allow it the first time** — Open Fractal. The first time, macOS stops it, because this build is not signed with an Apple Developer ID nor notarized by Apple. Click **Done**, open **System Settings → Privacy & Security**, scroll down to “Fractal” was blocked…, click **Open Anyway** and confirm. Or in Terminal — this removes the download mark from the app, after which it opens normally:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Fractal.app
+   ```
+4. **Start writing** — Fractal opens your notes list, `~/.fractal/default.fractal` — the same list the VS Code extension uses on this Mac. Add a folder as a note from the sidebar.
+
+- **Update** — Quit Fractal, download the new zip and replace `Fractal.app` in Applications. There are no automatic updates yet — see [Releases](https://github.com/raggbal/fractal/releases).
+- **Settings** — **Fractal → Settings…** opens `settings.json` with the same `fractal.*` keys as in VS Code (VS Code's own settings are not read).
+- **Not in the desktop app yet** — S3 sync and translation, opening draw.io diagrams in an external editor, automatic updates.
+- **Uninstall** — Delete `Fractal.app`. The app's own data is in `~/Library/Application Support/Fractal`. Your notes are never touched.
+
+### VS Code extension
+The same Fractal Note inside VS Code and VS Code–compatible editors — on macOS, Windows and Linux (tested day to day on macOS).
+
+- **VS Code Marketplace** (Visual Studio Code) — Open the Extensions view (`Cmd+Shift+X` / `Ctrl+Shift+X`), search for **“Fractal Note”** and click **Install**. Or [open it in the Marketplace](https://marketplace.visualstudio.com/items?itemName=imaken.fractal), or run:
+  ```bash
+  code --install-extension imaken.fractal
+  ```
+- **Open VSX** (VSCodium, Cursor, Kiro, Gitpod, Eclipse Theia and other editors that use the Open VSX Registry) — search for “Fractal Note” in the editor's extensions view, or [open it in Open VSX](https://open-vsx.org/extension/imaken/fractal).
+- **From a VSIX** — Download `fractal-<version>.vsix` from [Releases](https://github.com/raggbal/fractal/releases/latest), then:
+  ```bash
+  code --install-extension fractal-<version>.vsix
+  ```
+- **From source**
+  ```bash
+  git clone https://github.com/raggbal/fractal
+  cd fractal
+  npm install
+  npm run compile
+  # press F5 to launch in debug mode
+  ```
+
+### AI agent plugin
+An MCP server and a skill that let **Claude Code, Codex and Kiro** search, read and edit your notes — outlines, markdown pages, attachments — with the same code as the app, so the result is the same as doing it on screen ([🤖 AI skills](#-ai-skills--make-fractal-note-your-agents-notebook)).
+
+- Node.js 18 or later, git
+- Built from this repository
+
+1. **Get the repository**
+   ```bash
+   git clone https://github.com/raggbal/fractal && cd fractal && npm install
+   ```
+2. **Install the plugin** — Builds the plugin and installs it into every agent it finds: Claude Code and Codex as a plugin, Kiro as a Power. For Antigravity it prints the command to set by hand.
+   ```bash
+   agent-capability/install.sh
+   ```
+   Only some agents: `--only claude,codex,kiro`. See what it would do: `--dry-run`.
+3. **Start a new session** — The tools (`fractal_search`, `fractal_get`, `fractal_add`, …) appear in a new session (Claude Code: or `/reload-plugins`). Ask, for example, “Summarize this week's meeting notes in Fractal”.
+
+- **Install by hand** — After `npm install` and `npm run build:mcp` in the repository:
+  - Claude Code: `/plugin marketplace add <repo>/agent-capability` → `/plugin install fractal@fractal-local`
+  - Codex: `codex plugin marketplace add <repo>/agent-capability` → `codex plugin add fractal@fractal-local`
+  - Kiro: `kiro-cli powers install <repo>/agent-capability/plugin` (or Powers → Add Custom Power → Import power from a folder)
+- **Update** after `git pull`: `agent-capability/install.sh --update`
+- **Remove**: `agent-capability/install.sh --uninstall`. Details: [agent-capability/README.md](agent-capability/README.md)
+
+### Web clipper (Chrome extension)
+Saves any web page into a note — straight from Chrome or Edge, without VS Code ([🌐 Chrome extension](#-chrome-extension-web-clipper)).
+
+- Chrome or Edge (or another Chromium-based browser)
+- Your notes list (`.fractal`) from the desktop app or the VS Code extension
+- Not in the Chrome Web Store yet — you load it from this repository
+
+1. **Get the repository** — No build needed.
+   ```bash
+   git clone https://github.com/raggbal/fractal
+   ```
+   Without git: **Code → Download ZIP** on GitHub, and unzip it.
+2. **Load it into Chrome** — Open `chrome://extensions`, turn on **Developer mode** (top right), click **Load unpacked** and choose the `chrome-extension` folder of the repository. Its Settings open by themselves the first time (later: right-click the clipper's icon → **Options**).
+3. **Choose your `.fractal`** — Click **📄 Choose .fractal…** and choose the notes list Fractal uses, `~/.fractal/default.fractal` by default. `~/.fractal` is a hidden folder: on a Mac, press **⌘⇧G** in the dialog and type `~/.fractal`. The clipper reads your notes from it every time, so notes you add in Fractal show up by themselves.
+4. **Enable your notes** — Chrome lets an extension save only into folders you choose. Click **📁 Enable the notes in …** and choose the folder it names (for example `~/workspace/fractal`), then let Chrome edit files. Every note inside it shows **✓ Ready**. Click ☆ on a note to show it first in the popup.
+5. **Clip** — On any page, click the clipper's icon, pick the note and where in it (an outliner or a markdown page), and click **📌 Bookmark**. **`Alt+Shift+F`** saves to the place you saved to last, without opening the popup.
+
+- **Update** — `git pull` (or a new zip), then click **↻** on Fractal Web Clipper in `chrome://extensions`. Your settings stay.
+- **Uninstall** — Click **Remove** in `chrome://extensions`. Your notes are never touched.
+- Details (in Japanese): [chrome-extension/README.md](chrome-extension/README.md)
+
+### Optional: AWS credentials (S3 sync & translation)
+Core features work without AWS. To use S3 sync and Amazon Translate, just configure credentials in VS Code settings — the extension talks to AWS directly (built-in AWS SDK; no CLI installation needed). Note: connections through an HTTP(S) proxy are not currently supported for these features:
+
+- S3 sync: `fractal.s3AccessKeyId`, `fractal.s3SecretAccessKey`, `fractal.s3Region`
+- Translation: `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`
 
 ---
 
@@ -240,13 +348,12 @@ With the MCP registered, agents like Claude Code can organize research, summariz
 
 Save any web page into a Fractal Note — straight from Chrome, without launching VS Code.
 
-- Lives in `chrome-extension/` in this repository (load it as an unpacked extension)
+- Install: [Web clipper (Chrome extension)](#web-clipper-chrome-extension) — load `chrome-extension/` of this repository into Chrome or Edge
 - Click the icon (or `Alt+Shift+F` for a quick clip) → the page is extracted with **Mozilla Readability** and converted through **Fractal Note's own HTML→MD pipeline** (tables, GFM, Medium / dev.to code blocks, and more)
-- **Your notes come from your `.fractal`** — choose the `.fractal` Fractal uses (`~/.fractal/default.fractal` by default) and allow the folder that holds your notes once; notes you add in Fractal show up by themselves
+- **Your notes come from your `.fractal`** — choose the `.fractal` Fractal uses (`~/.fractal/default.fractal` by default) and enable the folder that holds your notes once; notes you add in Fractal show up by themselves
 - Save to an **outliner** (added as a page node) or to **markdown** (a new md is created and a subpage link is appended to the md you picked) — both are supported
-- **Destination presets** — Register multiple "Note + destination" pairs and mark a ★default. The popup opens with the default pre-selected, ready to save immediately
+- **★ notes come first** in the popup, each note starts on the place you saved to last in it, and `Alt+Shift+F` saves to the place you saved to last
 - Writes directly to disk via the File System Access API — no communication with VS Code needed
-- Concurrent clips are serialized through a queue to prevent write conflicts
 
 See `chrome-extension/README.md` for details.
 
@@ -261,57 +368,6 @@ See `chrome-extension/README.md` for details.
 | **Linux** | ⚠️ Implemented, not guaranteed |
 
 The Windows / Linux implementations (path handling, clipboard, launching external apps, and so on) are in place, but day-to-day verification only happens on macOS, so **behavior cannot be guaranteed**. If you hit a problem, please file a request in [GitHub Issues](https://github.com/raggbal/fractal/issues) — I'll get to it when time allows. Reproduction steps plus your OS / VS Code version are much appreciated.
-
----
-
-## 📦 Installation
-
-### Desktop app (macOS, Apple Silicon)
-The same Fractal Note as a standalone app — it runs the extension's own code, so notes look and work the same. Download `Fractal-mac-arm64.zip` from [Releases](https://github.com/raggbal/fractal/releases/latest), unzip it and move `Fractal.app` to Applications. macOS 13 or later, Apple Silicon only.
-
-The app is not signed with an Apple Developer ID nor notarized yet, so macOS blocks the first launch: open **System Settings → Privacy & Security** and click **Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/Fractal.app`. Step by step, and what the desktop app does not do yet: [the website](https://raggbal.github.io/fractal/#desktop).
-
-### VS Code Marketplace
-1. Open Extensions (`Ctrl+Shift+X`)
-2. Search **"Fractal Note"** → Install
-
-Or directly: [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=imaken.fractal)
-
-### Open VSX (VSCodium / Gitpod / Eclipse Theia)
-[Open VSX Registry](https://open-vsx.org/extension/imaken/fractal)
-
-### From VSIX
-```bash
-code --install-extension fractal-{version}.vsix
-```
-
-### From source
-```bash
-git clone https://github.com/raggbal/fractal
-cd fractal
-npm install
-npm run compile
-# press F5 to launch in debug mode
-```
-
-### AI agent plugin (Claude Code / Codex / Kiro)
-The MCP server and skill of [🤖 AI skills](#-ai-skills--make-fractal-note-your-agents-notebook), built from this repository (Node.js 18 or later):
-
-```bash
-git clone https://github.com/raggbal/fractal && cd fractal && npm install
-agent-capability/install.sh            # builds it and installs it into every agent found:
-                                       #   Claude Code / Codex as a plugin, Kiro as a Power
-agent-capability/install.sh --update   # after git pull
-agent-capability/install.sh --uninstall
-```
-
-Start a new session (Claude Code: or `/reload-plugins`) to get the `fractal_*` tools. `--only claude,codex,kiro` limits the agents, `--dry-run` shows what it would do. By hand (after `npm run build:mcp`): Claude Code `/plugin marketplace add <repo>/agent-capability` → `/plugin install fractal@fractal-local`; Codex `codex plugin marketplace add <repo>/agent-capability` → `codex plugin add fractal@fractal-local`; Kiro `kiro-cli powers install <repo>/agent-capability/plugin`. Details: [agent-capability/README.md](agent-capability/README.md).
-
-### Optional: AWS credentials (S3 sync & translation)
-Core features work without AWS. To use S3 sync and Amazon Translate, just configure credentials in VS Code settings — the extension talks to AWS directly (built-in AWS SDK; no CLI installation needed). Note: connections through an HTTP(S) proxy are not currently supported for these features:
-
-- S3 sync: `fractal.s3AccessKeyId`, `fractal.s3SecretAccessKey`, `fractal.s3Region`
-- Translation: `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`
 
 ---
 

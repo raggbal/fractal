@@ -124,6 +124,7 @@
       <a href="#desktop"><span lang="en">Desktop app</span><span lang="ja">デスクトップ版</span></a>
       <a href="#vscode"><span lang="en">VS Code</span><span lang="ja">VS Code 版</span></a>
       <a href="#plugin"><span lang="en">AI plugin</span><span lang="ja">AI の plugin</span></a>
+      <a class="hide-sm" href="#clipper"><span lang="en">Web clipper</span><span lang="ja">Web クリッパー</span></a>
       <a class="hide-sm" href="https://github.com/raggbal/fractal">GitHub</a>
       <span class="lang" role="group" aria-label="Language">
         <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
@@ -339,6 +340,75 @@
           <p style="margin-top:12px">
             <span lang="en">Remove: <code>agent-capability/install.sh --uninstall</code>. Details: <a href="https://github.com/raggbal/fractal/blob/main/agent-capability/README.md">agent-capability/README.md</a></span>
             <span lang="ja">外す: <code>agent-capability/install.sh --uninstall</code>。詳しくは <a href="https://github.com/raggbal/fractal/blob/main/agent-capability/README.md">agent-capability/README.md</a></span>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="clipper">
+    <div class="wrap">
+      <h2><span lang="en">Web clipper for Chrome</span><span lang="ja">Chrome の Web クリッパー</span></h2>
+      <p class="sub">
+        <span lang="en">Save any web page into a note — as a page in an outline or under a markdown page — straight from Chrome or Edge, without VS Code. The article is extracted and converted to markdown the same way Fractal converts pasted HTML.</span>
+        <span lang="ja">Web ページを note に保存します（アウトラインのページとして、または Markdown のページの下に）。VS Code を使わず、Chrome・Edge から直接。記事を取り出し、Fractal が貼り付けた HTML を変換するのと同じ方法で Markdown にします。</span>
+      </p>
+      <ul class="req">
+        <li><span lang="en">Chrome or Edge</span><span lang="ja">Chrome か Edge</span></li>
+        <li><span lang="en">Your notes list (<code>.fractal</code>) from the desktop app or the VS Code extension</span><span lang="ja">デスクトップ版か VS Code 版の note の一覧（<code>.fractal</code>）</span></li>
+        <li><span lang="en">Loaded from this repository (not in the Chrome Web Store yet)</span><span lang="ja">このリポジトリから読み込みます（Chrome ウェブストアにはまだありません）</span></li>
+      </ul>
+      <ol class="steps">
+        <li>
+          <strong><span lang="en">Get the repository</span><span lang="ja">リポジトリを取ってくる</span></strong>
+          <div class="cmd"><code>git clone https://github.com/raggbal/fractal</code><button class="copy" type="button" data-copy="git clone https://github.com/raggbal/fractal"><span lang="en">Copy</span><span lang="ja">コピー</span></button></div>
+          <p>
+            <span lang="en">No build needed. Without git: <b>Code → Download ZIP</b> on <a href="https://github.com/raggbal/fractal">GitHub</a>, and unzip it.</span>
+            <span lang="ja">ビルドは要りません。git が無ければ、<a href="https://github.com/raggbal/fractal">GitHub</a> の <b>Code → Download ZIP</b> で zip を落として開きます。</span>
+          </p>
+        </li>
+        <li>
+          <strong><span lang="en">Load it into Chrome</span><span lang="ja">Chrome に読み込む</span></strong>
+          <p>
+            <span lang="en">Open <code>chrome://extensions</code>, turn on <b>Developer mode</b> (top right), click <b>Load unpacked</b> and choose the <code>chrome-extension</code> folder of the repository. Its settings open by themselves the first time.</span>
+            <span lang="ja"><code>chrome://extensions</code> を開き、右上の <b>デベロッパーモード</b> を ON にして <b>パッケージ化されていない拡張機能を読み込む</b> を押し、リポジトリの <code>chrome-extension</code> フォルダを選びます。初回は設定が自動で開きます。</span>
+          </p>
+        </li>
+        <li>
+          <strong><span lang="en">Choose your .fractal</span><span lang="ja">.fractal を選ぶ</span></strong>
+          <p>
+            <span lang="en">Click <b>📄 Choose .fractal…</b> and choose the notes list Fractal uses, <code>~/.fractal/default.fractal</code> by default. <code>~/.fractal</code> is a hidden folder: on a Mac, press <b>⌘⇧G</b> in the dialog and type <code>~/.fractal</code>. Notes you add in Fractal later show up by themselves.</span>
+            <span lang="ja"><b>📄 .fractal を選ぶ…</b> を押し、Fractal が使っている note の一覧（既定は <code>~/.fractal/default.fractal</code>）を選びます。<code>~/.fractal</code> は隠しフォルダなので、Mac はダイアログで <b>⌘⇧G</b> を押して <code>~/.fractal</code> と入力します。あとで Fractal で足した note もそのまま出ます。</span>
+          </p>
+        </li>
+        <li>
+          <strong><span lang="en">Enable your notes</span><span lang="ja">note を有効にする</span></strong>
+          <p>
+            <span lang="en">Chrome lets an extension save only into folders you choose. Click <b>📁 Enable the notes in …</b>, choose the folder it names (for example <code>~/workspace/fractal</code>) and let Chrome edit files. Every note inside it is ready. Star (☆) the notes you use most to show them first.</span>
+            <span lang="ja">Chrome は、拡張機能が自分で選ばれたフォルダにしか保存させません。<b>📁 〜 の note を有効にする…</b> を押し、書かれているフォルダ（例 <code>~/workspace/fractal</code>）を選んで、ファイルの編集を許可します。その中の note すべてに保存できます。よく使う note は ☆ を押すと先に出ます。</span>
+          </p>
+        </li>
+        <li>
+          <strong><span lang="en">Clip</span><span lang="ja">クリップする</span></strong>
+          <p>
+            <span lang="en">On any page, click the clipper's icon, pick the note and where in it, and click <b>📌 Bookmark</b>. <b>Alt+Shift+F</b> saves to the place you saved to last, without opening the popup.</span>
+            <span lang="ja">保存したいページでクリッパーのアイコンを押し、note と保存先を選んで <b>📌 Bookmark</b> を押します。<b>Alt+Shift+F</b> は popup を開かずに、最後に保存した場所に保存します。</span>
+          </p>
+        </li>
+      </ol>
+      <div class="grid">
+        <div class="card">
+          <h3><span lang="en">Update</span><span lang="ja">新しい版にする</span></h3>
+          <p>
+            <span lang="en"><code>git pull</code> (or a new zip), then click <b>↻</b> on Fractal Web Clipper in <code>chrome://extensions</code>. Your settings stay.</span>
+            <span lang="ja"><code>git pull</code>（zip なら新しい zip で置き換え）してから、<code>chrome://extensions</code> の Fractal Web Clipper の <b>↻</b> を押します。設定はそのままです。</span>
+          </p>
+        </div>
+        <div class="card">
+          <h3><span lang="en">Uninstall</span><span lang="ja">消すとき</span></h3>
+          <p>
+            <span lang="en">Click <b>Remove</b> in <code>chrome://extensions</code>. Your notes are never touched. Details: <a href="https://github.com/raggbal/fractal/blob/main/chrome-extension/README.md">chrome-extension/README.md</a></span>
+            <span lang="ja"><code>chrome://extensions</code> で <b>削除</b> を押します。note には触れません。詳しくは <a href="https://github.com/raggbal/fractal/blob/main/chrome-extension/README.md">chrome-extension/README.md</a></span>
           </p>
         </div>
       </div>

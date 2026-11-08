@@ -10,6 +10,11 @@ VSCode と直接通信しません — ブラウザの **File System Access API*
 
 ---
 
+## v0.6.0 で何が変わったか
+
+- **note は一覧の中で「有効にする」** — まだ保存できない note には **有効にする…** ボタンが付き、上に「どのフォルダを選べばよいか」が出る（例 `~/workspace/fractal` の note を有効にする…）。フォルダを 1 回選ぶと、その中の note すべてが **✓ 保存できます** になる。「許可したフォルダ」の一覧はなくした
+- **保存先プリセットをやめて ★ に** — note の一覧の ☆ を押すと、その note が popup で先に出る。popup は note ごとに前回保存した保存先を最初から選び、quick clip（Alt+Shift+F）は最後に保存した場所に保存する。0.5 までのプリセットは ★ と前回の保存先に自動で移る
+
 ## v0.5.0 で何が変わったか
 
 - **note は .fractal から読む** — note を 1 つずつ登録するのをやめた。設定で Fractal の `.fractal`（既定は `~/.fractal/default.fractal`）を選ぶと、そこに書かれた note が保存先になる。開くたびに読み直すので、Fractal で足した note もそのまま出る
@@ -39,12 +44,18 @@ VSCode と直接通信しません — ブラウザの **File System Access API*
 
 ## インストール (開発者モード)
 
-1. Chrome (or Edge) で `chrome://extensions` を開く
-2. 右上「**デベロッパーモード**」を ON
-3. 「**パッケージ化されていない拡張機能を読み込む**」をクリック
-4. このフォルダ (`fractal/chrome-extension/`) を選択
+Chrome ウェブストアには出していないので、このリポジトリのフォルダを読み込む。
 
-icon が出たら成功。
+1. リポジトリを取ってくる: `git clone https://github.com/raggbal/fractal`（git が無ければ GitHub の **Code → Download ZIP** で zip を落として開く）。ビルドは要らない
+2. Chrome (or Edge) で `chrome://extensions` を開く
+3. 右上「**デベロッパーモード**」を ON
+4. 「**パッケージ化されていない拡張機能を読み込む**」をクリック
+5. `fractal/chrome-extension/` フォルダを選択
+
+icon が出たら成功（ツールバーのパズルのアイコンから📌で固定すると押しやすい）。初めて入れたときは設定が自動で開く。
+
+- **更新**: `git pull`（zip なら新しい zip で置き換え）してから、`chrome://extensions` の Fractal Web Clipper の **↻（再読み込み）** を押す。設定（.fractal・有効にした note・★）はそのまま
+- **削除**: `chrome://extensions` で **削除**。note には触れない
 
 ---
 
@@ -54,10 +65,11 @@ icon が出たら成功。
 2. **「📄 .fractal を選ぶ…」** で Fractal の `.fractal` を選ぶ
    - 既定は `~/.fractal/default.fractal`（Fractal が最初に作る。Fractal の **Fractal List** に出ている一覧）
    - `~/.fractal` は隠しフォルダ。Mac はダイアログで **⌘⇧G** を押して `~/.fractal` と入力する
-3. **「📁 フォルダを許可…」** で note が入っているフォルダを選ぶ（例 `~/workspace/fractal`）
-   - その中の note すべてに保存できる。画面の「許可するフォルダ」が、まだ保存できない note をまとめて許可できるフォルダ
+3. note が **まだ有効ではありません** と出るので、**「📁 〜 の note を有効にする…」**（または各 note の **有効にする…**）を押し、ダイアログで書かれているフォルダ（例 `~/workspace/fractal`）を選ぶ
+   - Chrome が「ファイルの編集を許可しますか」と聞くので許可する
+   - そのフォルダの中の note すべてが **✓ 保存できます** になる（Fractal であとから足した note も、そのフォルダの中ならそのまま使える）
    - ホームフォルダそのもの・`~/Documents`・`~/Desktop`・`~/Downloads` は Chrome が選ばせない。その 1 つ下を選ぶ
-4. 必要ならプリセット（よく使う保存先）を足す
+4. よく使う note に ☆ を押して ★ にする（popup で先に出る）
 
 ---
 
@@ -66,8 +78,9 @@ icon が出たら成功。
 1. 保存したい Web ページを開く
 2. ツールバーの拡張 icon を click (or `Alt+Shift+F`)
 3. ポップアップで:
-   - **プリセット**（★ が初期選択）か、**Note** と **保存先**（Outliner / Markdown）を選ぶ
-   - Note は `.fractal` の note。許可したフォルダの外の note は選べない（設定で許可する）
+   - **Note**（★ が先）と **保存先**（Outliner / Markdown）を選ぶ。最初は最後に保存した note、保存先はその note で前回保存したもの
+   - まだ有効ではない note は選べない（設定で有効にする）
+   - `Alt+Shift+F` は popup を開かずに、最後に保存した場所に保存する
 4. **「📌 Bookmark」** ボタンを click → 保存実行
 5. 数秒で完了。VSCode で対象 `.out` を再読み込みすれば先頭にノードが追加されている
 
@@ -111,12 +124,12 @@ chrome-extension/
 ├── manifest.json              # Chrome 拡張 manifest v3 (v0.5.0)
 ├── background.js              # service worker（quick clip = Alt+Shift+F）
 ├── popup.html / popup.js      # ツールバーポップアップ (note + 保存先の選択 + clip 実行)
-├── options.html / options.js  # 設定 UI（.fractal・許可したフォルダ・プリセット・言語）
+├── options.html / options.js  # 設定 UI（.fractal・note の有効化と ★・言語）
 ├── icons/                     # ツールバーアイコン (Fractal アイコン流用)
 ├── lib/
 │   ├── idb.js                 # IndexedDB helper (FileSystemHandle 永続化)
 │   ├── fractal-list.js        # .fractal の読み取り（本体 notes-registry.ts と同じ判定）・許可したフォルダの位置決め
-│   ├── folder-registry.js     # note の一覧・許可したフォルダ・outline.note 読み取り・プリセット
+│   ├── folder-registry.js     # note の一覧・有効にしたフォルダ・outline.note 読み取り・★・前回の保存先
 │   ├── clip-writer.js         # 保存の書き込み（popup と quick clip が共用）
 │   ├── clipper-core.js        # node 追加 + page MD 組立 (DOM 非依存)
 │   ├── flat-layout-mirror.js  # 保存先の決め方（本体 flat-layout.ts のミラー）
@@ -144,12 +157,13 @@ chrome-extension/
 | key | value | 用途 |
 | --- | --- | --- |
 | `fractalList` | `{ handle: FileSystemFileHandle, name, notes: string[] }` | 選んだ `.fractal`（notes は最後に読めた一覧。読めないときに使う） |
-| `accessRoots` | `Array<{ path, handle: FileSystemDirectoryHandle }>` | 許可したフォルダ（path = `.fractal` の中での位置） |
+| `accessRoots` | `Array<{ path, handle: FileSystemDirectoryHandle }>` | note を有効にするときに選んだフォルダ（path = `.fractal` の中での位置。画面には出さない） |
 | `notesFolders` | `Array<{ id, name, handle: FileSystemDirectoryHandle }>` | 0.4 までの 1 つずつの登録（`.fractal` にあるものは引き継いで消える） |
-| `presets` / `defaultPresetId` | `Array<{ id, name, folderId, targetId, targetKind, targetTitle }>` / id | 保存先プリセットと ★ |
-| `lastSelection` | `{ folderId, targetId, targetKind }` | 直前選択 (popup の default 復元) |
+| `favoriteNotes` | `string[]` | ★ の note（popup で先に出す） |
+| `lastSelection` | `{ folderId, targetId, targetKind }` | 最後に保存した場所（quick clip の保存先・popup の初期選択） |
+| `lastTargets` | `{ [noteId]: { targetId, targetKind } }` | note ごとに前回保存した保存先 |
 
-`folderId` は note のパス（以前の登録は その id）。旧 schema (`notesFolderHandle` / `notesFolderName` / `targetOutPath`) は v0.2.0 起動時に自動 migration → 削除。
+note の id（`folderId` など）は note のパス（以前の登録は その id）。0.5 までの `presets` / `defaultPresetId` は ★・前回の保存先・最後に保存した場所に移してから消す。旧 schema (`notesFolderHandle` / `notesFolderName` / `targetOutPath`) は v0.2.0 起動時に自動 migration → 削除。
 
 ---
 
@@ -159,13 +173,14 @@ chrome-extension/
 |------|------|
 | Options で「許可が得られませんでした」 | ボタンを押し直し、ダイアログで「許可」を選ぶ |
 | popup で「note がまだありません」 | Options で `.fractal` を選ぶ |
-| note が「未許可」 | Options の「📁 フォルダを許可…」で、その note が入っているフォルダを許可する（「許可するフォルダ」に案が出る） |
+| note が「まだ有効ではありません」 | Options の「📁 〜 の note を有効にする…」か、その note の「有効にする…」を押し、書かれているフォルダを選ぶ |
 | 「そのフォルダには .fractal の note が入っていません」 | 選んだフォルダの中に `.fractal` の note が無い。note のフォルダか、その上のフォルダを選ぶ |
 | 「どのフォルダか決められません」 | 同じ名前のフォルダが `.fractal` に 2 つある。1 つ上のフォルダを選ぶ |
 | popup に「新しい note を読み込むには…許可してください」 | Chrome の再起動などで `.fractal` の許可が切れた。「許可」を押す（それまでは最後に読めた一覧を使う） |
 | Outliner dropdown が空 | 対象 folder の `outline.note` が無いか壊れている。Fractal で folder を一度開いて自動生成、または folder 内に `*.out` があるかチェック |
 | `(.out が見つかりません)` 表示 | folder の root 直下に `.out` ファイルがない (Notes mode の convention 違反)。Fractal で folder を開いて構造を確認 |
-| 「要再許可」表示 | Chrome 再起動などで FileSystemHandle の権限が失効。Options で「再許可」 button を click（popup でも note を選ぶと聞かれる） |
+| 「もう一度許可」「要再許可」表示 | Chrome 再起動などで FileSystemHandle の権限が失効。Options でそのボタンを押す（同じフォルダの note はまとめて戻る。popup でも保存するときに聞かれる） |
+| Alt+Shift+F で「保存先がまだありません」 | popup で 1 回保存する。Alt+Shift+F はその場所に保存する |
 | node が追加されたが VSCode で見えない | VSCode 側で `.out` を一度閉じて開き直すか、editor を refresh |
 
 ---

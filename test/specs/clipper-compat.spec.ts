@@ -347,7 +347,7 @@ test.describe('web clipper × the .fractal notes list', () => {
         }
     });
 
-    test('TC-CC-08 notes registered one by one before move over to the .fractal, with their presets and last selection', async () => {
+    test('TC-CC-08 notes registered one by one before move over to the .fractal, with their ★, last destinations and last selection', async () => {
         const h = makeNotesHome();
         try {
             const zeta = path.join(h.tmp, 'elsewhere', 'zeta');
@@ -357,17 +357,16 @@ test.describe('web clipper × the .fractal notes list', () => {
                 { id: 'f2', name: 'zeta', handle: new DirHandle(zeta) }, // not in the .fractal → stays
                 { id: 'f3', name: 'beta', handle: new DirHandle(h.beta, 'prompt') }, // no permission now → stays, untouched
             ]);
-            idb.set('presets', [
-                { id: 'p1', name: 'A', folderId: 'f1', targetId: 'o1', targetKind: 'out' },
-                { id: 'p2', name: 'Z', folderId: 'f2', targetId: 'o2', targetKind: 'out' },
-            ]);
+            idb.set('favoriteNotes', ['f1', 'f2']);
+            idb.set('lastTargets', { f1: { targetId: 'o1', targetKind: 'out' }, f2: { targetId: 'o2', targetKind: 'out' } });
             idb.set('lastSelection', { folderId: 'f1', outId: 'o1' });
             await registry.setFractalList(new FileHandle(h.listFile));
             const list = await registry.readFractalList();
 
             expect(await registry.adoptLegacyFolders(list.notes)).toBe(1);
             expect((await registry.listAccessRoots()).map((r: { path: string }) => r.path)).toEqual([h.alpha]);
-            expect((idb.get('presets') as { folderId: string }[]).map((p) => p.folderId)).toEqual([h.alpha, 'f2']);
+            expect(idb.get('favoriteNotes')).toEqual([h.alpha, 'f2']);
+            expect(idb.get('lastTargets')).toEqual({ [h.alpha]: { targetId: 'o1', targetKind: 'out' }, f2: { targetId: 'o2', targetKind: 'out' } });
             expect(idb.get('lastSelection')).toEqual({ folderId: h.alpha, targetId: 'o1', targetKind: 'out' });
             expect((idb.get('notesFolders') as { id: string }[]).map((f) => f.id)).toEqual(['f2', 'f3']);
             const notes = await registry.listNotes(list);
@@ -385,6 +384,41 @@ test.describe('web clipper × the .fractal notes list', () => {
         } finally {
             fs.rmSync(h.tmp, { recursive: true, force: true });
         }
+    });
+
+    test('TC-CC-10 presets (0.5 and before) become ★ and last destinations, once; each note remembers where it was saved to', async () => {
+        idb.set('presets', [
+            { id: 'p1', name: 'A', folderId: '/n/a', targetId: 'oa', targetKind: 'out' },
+            { id: 'p2', name: 'B', folderId: '/n/b', targetId: 'mb', targetKind: 'md' },
+            { id: 'p3', name: 'A2', folderId: '/n/a', targetId: 'oa2', targetKind: 'out' },
+        ]);
+        idb.set('defaultPresetId', 'p3');
+        idb.set('favoriteNotes', ['/n/c']);
+        await registry.migratePresetsIfNeeded();
+        expect(idb.get('favoriteNotes')).toEqual(['/n/c', '/n/a', '/n/b']);
+        // the ★default's target wins for its note; it is also the place quick clip saves to
+        expect(idb.get('lastTargets')).toEqual({ '/n/a': { targetId: 'oa2', targetKind: 'out' }, '/n/b': { targetId: 'mb', targetKind: 'md' } });
+        expect(await registry.getLastSelection()).toEqual({ folderId: '/n/a', targetId: 'oa2', targetKind: 'out' });
+        expect(idb.has('presets')).toBe(false);
+        expect(idb.has('defaultPresetId')).toBe(false);
+        // once: un-starring is not undone by the next start
+        await registry.setFavorite('/n/a', false);
+        await registry.migratePresetsIfNeeded();
+        expect(idb.get('favoriteNotes')).toEqual(['/n/c', '/n/b']);
+
+        // a save remembers the place (quick clip) and the note's destination (the popup's first choice for that note)
+        await registry.setLastSelection('/n/b', 'ob', 'out');
+        expect(await registry.getLastSelection()).toEqual({ folderId: '/n/b', targetId: 'ob', targetKind: 'out' });
+        expect(await registry.getLastTarget('/n/b')).toEqual({ targetId: 'ob', targetKind: 'out' });
+        expect(await registry.getLastTarget('/n/a')).toEqual({ targetId: 'oa2', targetKind: 'out' });
+        expect(await registry.getLastTarget('/n/zzz')).toBeNull();
+        // an existing last selection is kept when presets are moved over
+        idb.clear();
+        idb.set('lastSelection', { folderId: '/n/x', targetId: 'ox', targetKind: 'out' });
+        idb.set('presets', [{ id: 'p1', name: 'A', folderId: '/n/a', targetId: 'oa', targetKind: 'out' }]);
+        idb.set('defaultPresetId', 'p1');
+        await registry.migratePresetsIfNeeded();
+        expect(await registry.getLastSelection()).toEqual({ folderId: '/n/x', targetId: 'ox', targetKind: 'out' });
     });
 
     test('TC-CC-09 the folder to allow: the common parent, split where it would be the home or too broad', () => {

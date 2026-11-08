@@ -98,20 +98,16 @@ test.describe('B. clipper md 取込 + プリセット', () => {
         expect(m).not.toBeNull();
     });
 
-    // TC-CF-08（FR-CL-04/07）: プリセット schema の pure 操作 + lastSelection 正規化
-    test('TC-CF-08 プリセット操作 + lastSelection 旧形式正規化', () => {
-        // addPreset 相当（withPreset）
-        const { presets: p1, added } = registry.withPreset([], { name: 'Work', folderId: 'f1', targetId: 'o1', targetKind: 'out' });
-        expect(p1.length).toBe(1);
-        expect(added.id).toBeTruthy();
-        expect(added.targetKind).toBe('out');
-        // removePreset 相当（withoutPreset・default 参照 clear）
-        const { presets: p2, defaultPresetId } = registry.withoutPreset(p1, added.id, added.id);
-        expect(p2.length).toBe(0);
-        expect(defaultPresetId).toBeUndefined();
-        // default が別 preset なら維持
-        const r3 = registry.withoutPreset(p1, 'other-id', added.id);
-        expect(r3.defaultPresetId).toBe(added.id);
+    // TC-CF-08（FR-CL-07・0.6.0）: ★ の pure 操作（保存先プリセットの代わり）+ lastSelection 旧形式正規化
+    test('TC-CF-08 ★ の操作 + lastSelection 旧形式正規化', () => {
+        // ★ を付ける / 外す（重ならない・外すと消える）
+        expect(registry.withFavorite([], '/n/a', true)).toEqual(['/n/a']);
+        expect(registry.withFavorite(['/n/a'], '/n/a', true)).toEqual(['/n/a']);
+        expect(registry.withFavorite(['/n/a', '/n/b'], '/n/a', false)).toEqual(['/n/b']);
+        // ★ の note が先（それぞれの中は元の順）
+        const notes = [{ id: '/n/a' }, { id: '/n/b' }, { id: '/n/c' }, { id: '/n/d' }];
+        expect(registry.sortByFavorite(notes, ['/n/d', '/n/b']).map((n: { id: string }) => n.id)).toEqual(['/n/b', '/n/d', '/n/a', '/n/c']);
+        expect(registry.sortByFavorite(notes, []).map((n: { id: string }) => n.id)).toEqual(['/n/a', '/n/b', '/n/c', '/n/d']);
         // lastSelection 旧形式（outId）→ 新形式
         expect(registry.normalizeLastSelection({ folderId: 'f1', outId: 'o1' }))
             .toEqual({ folderId: 'f1', targetId: 'o1', targetKind: 'out' });

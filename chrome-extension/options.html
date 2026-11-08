@@ -68,6 +68,12 @@
         .folder-list .ok { color: #066; font-size: 11px; white-space: nowrap; }
         .folder-list .perm-warn { color: #c33; font-size: 11px; white-space: nowrap; }
         .empty { padding: 12px; color: #999; text-align: center; font-style: italic; }
+        #accessStatus { margin: 0 0 8px; }
+        .banner { margin: 8px 0; padding: 10px 12px; background: #fff8e6; border: 1px solid #f0d58a; border-radius: 4px; }
+        .banner .row { margin: 8px 0 4px; }
+        .fav { border: none; background: none; padding: 0 2px; font-size: 16px; line-height: 1; color: #b5b5b5; cursor: pointer; }
+        .fav:hover { background: none; color: #d39b00; }
+        .fav.on { color: #e3a600; }
         code { font-family: monospace; font-size: 12px; background: #f0f0f0; padding: 1px 4px; border-radius: 2px; }
     </style>
 </head>
@@ -84,20 +90,16 @@
     <div class="hint" data-i18n="options_list_hint">Choose the .fractal file Fractal uses. The clipper reads your notes from it every time, so notes you add in Fractal show up here by themselves. The default is ~/.fractal/default.fractal (on a Mac, press ⌘⇧G in the dialog and type ~/.fractal).</div>
 
     <h2 data-i18n="options_notes_heading">Notes</h2>
+    <div id="enableBanner" class="banner" style="display:none">
+        <div id="enableBannerText"></div>
+        <div id="enableButtons" class="row"></div>
+        <div class="hint" data-i18n="options_enable_dialog_hint">In the dialog, choose that folder (on a Mac, ⌘⇧G lets you type the path).</div>
+    </div>
+    <div id="accessStatus" class="status" style="display:none"></div>
     <ul id="noteList" class="folder-list">
         <li class="empty" data-i18n="options_no_list_notes">(choose the .fractal above)</li>
     </ul>
-    <div class="row">
-        <button id="allowFolderBtn" data-i18n="options_allow_folder">📁 Allow a folder…</button>
-        <span id="accessSuggest" class="meta"></span>
-    </div>
-    <div id="accessStatus" class="status" style="display:none"></div>
-    <div class="hint" data-i18n="options_access_hint">Chrome cannot open the folders in the .fractal by itself. Allow the folder that holds your notes once, and you can save to every note inside it.</div>
-
-    <h2 data-i18n="options_roots_heading">Allowed folders</h2>
-    <ul id="rootList" class="folder-list">
-        <li class="empty" data-i18n="options_no_roots">(none)</li>
-    </ul>
+    <div class="hint" data-i18n="options_fav_hint">★ notes come first in the popup.</div>
 
     <div id="legacySection" style="display:none">
         <h2 data-i18n="options_legacy_heading">Registered before</h2>
@@ -105,20 +107,8 @@
         <ul id="folderList" class="folder-list"></ul>
     </div>
 
-    <h2 data-i18n="options_preset_heading">Destination Presets</h2>
-    <div class="hint" data-i18n="options_preset_hint">Register frequently used destinations (Note + Outliner/Markdown) as presets. The preset marked ★ becomes the initial selection in the popup and the destination for quick clip (Alt+Shift+F).</div>
-    <div class="row" style="margin-top:8px; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-        <select id="presetFolderSelect" style="min-width:140px;"></select>
-        <select id="presetTargetSelect" style="min-width:200px;"><option data-i18n="options_select_note">(select a Note)</option></select>
-        <input id="presetNameInput" type="text" data-i18n-placeholder="options_preset_name_placeholder" placeholder="Preset name (optional)" style="padding:6px 8px; border:1px solid #ccc; border-radius:3px;">
-        <button id="addPresetBtn" class="primary" data-i18n="options_add_preset">＋ Add</button>
-        <span id="presetStatus" class="status" style="display:none"></span>
-    </div>
-    <ul id="presetList" class="folder-list">
-        <li class="empty" data-i18n="options_no_presets">(no presets)</li>
-    </ul>
-
-    <div class="hint" style="margin-top: 24px;" data-i18n="options_footer_hint">You can also pick the destination every time in the popup when you click the toolbar icon (preset or manual selection).</div>
+    <h2 data-i18n="options_quick_clip_heading">Quick clip (Alt+Shift+F)</h2>
+    <div class="hint" data-i18n="options_quick_clip_hint">Saves the page to the place you saved to last from the popup. The popup also starts with each note's last destination.</div>
 
     <h2 data-i18n="options_language_heading">Language</h2>
     <div class="row">

@@ -10,6 +10,8 @@
 
 🌐 **Web サイト: [raggbal.github.io/fractal](https://raggbal.github.io/fractal/)** — VS Code が無くても使える **macOS のデスクトップ版** もあります。
 
+📦 **インストール:** [デスクトップ版（macOS）](#デスクトップ版macos) ・ [VS Code 版](#vs-code-版拡張機能) ・ [AI エージェントの plugin](#ai-エージェントの-plugin) ・ [Web クリッパー（Chrome）](#web-クリッパーchrome-拡張)
+
 ---
 
 ## Fractal Note を選ぶ理由
@@ -23,6 +25,112 @@
 - 🧩 **エディタの外へ** — Web ページを取り込む Chrome 拡張、Amazon Translate 連携、そして AI エージェントが Fractal Note のノートを読み書きできる **AI スキル** を公開（Fractal Note を Obsidian の代わりに）。
 
 `.md` と `.out` は単体（standalone）でも動作しますが、真価を発揮するのはすべてが繋がる **Notes マネージャ** です。
+
+---
+
+## 📦 インストール
+
+使いたいものを選びます。どれも同じ note を使います:
+
+| | 何か | どこから |
+| --- | --- | --- |
+| 🖥 [デスクトップ版（macOS）](#デスクトップ版macos) | VS Code が無くても使える単体のアプリ | [`Fractal-mac-arm64.zip` をダウンロード](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.zip) |
+| 🧩 [VS Code 版（拡張機能）](#vs-code-版拡張機能) | VS Code と互換のエディタの中で使う Fractal Note | [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=imaken.fractal) ・ [Open VSX](https://open-vsx.org/extension/imaken/fractal) |
+| 🤖 [AI エージェントの plugin](#ai-エージェントの-plugin) | Claude Code・Codex・Kiro が note を探して、読んで、書けるようにする | このリポジトリ（`agent-capability/install.sh`） |
+| 🌐 [Web クリッパー](#web-クリッパーchrome-拡張) | Chrome・Edge から Web ページを note に保存する | このリポジトリ（`chrome-extension/`） |
+
+同じ手順はアプリの画面つきで [Web サイト](https://raggbal.github.io/fractal/) にもあります。
+
+### デスクトップ版（macOS）
+VS Code が無くても使える、単体のアプリです。VS Code 版と同じコードで動くので、ノートの見た目も操作も同じです。
+
+- Apple Silicon の Mac（M1 以降）、macOS 13 Ventura 以降
+- Intel の Mac・Windows・Linux はまだ対象外
+
+1. **zip をダウンロードして開く** — [`Fractal-mac-arm64.zip`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.zip) をダウンロードして、ダブルクリックで開きます。隣に `Fractal.app` ができます。
+2. **アプリケーションフォルダに移す** — `Fractal.app` を「アプリケーション」フォルダにドラッグします。
+3. **初回だけ、開くのを許可する** — Fractal を開きます。このビルドは Apple の Developer ID での署名と公証（notarize）をしていないので、初回は macOS が止めます。**完了** を押してから **システム設定 → プライバシーとセキュリティ** を開き、下のほうの「“Fractal”はブロックされました…」の **このまま開く** を押して確かめます。ターミナルでもできます（アプリに付いたダウンロードの印を外すと、ふつうに開けます）:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Fractal.app
+   ```
+4. **使いはじめる** — Fractal は note の一覧 `~/.fractal/default.fractal` を開きます。この Mac の VS Code 版と同じ一覧です。左のサイドバーからフォルダを note として足せます。
+
+- **新しい版にする** — Fractal を終了し、新しい zip をダウンロードして「アプリケーション」の `Fractal.app` を置き換えます。自動の更新はまだありません。版の一覧は [Releases](https://github.com/raggbal/fractal/releases) にあります。
+- **設定** — **Fractal → Settings…** で `settings.json` が開きます。キーは VS Code 版と同じ `fractal.*` です（VS Code の設定は読みません）。
+- **デスクトップ版でまだできないこと** — S3 の同期と翻訳、draw.io を外のエディタで開く、自動の更新。
+- **消すとき** — `Fractal.app` を削除します。アプリのデータは `~/Library/Application Support/Fractal` にあります。ノートには触れません。
+
+### VS Code 版（拡張機能）
+VS Code と、その互換のエディタの中で使う Fractal Note です。macOS・Windows・Linux で動きます（ふだん確かめているのは macOS です）。
+
+- **VS Code Marketplace**（Visual Studio Code）— 拡張機能のビュー（`Cmd+Shift+X` / `Ctrl+Shift+X`）で **「Fractal Note」** を検索して **インストール** を押します。[Marketplace で開く](https://marketplace.visualstudio.com/items?itemName=imaken.fractal) か、次のコマンドでも入れられます:
+  ```bash
+  code --install-extension imaken.fractal
+  ```
+- **Open VSX**（VSCodium・Cursor・Kiro・Gitpod・Eclipse Theia など、Open VSX Registry を使うエディタ）— エディタの拡張機能のビューで「Fractal Note」を検索するか、[Open VSX で開きます](https://open-vsx.org/extension/imaken/fractal)。
+- **VSIX から** — [Releases](https://github.com/raggbal/fractal/releases/latest) から `fractal-<version>.vsix` をダウンロードして:
+  ```bash
+  code --install-extension fractal-<version>.vsix
+  ```
+- **ソースから**
+  ```bash
+  git clone https://github.com/raggbal/fractal
+  cd fractal
+  npm install
+  npm run compile
+  # F5 でデバッグモードで起動
+  ```
+
+### AI エージェントの plugin
+**Claude Code・Codex・Kiro** が、ノート（アウトライン・Markdown のページ・添付）を探して、読んで、書けるようにする MCP サーバーと skill です。アプリと同じコードで動くので、画面で操作したのと同じ結果になります（[🤖 AI スキル](#-ai-スキル--fractal-note-をエージェントのノートに)）。
+
+- Node.js 18 以降、git
+- このリポジトリから作って入れます
+
+1. **リポジトリを取ってくる**
+   ```bash
+   git clone https://github.com/raggbal/fractal && cd fractal && npm install
+   ```
+2. **plugin を入れる** — plugin を作り、見つかったエージェントすべてに入れます。Claude Code と Codex は plugin、Kiro は Power として入ります。Antigravity には手で設定するコマンドを表示します。
+   ```bash
+   agent-capability/install.sh
+   ```
+   一部のエージェントだけ: `--only claude,codex,kiro`。何をするかだけ見る: `--dry-run`。
+3. **新しいセッションで使う** — 新しいセッションで tool（`fractal_search`・`fractal_get`・`fractal_add` など）が使えます（Claude Code は `/reload-plugins` でも）。たとえば「Fractal の今週の議事録をまとめて」と頼めます。
+
+- **手で入れるとき** — リポジトリで `npm install` と `npm run build:mcp` をしてから:
+  - Claude Code: `/plugin marketplace add <repo>/agent-capability` → `/plugin install fractal@fractal-local`
+  - Codex: `codex plugin marketplace add <repo>/agent-capability` → `codex plugin add fractal@fractal-local`
+  - Kiro: `kiro-cli powers install <repo>/agent-capability/plugin`（または Powers → Add Custom Power → Import power from a folder）
+- **更新**（`git pull` のあと）: `agent-capability/install.sh --update`
+- **外す**: `agent-capability/install.sh --uninstall`。詳しくは [agent-capability/README.md](agent-capability/README.md)
+
+### Web クリッパー（Chrome 拡張）
+任意の Web ページを note に保存します。VS Code を使わず、Chrome・Edge から直接（[🌐 Chrome 拡張](#-chrome-拡張web-クリッパー)）。
+
+- Chrome か Edge（Chromium 系のブラウザ）
+- デスクトップ版か VS Code 版の note の一覧（`.fractal`）
+- Chrome ウェブストアにはまだ出していません。このリポジトリから読み込みます
+
+1. **リポジトリを取ってくる** — ビルドは要りません。
+   ```bash
+   git clone https://github.com/raggbal/fractal
+   ```
+   git が無ければ、GitHub の **Code → Download ZIP** で zip を落として開きます。
+2. **Chrome に読み込む** — `chrome://extensions` を開き、右上の **デベロッパーモード** を ON にして **パッケージ化されていない拡張機能を読み込む** を押し、リポジトリの `chrome-extension` フォルダを選びます。初回は設定が自動で開きます（あとから開くときは、クリッパーのアイコンを右クリック → **オプション**）。
+3. **.fractal を選ぶ** — **📄 .fractal を選ぶ…** を押し、Fractal が使っている note の一覧（既定は `~/.fractal/default.fractal`）を選びます。`~/.fractal` は隠しフォルダなので、Mac はダイアログで **⌘⇧G** を押して `~/.fractal` と入力します。note は毎回そこから読むので、Fractal で足した note もそのまま出ます。
+4. **note を有効にする** — Chrome は、拡張機能が自分で選ばれたフォルダにしか保存させません。**📁 〜 の note を有効にする…** を押し、書かれているフォルダ（例 `~/workspace/fractal`）を選んで、ファイルの編集を許可します。その中の note すべてが **✓ 保存できます** になります。よく使う note は ☆ を押すと popup で先に出ます。
+5. **クリップする** — 保存したいページでクリッパーのアイコンを押し、note と保存先（アウトライナーか Markdown のページ）を選んで **📌 Bookmark** を押します。**`Alt+Shift+F`** は popup を開かずに、最後に保存した場所に保存します。
+
+- **新しい版にする** — `git pull`（zip なら新しい zip で置き換え）してから、`chrome://extensions` の Fractal Web Clipper の **↻** を押します。設定はそのままです。
+- **消すとき** — `chrome://extensions` で **削除** を押します。note には触れません。
+- 詳しくは [chrome-extension/README.md](chrome-extension/README.md)
+
+### オプション: AWS 認証情報（S3 同期 & 翻訳）
+コア機能は AWS なしで動作します。S3 同期と Amazon Translate を使うには、VS Code の設定で認証情報を設定するだけです（AWS SDK を内蔵しており、CLI のインストールは不要）。なお、HTTP(S) プロキシ経由の接続には現在対応していません:
+
+- S3 同期: `fractal.s3AccessKeyId`, `fractal.s3SecretAccessKey`, `fractal.s3Region`
+- 翻訳: `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`
 
 ---
 
@@ -245,13 +353,12 @@ MCP を登録すれば、Claude Code などのエージェントがリサーチ�
 
 任意の Web ページを Fractal Note の Note へ保存 — VS Code を起動せず、Chrome から直接。
 
-- リポジトリの `chrome-extension/` にあります（unpacked extension として読み込み）
+- 入れ方: [Web クリッパー（Chrome 拡張）](#web-クリッパーchrome-拡張) — このリポジトリの `chrome-extension/` を Chrome・Edge に読み込みます
 - アイコンをクリック（または `Alt+Shift+F` でクイッククリップ）→ ページを **Mozilla Readability** で抽出し、**Fractal Note 自身の HTML→MD パイプライン** で変換（テーブル、GFM、Medium / dev.to のコードブロックなどに対応）
-- **note は `.fractal` から読む** — Fractal の `.fractal`（既定は `~/.fractal/default.fractal`）を選び、note が入っているフォルダを 1 回許可するだけ。Fractal で足した note もそのまま出ます
+- **note は `.fractal` から読む** — Fractal の `.fractal`（既定は `~/.fractal/default.fractal`）を選び、note が入っているフォルダを 1 回選んで有効にするだけ。Fractal で足した note もそのまま出ます
 - 保存先は **アウトライナー**（ページノードとして追加）と **マークダウン**（新規 md を作成し、選んだ md の末尾にサブページリンクを追記）の両方に対応
-- **保存先プリセット** — よく使う「Note + 保存先」の組み合わせを複数登録し、★デフォルトを指定。ポップアップはデフォルト選択済みで開き、即保存できます
+- **★ の note がポップアップで先に出ます**。note ごとに前回保存した保存先が最初から選ばれ、`Alt+Shift+F` は最後に保存した場所に保存します
 - File System Access API でディスクに直接書き込み — VS Code との通信は不要
-- 同時クリップはキューで直列化され、書き込み競合を防止
 
 詳細は `chrome-extension/README.md` を参照してください。
 
@@ -266,57 +373,6 @@ MCP を登録すれば、Claude Code などのエージェントがリサーチ�
 | **Linux** | ⚠️ 実装済み・動作未保証 |
 
 Windows / Linux 向けの実装（パス処理、クリップボード、外部アプリ起動など）は入っていますが、日常的な動作確認は macOS でのみ行っているため、**動作は保証できません**。不具合を見つけたら [GitHub Issues](https://github.com/raggbal/fractal/issues) でリクエストしてください — 時間のあるときに対応します。再現手順と OS / VS Code のバージョンを添えてもらえると助かります。
-
----
-
-## 📦 インストール
-
-### デスクトップ版（macOS・Apple Silicon）
-VS Code が無くても使える単体のアプリです。拡張機能と同じコードで動くので、ノートの見た目も操作も同じです。[Releases](https://github.com/raggbal/fractal/releases/latest) から `Fractal-mac-arm64.zip` をダウンロードして開き、`Fractal.app` を「アプリケーション」に移します。macOS 13 以降、Apple Silicon のみです。
-
-まだ Apple の Developer ID での署名と公証をしていないので、初回は macOS が止めます。**システム設定 → プライバシーとセキュリティ** の **このまま開く** を押すか、`xattr -dr com.apple.quarantine /Applications/Fractal.app` を実行してください。手順の詳しい説明と、デスクトップ版でまだできないことは [Web サイト](https://raggbal.github.io/fractal/#desktop) にあります。
-
-### VS Code Marketplace
-1. 拡張機能を開く（`Ctrl+Shift+X`）
-2. **"Fractal Note"** を検索 → インストール
-
-または直接: [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=imaken.fractal)
-
-### Open VSX（VSCodium / Gitpod / Eclipse Theia）
-[Open VSX Registry](https://open-vsx.org/extension/imaken/fractal)
-
-### VSIX から
-```bash
-code --install-extension fractal-{version}.vsix
-```
-
-### ソースから
-```bash
-git clone https://github.com/raggbal/fractal
-cd fractal
-npm install
-npm run compile
-# F5 でデバッグモードで起動
-```
-
-### AI エージェントの plugin（Claude Code / Codex / Kiro）
-MCP サーバーと skill です。このリポジトリから作って入れます（Node.js 18 以降）:
-
-```bash
-git clone https://github.com/raggbal/fractal && cd fractal && npm install
-agent-capability/install.sh            # 作って、見つかったエージェントすべてに入れる:
-                                       #   Claude Code / Codex は plugin、Kiro は Power
-agent-capability/install.sh --update   # git pull のあとに更新
-agent-capability/install.sh --uninstall
-```
-
-新しいセッションで `fractal_*` の tool が使えます（Claude Code は `/reload-plugins` でも）。`--only claude,codex,kiro` でエージェントを絞れ、`--dry-run` で何をするかだけ見られます。手で入れるとき（`npm run build:mcp` のあと）: Claude Code は `/plugin marketplace add <repo>/agent-capability` → `/plugin install fractal@fractal-local`、Codex は `codex plugin marketplace add <repo>/agent-capability` → `codex plugin add fractal@fractal-local`、Kiro は `kiro-cli powers install <repo>/agent-capability/plugin`。詳しくは [agent-capability/README.md](agent-capability/README.md)。
-
-### オプション: AWS 認証情報（S3 同期 & 翻訳）
-コア機能は AWS なしで動作します。S3 同期と Amazon Translate を使うには、VS Code の設定で認証情報を設定するだけです（AWS SDK を内蔵しており、CLI のインストールは不要）。なお、HTTP(S) プロキシ経由の接続には現在対応していません:
-
-- S3 同期: `fractal.s3AccessKeyId`, `fractal.s3SecretAccessKey`, `fractal.s3Region`
-- 翻訳: `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`
 
 ---
 

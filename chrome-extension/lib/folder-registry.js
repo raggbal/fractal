@@ -1,10 +1,13 @@
-/** Folder registry — note の一覧（.fractal）・許可したフォルダ・outline.note 読み取り・保存先プリセット。
+/** Folder registry — note の一覧（.fractal）・note を有効にしたフォルダ・outline.note 読み取り・★・前回の保存先。
  *
  *  Storage schema (IDB):
  *    - fractalList: { handle: FileSystemFileHandle, name, notes: string[] }（0.5.0〜。notes は最後に読めた一覧）
- *    - accessRoots: Array<{ path: string, handle: FileSystemDirectoryHandle }>（0.5.0〜。許可したフォルダ）
+ *    - accessRoots: Array<{ path: string, handle: FileSystemDirectoryHandle }>（0.5.0〜。note を有効にするために選んだフォルダ）
  *    - notesFolders: Array<{ id: string, name: string, handle: FileSystemDirectoryHandle }>（〜0.4.x の 1 つずつの登録）
- *    - lastSelection: { folderId, targetId, targetKind } | undefined（folderId = note のパス、旧登録は その id）
+ *    - favoriteNotes: string[]（0.6.0〜。★ の note の id = popup で先に出す）
+ *    - lastSelection: { folderId, targetId, targetKind } | undefined（最後に保存した場所 = quick clip の保存先。folderId = note の id）
+ *    - lastTargets: { [noteId]: { targetId, targetKind } }（0.6.0〜。note ごとに最後に保存した保存先）
+ *    note の id = note のパス（以前の登録は その id）。presets / defaultPresetId（〜0.5.x）は ★ と前回の保存先に移して消す
  *
  *  outline.note format (= NoteStructure from notes-file-manager.ts):
  *    {
@@ -207,7 +210,7 @@
         return out;
     }
 
-    /** id（preset / lastSelection の folderId）の note。.fractal の最後に読めた一覧に無いパス・消した旧登録は null */
+    /** id（★・lastSelection の folderId）の note。.fractal の最後に読めた一覧に無いパス・消した旧登録は null */
     async function findNote(id) {
         if (!id) return null;
         const f = (await listFolders()).find((x) => x.id === id);
@@ -224,16 +227,27 @@
         return List.dirAt(note.root.handle, note.rel);
     }
 
-    /** pure: preset の folderId を書き換える（idMap: 旧 id → note のパス） */
-    function remapPresets(presets, idMap) {
-        return (Array.isArray(presets) ? presets : []).map((p) => (idMap[p.folderId] ? Object.assign({}, p, { folderId: idMap[p.folderId] }) : p));
+    /** pure: ★ と note ごとの前回の保存先の note の id を書き換える（idMap: 旧 id → note のパス） */
+    function remapNoteIds(favorites, lastTargets, idMap) {
+        const favs = [];
+        for (const id of Array.isArray(favorites) ? favorites : []) {
+            const to = idMap[id] || id;
+            if (!favs.includes(to)) favs.push(to);
+        }
+        const targets = {};
+        for (const [id, t] of Object.entries(lastTargets || {})) {
+            const to = idMap[id] || id;
+            if (!targets[to] || !idMap[id]) targets[to] = t;
+        }
+        return { favorites: favs, lastTargets: targets };
     }
 
     /**
      * 旧版で 1 つずつ登録した note を、.fractal の note として引き継ぐ。決め方は選んだフォルダと同じ
      * （resolvePickedFolder。今 許可があるものだけ見る）。決まったパスが .fractal の note なら、その handle を許可したフォルダに
-     * 足し（もっと上のフォルダを許可済みなら足さない）、preset / lastSelection の folderId を note のパスに書き換え、旧登録から外す。
-     * 書く順は 許可したフォルダ → preset → lastSelection → 旧登録（途中で止まっても保存先を失わない）。返り値 = 引き継いだ数
+     * 足し（もっと上のフォルダを許可済みなら足さない）、★・note ごとの前回の保存先・lastSelection の note の id を note のパスに
+     * 書き換え、旧登録から外す。書く順は 許可したフォルダ → ★ と前回の保存先 → 旧登録（途中で止まっても保存先を失わない）。
+     * 返り値 = 引き継いだ数
      */
     async function adoptLegacyFolders(notePaths) {
         const legacy = await listFolders();
@@ -255,7 +269,9 @@
         const n = Object.keys(idMap).length;
         if (n === 0) return 0;
         await FractalIdb.set('accessRoots', roots);
-        await FractalIdb.set('presets', remapPresets(await listPresets(), idMap));
+        const re = remapNoteIds(await listFavorites(), await FractalIdb.get('lastTargets'), idMap);
+        await FractalIdb.set('favoriteNotes', re.favorites);
+        await FractalIdb.set('lastTargets', re.lastTargets);
         const last = normalizeLastSelection(await FractalIdb.get('lastSelection'));
         if (last && idMap[last.folderId]) {
             await FractalIdb.set('lastSelection', Object.assign({}, last, { folderId: idMap[last.folderId] }));
@@ -324,21 +340,6 @@
             if (h1) return h1;
         } catch { /* 権限なし・ファイル欠落は fallback */ }
         return fallback;
-    }
-
-    /** preset 等の表示用に target のタイトルを毎回最新解決する（stale 表示を防ぐ）。
-     *  md → 本文 H1 優先 / out → outline.note の items[id].title 優先。読めなければ fallback。 */
-    async function getTargetTitle(folderHandle, targetId, targetKind, fallback) {
-        if (targetKind === 'md') {
-            return getMdTargetTitle(folderHandle, targetId, fallback || targetId);
-        }
-        try {
-            const fh = await folderHandle.getFileHandle('outline.note');
-            const s = JSON.parse(await (await fh.getFile()).text());
-            const item = s && s.items && s.items[targetId];
-            if (item && item.title) return item.title;
-        } catch { /* fallback */ }
-        return fallback || targetId;
     }
 
     /** outline.note を読んで target 一覧 (outliner .out + md item・folder hierarchy 反映) を返す。
@@ -410,69 +411,71 @@
         return normalizeLastSelection(await FractalIdb.get('lastSelection'));
     }
 
+    /** 保存した場所を覚える: 最後に保存した場所（quick clip の保存先）と、その note の前回の保存先 */
     async function setLastSelection(folderId, targetId, targetKind) {
-        await FractalIdb.set('lastSelection', { folderId, targetId, targetKind: targetKind === 'md' ? 'md' : 'out' });
+        const kind = targetKind === 'md' ? 'md' : 'out';
+        await FractalIdb.set('lastSelection', { folderId, targetId, targetKind: kind });
+        const targets = Object.assign({}, (await FractalIdb.get('lastTargets')) || {});
+        targets[folderId] = { targetId, targetKind: kind };
+        await FractalIdb.set('lastTargets', targets);
     }
 
-    // ── 保存先プリセット（FR-CL-04）: { id, name, folderId, targetId, targetKind } ──
-    // pure な配列操作（unit 対象）と IDB 永続化を分離。
-
-    function generatePresetId() {
-        return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    /** note の前回の保存先 { targetId, targetKind } | null（無ければ、最後に保存した場所がその note ならそれ） */
+    async function getLastTarget(noteId) {
+        const targets = (await FractalIdb.get('lastTargets')) || {};
+        if (targets[noteId]) return targets[noteId];
+        const last = await getLastSelection();
+        return last && last.folderId === noteId ? { targetId: last.targetId, targetKind: last.targetKind } : null;
     }
 
-    /** pure: presets 配列に追加した新配列 + 新 entry を返す */
-    function withPreset(presets, entry) {
-        const arr = Array.isArray(presets) ? presets.slice() : [];
-        const added = {
-            id: entry.id || generatePresetId(),
-            name: entry.name || '(preset)',
-            folderId: entry.folderId,
-            targetId: entry.targetId,
-            targetKind: entry.targetKind === 'md' ? 'md' : 'out',
-            targetTitle: entry.targetTitle || entry.targetId  // 表示用（outline.note の title）
-        };
-        arr.push(added);
-        return { presets: arr, added };
-    }
+    // ── ★（popup で先に出す note。0.6.0 で保存先プリセットの代わり）──
 
-    /** pure: presets から削除。defaultPresetId が消えた対象なら clear した値を返す */
-    function withoutPreset(presets, presetId, defaultPresetId) {
-        const arr = (Array.isArray(presets) ? presets : []).filter((p) => p.id !== presetId);
-        const nextDefault = defaultPresetId === presetId ? undefined : defaultPresetId;
-        return { presets: arr, defaultPresetId: nextDefault };
-    }
-
-    async function listPresets() {
-        const arr = await FractalIdb.get('presets');
+    async function listFavorites() {
+        const arr = await FractalIdb.get('favoriteNotes');
         return Array.isArray(arr) ? arr : [];
     }
 
-    async function addPreset(entry) {
-        const { presets, added } = withPreset(await listPresets(), entry);
-        await FractalIdb.set('presets', presets);
-        return added;
+    /** pure: ★ を付ける / 外した新しい配列 */
+    function withFavorite(favorites, noteId, on) {
+        const arr = (Array.isArray(favorites) ? favorites : []).filter((id) => id !== noteId);
+        if (on) arr.push(noteId);
+        return arr;
     }
 
-    async function removePreset(presetId) {
-        const current = await listPresets();
-        const curDefault = await FractalIdb.get('defaultPresetId');
-        const { presets, defaultPresetId } = withoutPreset(current, presetId, curDefault);
-        await FractalIdb.set('presets', presets);
-        if (defaultPresetId === undefined) {
-            await FractalIdb.delete('defaultPresetId');
+    async function setFavorite(noteId, on) {
+        await FractalIdb.set('favoriteNotes', withFavorite(await listFavorites(), noteId, on));
+    }
+
+    /** pure: ★ の note を先に（それぞれの中は元の順） */
+    function sortByFavorite(notes, favorites) {
+        const fav = new Set(favorites || []);
+        return notes.filter((n) => fav.has(n.id)).concat(notes.filter((n) => !fav.has(n.id)));
+    }
+
+    /**
+     * 〜0.5.x の保存先プリセットを移す（1 回だけ）: プリセットの note → ★、★default → 最後に保存した場所（まだ無ければ）、
+     * 各プリセットの保存先 → その note の前回の保存先（まだ無ければ・★default を優先）。移してから presets / defaultPresetId を消す
+     */
+    async function migratePresetsIfNeeded() {
+        const presets = await FractalIdb.get('presets');
+        if (!Array.isArray(presets)) return;
+        const defId = await FractalIdb.get('defaultPresetId');
+        const ordered = presets.filter((p) => p.id === defId).concat(presets.filter((p) => p.id !== defId));
+        let favs = await listFavorites();
+        const targets = Object.assign({}, (await FractalIdb.get('lastTargets')) || {});
+        for (const p of ordered) {
+            if (!p || !p.folderId || !p.targetId) continue;
+            if (!favs.includes(p.folderId)) favs = favs.concat([p.folderId]);
+            if (!targets[p.folderId]) targets[p.folderId] = { targetId: p.targetId, targetKind: p.targetKind === 'md' ? 'md' : 'out' };
         }
-    }
-
-    async function setDefaultPreset(presetId) {
-        await FractalIdb.set('defaultPresetId', presetId);
-    }
-
-    async function getDefaultPreset() {
-        const id = await FractalIdb.get('defaultPresetId');
-        if (!id) return null;
-        const presets = await listPresets();
-        return presets.find((p) => p.id === id) || null;
+        await FractalIdb.set('favoriteNotes', favs);
+        await FractalIdb.set('lastTargets', targets);
+        const def = presets.find((p) => p.id === defId);
+        if (def && def.folderId && def.targetId && !(await getLastSelection())) {
+            await FractalIdb.set('lastSelection', { folderId: def.folderId, targetId: def.targetId, targetKind: def.targetKind === 'md' ? 'md' : 'out' });
+        }
+        await FractalIdb.delete('presets');
+        await FractalIdb.delete('defaultPresetId');
     }
 
     global.FractalFolders = {
@@ -490,25 +493,23 @@
         findNote,
         noteHandle,
         adoptLegacyFolders,
-        remapPresets,
+        remapNoteIds,
         migrateLegacyIfNeeded,
         getNoteLabel,
         extractFirstH1FromMd,
         getMdTargetTitle,
-        getTargetTitle,
         extractTargets,
         readTargetsFromOutlineNote,
         readOutlinersFromOutlineNote,
         normalizeLastSelection,
         getLastSelection,
         setLastSelection,
-        withPreset,
-        withoutPreset,
-        listPresets,
-        addPreset,
-        removePreset,
-        setDefaultPreset,
-        getDefaultPreset
+        getLastTarget,
+        listFavorites,
+        withFavorite,
+        setFavorite,
+        sortByFavorite,
+        migratePresetsIfNeeded
     };
     // node（spec）から require できるように（IDB を使う関数は global.FractalIdb を用意して呼ぶ）
     if (typeof module !== 'undefined' && module.exports) {
