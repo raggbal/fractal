@@ -1,6 +1,8 @@
 <img src="media/icon.png" alt="Fractal Note" width="48" align="absmiddle"> Fractal Note — Markdown, Outliner, Database, Mindmap — and all your files, in one place
 =
 
+> **Designed to feel like Notion — and to stay fully local and fast, like Obsidian.**
+
 **A complete note-taking environment inside VS Code.** Fractal Note combines a **Notion-like WYSIWYG markdown editor** and a **Dynalist-like outliner (with Database / Mindmap modes)** in a single workspace. And **your notes and your documents live in one place** — keep any file (PDF, Word, Excel, PowerPoint, …) in the file tree, or **embed it directly into a markdown document or an outline node**, and **search its contents full-text** along with everything else. If your files have outgrown your folders — scattered across directories, always separated from the notes that reference them — **this is built for exactly that problem**. Organize it all into **Notes**, sync it to S3 — and it's built from the ground up for **working alongside AI coding assistants**.
 
 ![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/imaken.fractal?label=VS%20Code%20Marketplace)

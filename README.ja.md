@@ -1,6 +1,8 @@
 <img src="media/icon.png" alt="Fractal Note" width="48" align="absmiddle"> Fractal Note — Markdown・アウトライナー・データベース・マインドマップ、そしてすべてのファイルをひとつの場所に
 =
 
+> **Notion のような使い心地のまま、Obsidian のようにローカルで完結 & 高速を目指しました。**
+
 **VS Code の中で完結するノートテイキング環境。** Fractal Note は **Notion ライクな WYSIWYG マークダウンエディタ** と **Dynalist ライクなアウトライナー( データベース / マインドマップ モードもあり) **をひとつのワークスペースに統合。さらに **ノートも書類も、すべてをひとつの場所で** — PDF・Word・Excel・PowerPoint などあらゆるファイルを、ファイルツリーに置くだけでなく **マークダウンにもアウトライナーのノードにも埋め込んで** 管理でき、**その中身までフルテキスト検索**できます。フォルダが増えすぎて「あの資料どこに置いたっけ」が始まっている人、**資料とメモが別々の場所に散らばって困っている人にこそ効きます。****Note** 単位で整理し、S3 に同期でき、そして **AI コーディングアシスタントとの共同作業** を前提に設計されています。
 
 ![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/imaken.fractal?label=VS%20Code%20Marketplace)
