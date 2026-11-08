@@ -72,6 +72,8 @@
   .btn.primary { background: var(--primary); border-color: transparent; color: #FFFFFF; }
   .btn.primary:hover { background: var(--primary-hover); }
   .btn svg { width: 18px; height: 18px; flex: none; }
+  .btn .size { font-weight: 400; font-size: 13px; opacity: .8; }
+  .btn .size:empty { display: none; }
   .meta { color: var(--text-3); font-size: 14px; margin-top: 14px; }
   .shot { margin: 48px auto 0; max-width: 1080px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); background: var(--bg); }
   .shot img { display: block; width: 100%; height: auto; }
@@ -148,15 +150,21 @@
       <div class="cta">
         <a class="btn primary" href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.dmg">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
-          <span lang="en">Download for macOS</span><span lang="ja">macOS 版をダウンロード</span>
+          <span lang="en">Download for Apple Silicon</span><span lang="ja">Apple Silicon 版をダウンロード</span>
+          <span class="size" data-asset="Fractal-mac-arm64.dmg"></span>
+        </a>
+        <a class="btn primary" href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-x64.dmg">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+          <span lang="en">Download for Intel Mac</span><span lang="ja">Intel Mac 版をダウンロード</span>
+          <span class="size" data-asset="Fractal-mac-x64.dmg"></span>
         </a>
         <a class="btn" href="https://marketplace.visualstudio.com/items?itemName=imaken.fractal">VS Code Marketplace</a>
         <a class="btn" href="https://open-vsx.org/extension/imaken/fractal">Open VSX</a>
       </div>
       <p class="meta">
         <span id="latest"></span>
-        <span lang="en">Apple Silicon · macOS 13 or later · free and open source (MIT) · <a href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-x64.dmg">Intel Mac</a></span>
-        <span lang="ja">Apple Silicon・macOS 13 以降・無料のオープンソース（MIT）・<a href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-x64.dmg">Intel の Mac はこちら</a></span>
+        <span lang="en">macOS 13 or later · free and open source (MIT) · Not sure which? Apple menu → About This Mac: “Chip: Apple M…” is Apple Silicon</span>
+        <span lang="ja">macOS 13 以降・無料のオープンソース（MIT）・どちらか分からないときは、アップルメニュー →「このMacについて」で「チップ: Apple M…」なら Apple Silicon</span>
       </p>
       <div class="shot">
         <picture>
@@ -496,9 +504,14 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (rel) {
         if (!rel || !rel.tag_name) { return; }
-        var asset = (rel.assets || []).filter(function (a) { return a.name === 'Fractal-mac-arm64.dmg'; })[0];
-        var size = asset ? ' · ' + Math.round(asset.size / 1048576) + ' MB' : '';
-        document.getElementById('latest').textContent = rel.tag_name + size + ' · ';
+        // each download button shows the size of its dmg
+        var sizes = {};
+        (rel.assets || []).forEach(function (a) { sizes[a.name] = a.size; });
+        document.querySelectorAll('[data-asset]').forEach(function (el) {
+          var size = sizes[el.getAttribute('data-asset')];
+          if (size) { el.textContent = Math.round(size / 1048576) + ' MB'; }
+        });
+        document.getElementById('latest').textContent = rel.tag_name + ' · ';
       })
       .catch(function () { /* offline or rate-limited */ });
   })();
