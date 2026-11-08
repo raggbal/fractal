@@ -5,6 +5,14 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-11-08
+
+### Fixed
+- **Tags appear once in mindmap nodes** — a tagged node showed its tags twice: as pills in its text and again at its top right. Only the pills in the text remain
+
+### Changed
+- **README** — new screenshots of the current look, taken in VS Code (including the whole VS Code window), and installation steps for the desktop app (macOS) and the AI agent plugin (Claude Code / Codex / Kiro)
+
 ## [1.4.0] - 2026-11-08
 
 ### Added
