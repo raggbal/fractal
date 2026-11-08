@@ -1,5 +1,5 @@
 /**
- * The E2E build of the desktop app (test/e2e-electron-app): the release config (package.json "build")
+ * The E2E build of the desktop app (test/e2e-electron-app): the release config (electron-builder.config.js)
  * plus only what the tests need —
  * - its own output folder (dist/e2e), so it is never taken for the app you use (dist/mac-arm64);
  * - Electron's --inspect fuse on: Playwright's _electron drives the main process through the inspector;
@@ -8,9 +8,7 @@
  *
  *   npm run build:e2e
  */
-const pkg = require('./package.json');
-
-const base = pkg.build;
+const base = require('./electron-builder.config.js');
 
 module.exports = {
     ...base,

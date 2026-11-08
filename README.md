@@ -8,6 +8,8 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![GitHub Sponsors](https://img.shields.io/github/sponsors/raggbal?label=Sponsor)
 
+🌐 **Website: [raggbal.github.io/fractal](https://raggbal.github.io/fractal/)** — also available as a **desktop app for macOS** (no VS Code needed).
+
 ---
 
 ## Why Fractal Note
@@ -258,6 +260,11 @@ The Windows / Linux implementations (path handling, clipboard, launching externa
 ---
 
 ## 📦 Installation
+
+### Desktop app (macOS, Apple Silicon)
+The same Fractal Note as a standalone app — it runs the extension's own code, so notes look and work the same. Download `Fractal-mac-arm64.zip` from [Releases](https://github.com/raggbal/fractal/releases/latest), unzip it and move `Fractal.app` to Applications. macOS 13 or later, Apple Silicon only.
+
+The app is not signed with an Apple Developer ID nor notarized yet, so macOS blocks the first launch: open **System Settings → Privacy & Security** and click **Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/Fractal.app`. Step by step, and what the desktop app does not do yet: [the website](https://raggbal.github.io/fractal/#desktop).
 
 ### VS Code Marketplace
 1. Open Extensions (`Ctrl+Shift+X`)

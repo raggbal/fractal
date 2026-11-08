@@ -8,6 +8,8 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![GitHub Sponsors](https://img.shields.io/github/sponsors/raggbal?label=Sponsor)
 
+🌐 **Web サイト: [raggbal.github.io/fractal](https://raggbal.github.io/fractal/)** — VS Code が無くても使える **macOS のデスクトップ版** もあります。
+
 ---
 
 ## Fractal Note を選ぶ理由
@@ -263,6 +265,11 @@ Windows / Linux 向けの実装（パス処理、クリップボード、外部�
 ---
 
 ## 📦 インストール
+
+### デスクトップ版（macOS・Apple Silicon）
+VS Code が無くても使える単体のアプリです。拡張機能と同じコードで動くので、ノートの見た目も操作も同じです。[Releases](https://github.com/raggbal/fractal/releases/latest) から `Fractal-mac-arm64.zip` をダウンロードして開き、`Fractal.app` を「アプリケーション」に移します。macOS 13 以降、Apple Silicon のみです。
+
+まだ Apple の Developer ID での署名と公証をしていないので、初回は macOS が止めます。**システム設定 → プライバシーとセキュリティ** の **このまま開く** を押すか、`xattr -dr com.apple.quarantine /Applications/Fractal.app` を実行してください。手順の詳しい説明と、デスクトップ版でまだできないことは [Web サイト](https://raggbal.github.io/fractal/#desktop) にあります。
 
 ### VS Code Marketplace
 1. 拡張機能を開く（`Ctrl+Shift+X`）

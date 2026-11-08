@@ -8,15 +8,15 @@
     "name": "imaken",
     "email": "imaken@users.noreply.github.com"
   },
-  "homepage": "https://github.com/raggbal/fractal",
+  "homepage": "https://raggbal.github.io/fractal/",
   "license": "MIT",
   "scripts": {
     "postinstall": "node node_modules/electron/install.js",
     "clean": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\"",
     "build:shim": "npm run clean && tsc -p . && tsc -p tsconfig.renderer.json",
     "compile": "cd .. && npm run compile && cd electron && npm run build:shim",
-    "build:app-dir": "npm run compile && ELECTRON_RUN_AS_NODE= electron-builder --dir",
-    "build:mac": "npm run compile && ELECTRON_RUN_AS_NODE= electron-builder --mac",
+    "build:app-dir": "npm run compile && ELECTRON_RUN_AS_NODE= electron-builder --dir --config electron-builder.config.js",
+    "build:mac": "npm run compile && ELECTRON_RUN_AS_NODE= electron-builder --mac --config electron-builder.config.js",
     "build:e2e": "npm run compile && npm run pack:e2e",
     "pack:e2e": "ELECTRON_RUN_AS_NODE= electron-builder --dir --config electron-builder.e2e.config.js",
     "start": "npm run compile && ELECTRON_RUN_AS_NODE= electron .",
@@ -86,6 +86,7 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "gatekeeperAssess": false,
       "notarize": false,
+      "artifactName": "Fractal-mac-${arch}.${ext}",
       "target": [
         {
           "target": "zip",

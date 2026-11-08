@@ -64,11 +64,14 @@ sidebar's own state. Every IPC message is answered only for the top frame of tha
 npm install                  # once (Electron 45; postinstall downloads the binary)
 npm run build:app-dir        # extension compile + shell build + dist/mac-arm64/Fractal.app (ad-hoc signed)
 open dist/mac-arm64/Fractal.app
-npm run build:mac            # the same as a zip in dist/
+npm run build:mac            # the same as dist/Fractal-mac-arm64.zip (what a release ships)
 npm run build:e2e            # the E2E build in dist/e2e/mac-arm64 (for the tests only, see below; pack:e2e = without recompiling)
 npm start                    # dev: compile, then run from this folder (profile: ~/Library/Application Support/Fractal-dev)
 npm run start:fast           # dev without recompiling the extension (after a root `npm run compile`)
 ```
+
+The app's version is the extension's (`electron-builder.config.js` takes it from the root `package.json`), so a
+release bumps only that one.
 
 The app you use (`build:app-dir` / `build:mac`) runs only the code it ships: Electron's fuses turn off
 `ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS` and `--inspect` and check `app.asar`, it is signed (ad-hoc) with the
@@ -89,6 +92,26 @@ Options: `--fractal-open-note=<dir>` (or `FRACTAL_OPEN_NOTE`) note to open, `FRA
 (`src/main/launch-options.ts`): `FRACTAL_EXTENSION_ROOT` (unpackaged runs), `--fractal-user-data=<dir>` (or
 `FRACTAL_USER_DATA`) profile folder (unpackaged runs and the E2E build), `--remote-debugging-port` /
 `--remote-debugging-pipe` (unpackaged runs and the E2E build: Playwright drives the pages through it).
+
+## Release (GitHub)
+
+macOS, Apple Silicon only (Intel Macs, Windows and Linux are not built or verified). The build is ad-hoc signed
+with the hardened runtime, not signed with a Developer ID nor notarized: macOS blocks its first launch on another
+Mac until the user allows it (System Settings → Privacy & Security → Open Anyway, or
+`xattr -dr com.apple.quarantine /Applications/Fractal.app`). The website (`site/`, deployed by
+`.github/workflows/pages.yml`) explains it and links the zip as `releases/latest/download/Fractal-mac-arm64.zip`,
+so the asset name must stay the same.
+
+```sh
+cd electron
+npm run test:e2e                     # both E2E specs on the release and E2E builds
+npm run build:mac                    # dist/Fractal-mac-arm64.zip
+cd .. && git tag -a v<version> -m "Fractal <version>" && git push origin main v<version>
+gh release create v<version> electron/dist/Fractal-mac-arm64.zip --title "Fractal <version>" --notes-file <notes>
+```
+
+The old `.github/workflows/release-electron.yml` (tags `electron-v*`, also Windows / Linux) predates this app; it is
+not used.
 
 ## Tests
 
