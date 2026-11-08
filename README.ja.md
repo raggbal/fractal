@@ -34,7 +34,7 @@
 
 | | 何か | どこから |
 | --- | --- | --- |
-| 🖥 [デスクトップ版（macOS）](#デスクトップ版macos) | VS Code が無くても使える単体のアプリ | [`Fractal-mac-arm64.zip` をダウンロード](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.zip) |
+| 🖥 [デスクトップ版（macOS）](#デスクトップ版macos) | VS Code が無くても使える単体のアプリ | [Apple Silicon 用 `.dmg`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.dmg) ・ [Intel 用 `.dmg`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-x64.dmg) |
 | 🧩 [VS Code 版（拡張機能）](#vs-code-版拡張機能) | VS Code と互換のエディタの中で使う Fractal Note | [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=imaken.fractal) ・ [Open VSX](https://open-vsx.org/extension/imaken/fractal) |
 | 🤖 [AI エージェントの plugin](#ai-エージェントの-plugin) | Claude Code・Codex・Kiro が note を探して、読んで、書けるようにする | このリポジトリ（`agent-capability/install.sh`） |
 | 🌐 [Web クリッパー](#web-クリッパーchrome-拡張) | Chrome・Edge から Web ページを note に保存する | このリポジトリ（`chrome-extension/`） |
@@ -44,18 +44,15 @@
 ### デスクトップ版（macOS）
 VS Code が無くても使える、単体のアプリです。VS Code 版と同じコードで動くので、ノートの見た目も操作も同じです。
 
-- Apple Silicon の Mac（M1 以降）、macOS 13 Ventura 以降
-- Intel の Mac・Windows・Linux はまだ対象外
+- Apple Silicon（M1 以降）または Intel の Mac、macOS 13 Ventura 以降
+- Windows・Linux はまだ対象外
 
-1. **zip をダウンロードして開く** — [`Fractal-mac-arm64.zip`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.zip) をダウンロードして、ダブルクリックで開きます。隣に `Fractal.app` ができます。
-2. **アプリケーションフォルダに移す** — `Fractal.app` を「アプリケーション」フォルダにドラッグします。
-3. **初回だけ、開くのを許可する** — Fractal を開きます。このビルドは Apple の Developer ID での署名と公証（notarize）をしていないので、初回は macOS が止めます。**完了** を押してから **システム設定 → プライバシーとセキュリティ** を開き、下のほうの「“Fractal”はブロックされました…」の **このまま開く** を押して確かめます。ターミナルでもできます（アプリに付いたダウンロードの印を外すと、ふつうに開けます）:
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/Fractal.app
-   ```
+1. **dmg をダウンロードして開く** — Apple Silicon の Mac は [`Fractal-mac-arm64.dmg`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.dmg)、Intel の Mac は [`Fractal-mac-x64.dmg`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-x64.dmg) をダウンロードして、ダブルクリックで開きます（どちらか分からないときは、アップルメニュー →「このMacについて」で「チップ: Apple M…」なら Apple Silicon、「プロセッサ: Intel…」なら Intel です）。
+2. **アプリケーションフォルダにドラッグする** — 開いたウインドウで、`Fractal.app` を「アプリケーション」フォルダにドラッグします。
+3. **Fractal を開く** — 「アプリケーション」から Fractal を開きます。Apple の Developer ID で署名し、Apple の公証（notarize）も通しているので、macOS が「インターネットからダウンロードされたアプリ」の確認を 1 回出すだけです。**開く** を押してください。
 4. **使いはじめる** — Fractal は note の一覧 `~/.fractal/default.fractal` を開きます。この Mac の VS Code 版と同じ一覧です。左のサイドバーからフォルダを note として足せます。
 
-- **新しい版にする** — Fractal を終了し、新しい zip をダウンロードして「アプリケーション」の `Fractal.app` を置き換えます。自動の更新はまだありません。版の一覧は [Releases](https://github.com/raggbal/fractal/releases) にあります。
+- **新しい版にする** — Fractal を終了し、新しい dmg をダウンロードして「アプリケーション」の `Fractal.app` を置き換えます。自動の更新はまだありません。版の一覧は [Releases](https://github.com/raggbal/fractal/releases) にあります。
 - **設定** — **Fractal → Settings…** で `settings.json` が開きます。キーは VS Code 版と同じ `fractal.*` です（VS Code の設定は読みません）。
 - **デスクトップ版でまだできないこと** — S3 の同期と翻訳、draw.io を外のエディタで開く、自動の更新。
 - **消すとき** — `Fractal.app` を削除します。アプリのデータは `~/Library/Application Support/Fractal` にあります。ノートには触れません。

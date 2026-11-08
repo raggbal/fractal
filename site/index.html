@@ -146,7 +146,7 @@
         <span lang="ja">Notion のように書ける Markdown エディタと、Dynalist のようなアウトライナー（Database・Mindmap 表示つき）をひとつに。PDF・Word・Excel・PowerPoint などのファイルもノートの隣に置けて、中身まで全文検索できます。</span>
       </p>
       <div class="cta">
-        <a class="btn primary" href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.zip">
+        <a class="btn primary" href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.dmg">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
           <span lang="en">Download for macOS</span><span lang="ja">macOS 版をダウンロード</span>
         </a>
@@ -155,8 +155,8 @@
       </div>
       <p class="meta">
         <span id="latest"></span>
-        <span lang="en">Apple Silicon · macOS 13 or later · free and open source (MIT)</span>
-        <span lang="ja">Apple Silicon・macOS 13 以降・無料のオープンソース（MIT）</span>
+        <span lang="en">Apple Silicon · macOS 13 or later · free and open source (MIT) · <a href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-x64.dmg">Intel Mac</a></span>
+        <span lang="ja">Apple Silicon・macOS 13 以降・無料のオープンソース（MIT）・<a href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-x64.dmg">Intel の Mac はこちら</a></span>
       </p>
       <div class="shot">
         <picture>
@@ -175,38 +175,33 @@
         <span lang="ja">VS Code が無くても使える、単体のアプリです。VS Code 版と同じコードで動くので、ノートの見た目も操作も同じです。</span>
       </p>
       <ul class="req">
-        <li><span lang="en">Apple Silicon Mac (M1 or later)</span><span lang="ja">Apple Silicon の Mac（M1 以降）</span></li>
+        <li><span lang="en">Apple Silicon (M1 or later) or Intel Mac</span><span lang="ja">Apple Silicon（M1 以降）または Intel の Mac</span></li>
         <li><span lang="en">macOS 13 Ventura or later</span><span lang="ja">macOS 13 Ventura 以降</span></li>
-        <li><span lang="en">Not yet for Intel Macs, Windows or Linux</span><span lang="ja">Intel の Mac・Windows・Linux はまだ対象外</span></li>
+        <li><span lang="en">Not yet for Windows or Linux</span><span lang="ja">Windows・Linux はまだ対象外</span></li>
       </ul>
 
       <h3><span lang="en">Install</span><span lang="ja">入れ方</span></h3>
       <ol class="steps">
         <li>
-          <strong><span lang="en">Download and open the zip</span><span lang="ja">zip をダウンロードして開く</span></strong>
+          <strong><span lang="en">Download and open the dmg</span><span lang="ja">dmg をダウンロードして開く</span></strong>
           <p>
-            <span lang="en">Download <a href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.zip"><code>Fractal-mac-arm64.zip</code></a> and double-click it. <code>Fractal.app</code> appears next to it.</span>
-            <span lang="ja"><a href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.zip"><code>Fractal-mac-arm64.zip</code></a> をダウンロードして、ダブルクリックで開きます。隣に <code>Fractal.app</code> ができます。</span>
+            <span lang="en">Download <a href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.dmg"><code>Fractal-mac-arm64.dmg</code></a> for Apple Silicon or <a href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-x64.dmg"><code>Fractal-mac-x64.dmg</code></a> for an Intel Mac, and double-click it. (Not sure? Apple menu → About This Mac: “Chip: Apple M…” is Apple Silicon, “Processor: Intel…” is Intel.)</span>
+            <span lang="ja">Apple Silicon の Mac は <a href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.dmg"><code>Fractal-mac-arm64.dmg</code></a>、Intel の Mac は <a href="https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-x64.dmg"><code>Fractal-mac-x64.dmg</code></a> をダウンロードして、ダブルクリックで開きます（どちらか分からないときは、アップルメニュー →「このMacについて」で「チップ: Apple M…」なら Apple Silicon、「プロセッサ: Intel…」なら Intel です）。</span>
           </p>
         </li>
         <li>
-          <strong><span lang="en">Move it to Applications</span><span lang="ja">アプリケーションフォルダに移す</span></strong>
+          <strong><span lang="en">Drag it to Applications</span><span lang="ja">アプリケーションフォルダにドラッグする</span></strong>
           <p>
-            <span lang="en">Drag <code>Fractal.app</code> into the Applications folder.</span>
-            <span lang="ja"><code>Fractal.app</code> を「アプリケーション」フォルダにドラッグします。</span>
+            <span lang="en">In the window that opens, drag <code>Fractal.app</code> onto the Applications folder.</span>
+            <span lang="ja">開いたウインドウで、<code>Fractal.app</code> を「アプリケーション」フォルダにドラッグします。</span>
           </p>
         </li>
         <li>
-          <strong><span lang="en">Allow it the first time</span><span lang="ja">初回だけ、開くのを許可する</span></strong>
+          <strong><span lang="en">Open Fractal</span><span lang="ja">Fractal を開く</span></strong>
           <p>
-            <span lang="en">Open Fractal. The first time, macOS stops it, because this build is not signed with an Apple Developer ID nor notarized by Apple. Click <b>Done</b>, open <b>System Settings → Privacy &amp; Security</b>, scroll down to “Fractal” was blocked…, click <b>Open Anyway</b> and confirm.</span>
-            <span lang="ja">Fractal を開きます。このビルドは Apple の Developer ID での署名と公証（notarize）をしていないので、初回は macOS が止めます。<b>完了</b> を押してから <b>システム設定 → プライバシーとセキュリティ</b> を開き、下のほうの「“Fractal”はブロックされました…」の <b>このまま開く</b> を押して確かめます。</span>
+            <span lang="en">Open Fractal from Applications. The app is signed with an Apple Developer ID and notarized by Apple, so macOS only asks once whether to open an app downloaded from the internet — click <b>Open</b>.</span>
+            <span lang="ja">「アプリケーション」から Fractal を開きます。Apple の Developer ID で署名し、Apple の公証（notarize）も通しているので、macOS が「インターネットからダウンロードされたアプリ」の確認を 1 回出すだけです。<b>開く</b> を押してください。</span>
           </p>
-          <div class="note">
-            <span lang="en"><b>Or in Terminal</b> — removes the download mark from the app, after which it opens normally:</span>
-            <span lang="ja"><b>ターミナルでも</b> できます（アプリに付いたダウンロードの印を外すと、ふつうに開けます）:</span>
-            <div class="cmd"><code>xattr -dr com.apple.quarantine /Applications/Fractal.app</code><button class="copy" type="button" data-copy="xattr -dr com.apple.quarantine /Applications/Fractal.app"><span lang="en">Copy</span><span lang="ja">コピー</span></button></div>
-          </div>
         </li>
         <li>
           <strong><span lang="en">Start writing</span><span lang="ja">使いはじめる</span></strong>
@@ -221,8 +216,8 @@
         <div class="card">
           <h3><span lang="en">Update</span><span lang="ja">新しい版にする</span></h3>
           <p>
-            <span lang="en">Quit Fractal, download the new zip and replace <code>Fractal.app</code> in Applications. There are no automatic updates yet — see <a href="https://github.com/raggbal/fractal/releases">Releases</a>.</span>
-            <span lang="ja">Fractal を終了し、新しい zip をダウンロードして「アプリケーション」の <code>Fractal.app</code> を置き換えます。自動の更新はまだありません。版の一覧は <a href="https://github.com/raggbal/fractal/releases">Releases</a> にあります。</span>
+            <span lang="en">Quit Fractal, download the new dmg and replace <code>Fractal.app</code> in Applications. There are no automatic updates yet — see <a href="https://github.com/raggbal/fractal/releases">Releases</a>.</span>
+            <span lang="ja">Fractal を終了し、新しい dmg をダウンロードして「アプリケーション」の <code>Fractal.app</code> を置き換えます。自動の更新はまだありません。版の一覧は <a href="https://github.com/raggbal/fractal/releases">Releases</a> にあります。</span>
           </p>
         </div>
         <div class="card">
@@ -501,7 +496,7 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (rel) {
         if (!rel || !rel.tag_name) { return; }
-        var asset = (rel.assets || []).filter(function (a) { return a.name === 'Fractal-mac-arm64.zip'; })[0];
+        var asset = (rel.assets || []).filter(function (a) { return a.name === 'Fractal-mac-arm64.dmg'; })[0];
         var size = asset ? ' · ' + Math.round(asset.size / 1048576) + ' MB' : '';
         document.getElementById('latest').textContent = rel.tag_name + size + ' · ';
       })

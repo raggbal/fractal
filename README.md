@@ -34,7 +34,7 @@ Pick what you need — they all work on the same notes:
 
 | | What it is | Where |
 | --- | --- | --- |
-| 🖥 [Desktop app (macOS)](#desktop-app-macos) | Fractal Note as a standalone app, no VS Code needed | [Download `Fractal-mac-arm64.zip`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.zip) |
+| 🖥 [Desktop app (macOS)](#desktop-app-macos) | Fractal Note as a standalone app, no VS Code needed | [Apple Silicon `.dmg`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.dmg) · [Intel `.dmg`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-x64.dmg) |
 | 🧩 [VS Code extension](#vs-code-extension) | Fractal Note inside VS Code and compatible editors | [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=imaken.fractal) · [Open VSX](https://open-vsx.org/extension/imaken/fractal) |
 | 🤖 [AI agent plugin](#ai-agent-plugin) | Lets Claude Code, Codex and Kiro search, read and edit your notes | this repository (`agent-capability/install.sh`) |
 | 🌐 [Web clipper](#web-clipper-chrome-extension) | Saves web pages into a note from Chrome or Edge | this repository (`chrome-extension/`) |
@@ -44,18 +44,15 @@ The same steps, with screenshots of the app, are on [the website](https://raggba
 ### Desktop app (macOS)
 Fractal Note as a standalone app — no VS Code needed. It runs the very same code as the VS Code extension, so your notes look and work the same in both.
 
-- Apple Silicon Mac (M1 or later), macOS 13 Ventura or later
-- Not yet for Intel Macs, Windows or Linux
+- Apple Silicon (M1 or later) or Intel Mac, macOS 13 Ventura or later
+- Not yet for Windows or Linux
 
-1. **Download and open the zip** — Download [`Fractal-mac-arm64.zip`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.zip) and double-click it. `Fractal.app` appears next to it.
-2. **Move it to Applications** — Drag `Fractal.app` into the Applications folder.
-3. **Allow it the first time** — Open Fractal. The first time, macOS stops it, because this build is not signed with an Apple Developer ID nor notarized by Apple. Click **Done**, open **System Settings → Privacy & Security**, scroll down to “Fractal” was blocked…, click **Open Anyway** and confirm. Or in Terminal — this removes the download mark from the app, after which it opens normally:
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/Fractal.app
-   ```
+1. **Download and open the dmg** — Download [`Fractal-mac-arm64.dmg`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-arm64.dmg) for Apple Silicon or [`Fractal-mac-x64.dmg`](https://github.com/raggbal/fractal/releases/latest/download/Fractal-mac-x64.dmg) for an Intel Mac, and double-click it. (Not sure? Apple menu → About This Mac: “Chip: Apple M…” is Apple Silicon, “Processor: Intel…” is Intel.)
+2. **Drag it to Applications** — In the window that opens, drag `Fractal.app` onto the Applications folder.
+3. **Open Fractal** — Open Fractal from Applications. The app is signed with an Apple Developer ID and notarized by Apple, so macOS only asks once whether to open an app downloaded from the internet — click **Open**.
 4. **Start writing** — Fractal opens your notes list, `~/.fractal/default.fractal` — the same list the VS Code extension uses on this Mac. Add a folder as a note from the sidebar.
 
-- **Update** — Quit Fractal, download the new zip and replace `Fractal.app` in Applications. There are no automatic updates yet — see [Releases](https://github.com/raggbal/fractal/releases).
+- **Update** — Quit Fractal, download the new dmg and replace `Fractal.app` in Applications. There are no automatic updates yet — see [Releases](https://github.com/raggbal/fractal/releases).
 - **Settings** — **Fractal → Settings…** opens `settings.json` with the same `fractal.*` keys as in VS Code (VS Code's own settings are not read).
 - **Not in the desktop app yet** — S3 sync and translation, opening draw.io diagrams in an external editor, automatic updates.
 - **Uninstall** — Delete `Fractal.app`. The app's own data is in `~/Library/Application Support/Fractal`. Your notes are never touched.
