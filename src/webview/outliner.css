@@ -310,6 +310,28 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-nav-forward-btn + .outliner-view-toggle-btn {
     margin-left: 14px;
 }
+/* 表示モードのタグのボタン（[Database Mode ⇄]）: 今のモードを目立たない pill で出し、押すと次のモードへ */
+.outliner-view-toggle-btn.outliner-mode-pill {
+    gap: 5px;
+    min-height: 22px;
+    padding: 2px 8px 2px 9px;
+    border: 1px solid var(--fr-color-border);
+    border-radius: 999px;
+    background: var(--fr-color-fill-subtle);
+    color: var(--fr-color-text-secondary);
+    font-size: 11.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    opacity: 1;
+}
+.outliner-view-toggle-btn.outliner-mode-pill:hover:not(:disabled) {
+    background: var(--fr-color-fill-hover);
+    border-color: var(--fr-color-border-strong);
+}
+.outliner-mode-pill svg {
+    flex: none;
+    opacity: 0.7;
+}
 
 /* タスク系 (task-mode / filter / archive) は右端に寄せる。
    margin-left: auto で前のボタン群との間に余白を取る */

@@ -304,7 +304,7 @@ export const webviewMessages = {
   shortcutHudTitleMd: 'Markdown ショートカット',
   shortcutHudTitleOutliner: 'アウトライナー ショートカット',
   shortcutHudTitleMindmap: 'マインドマップ ショートカット',
-  shortcutHudTitleTable: 'データベース（テーブル）ショートカット',
+  shortcutHudTitleTable: 'データベース ショートカット',
   shortcutCatEditing: '編集',
   shortcutCatNavigation: 'ナビゲーション',
   shortcutCatSearch: '検索',
@@ -346,6 +346,10 @@ export const webviewMessages = {
   notesUnfavorite: '★ お気に入りから外す',
   notesFavorites: 'お気に入り',
   notesMoveOtherNote: '別のノートへ移動…',
+  outlinerModeOutliner: 'アウトライナーモード',
+  outlinerModeDatabase: 'データベースモード',
+  outlinerModeMindmap: 'マインドマップモード',
+  outlinerSwitchMode: '{mode}に切り替え',
   copy: 'コピー',
   copied: 'コピーしました',
   expandCodeBlock: '全画面',
@@ -394,8 +398,6 @@ export const webviewMessages = {
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: 'Drawio ダイアグラムを挿入',
   // TBE-14: Outliner Table editor (TASK-B6/B7/B9 + TASK-C2)
-  outlinerSwitchToTable: 'テーブル表示に切替',
-  outlinerSwitchToOutliner: 'アウトライン表示に切替',
   tableAddColumn: '列を追加',
   tableRemoveColumn: '列を削除',
   tableConfirmRemoveColumn: '列「{name}」を削除しますか?',

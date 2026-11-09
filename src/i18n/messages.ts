@@ -321,6 +321,10 @@ export interface WebviewMessages {
   notesUnfavorite: string;
   notesFavorites: string;
   notesMoveOtherNote: string;
+  outlinerModeOutliner: string;
+  outlinerModeDatabase: string;
+  outlinerModeMindmap: string;
+  outlinerSwitchMode: string;
   copy: string;
   copied: string;
   expandCodeBlock: string;
@@ -360,8 +364,6 @@ export interface WebviewMessages {
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram?: string;
   // TBE-14: Outliner Table editor (TASK-B7 + TASK-B5/B6 + TASK-C2)
-  outlinerSwitchToTable?: string;
-  outlinerSwitchToOutliner?: string;
   tableAddColumn?: string;
   tableRemoveColumn?: string;
   tableConfirmRemoveColumn?: string;

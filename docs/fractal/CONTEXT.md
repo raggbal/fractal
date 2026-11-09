@@ -6,7 +6,7 @@
 A folder registered in the VS Code Activity Bar via "Fractal Notes". Contains one or more `.out` files and their associated pages/assets. The unit of cloud sync (S3).
 
 ### Outliner
-A `.out` file. A tree of Nodes with optional columns (Table View) and Task Mode. Has two launch modes:
+A `.out` file. A tree of Nodes, shown in one of three modes (Outliner Mode / Database Mode / Mindmap Mode), with optional columns and Task Mode. Has two launch modes:
 - **Single mode** — opened standalone via file explorer or custom editor association.
 - **Note mode** — opened from within a Note folder via the Notes panel.
 
@@ -38,8 +38,12 @@ A VS Code custom editor provider that manages webview lifecycle and message rout
 ### Task Mode
 An Outliner mode where root Nodes automatically receive checkboxes. Supports filtering: `active` (incomplete only) or `all`.
 
-### Table View
-An Outliner display mode with user-defined columns (`columns` array in `.out` data). Comparable to a TreeViewTable.
+### Outliner Mode / Database Mode / Mindmap Mode
+The three display modes of an Outliner, switched with the mode tag button in the header (it shows the current mode, e.g. **Database Mode ⇄**; a click goes Outliner → Database → Mindmap → Outliner). Stored as `viewMode` in the `.out` data: `'outliner'` (or absent) / `'table'` / `'mindmap'`. A new Outliner always opens in Outliner Mode.
+- **Outliner Mode** — the bullet tree.
+- **Database Mode** — the tree as a table with user-defined columns (`columns` array in `.out` data). Comparable to a TreeViewTable. The stored value is `'table'` (kept for existing files, the MCP server and the CLI); code may say "table" internally.
+- **Mindmap Mode** — the same tree as an editable SVG mindmap.
+_Avoid_ (in UI text and docs): "Table View", "Table Mode", "Outline View", "Database view", "Mindmap view" — say Outliner / Database / Mindmap Mode.
 
 ### Tag
 A `#tag` or `@tag` token parsed from Node text. Used for filtering and organization. Inline code and URLs are excluded from parsing.

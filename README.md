@@ -19,7 +19,7 @@
 ## Why Fractal Note
 
 - ✍️ **WYSIWYG Markdown** — Edit and read at the same time. No split preview, no raw markup. Tables (Excel-like editing, **cell merging included**), code blocks, Mermaid, math, draw.io — all rendered live.
-- 🌲 **A real outliner** — Dynalist / Workflowy-style tree editing, with tag management, smooth filtering, and three views: **Outliner / Database / Mindmap**.
+- 🌲 **A real outliner** — Dynalist / Workflowy-style tree editing, with tag management, smooth filtering, and three modes: **Outliner / Database / Mindmap**.
 - 📄 **Subpages** — Embed markdown pages as children of outline nodes or of other markdown pages. Build hierarchical documents like a Notion database.
 - 🤖 **AI-friendly by design** — External file changes are reflected on screen **in real time**. Let Claude Code, Cursor, or Kiro edit your notes while you keep working — your cursor position and in-progress edits are preserved.
 - 🗂 **Notes** — Organize by folder ("note"). Files stay flat on disk while a virtual folder/file tree keeps everything structured on screen — including **arbitrary file attachments** (PDF, Excel, …). Cross-file full-text search — **including inside attached PDF / Word / Excel / PowerPoint files and any text-based attachment (HTML, JSON, …)**, with page / slide / sheet-cell hit locations and backlinks to the referencing nodes — tabs and history, Daily Notes.
@@ -147,7 +147,7 @@ It also supports Notion-style **subpages** (distinct from plain links), so you c
 
 ### Outliner editor
 A Dynalist-class outliner. Folders, tags, and full-text search across both outline node text and markdown bodies.
-The same outline can also be switched into a **Database view** (a Notion-like table) and a **Mindmap view** (an editable SVG mindmap).
+The same outline can also be switched into **Database mode** (a Notion-like table) and **Mindmap mode** (an editable SVG mindmap).
 ![Outliner with the note tree and a page in the side panel](assets/images/1785071780563.png)
 
 ---
@@ -240,20 +240,20 @@ When an AI assistant (Claude Code, Cursor, Kiro, …) — or anything else — m
 ## 🌲 Outliner (.out)
 A Dynalist-like outliner. The same data from three perspectives.
 
-#### Outline view
-![Outline view](assets/images/1785071590698.png)
+#### Outliner mode
+![Outliner mode](assets/images/1785071590698.png)
 
-#### Database view
-![Database view with a page in the side panel](assets/images/1785071543294.png)
+#### Database mode
+![Database mode with a page in the side panel](assets/images/1785071543294.png)
 
-#### Mindmap view
-![Mindmap view](assets/images/1785071464193.png)
+#### Mindmap mode
+![Mindmap mode](assets/images/1785071464193.png)
 
-### Three view modes
-Switch with the view toggle:
+### Three modes
+The tag next to the search box shows the current mode (for example **Database Mode ⇄**); click it to switch to the next one:
 
-1. **Outliner view** — Classic bullet tree. Unlimited nesting, collapse/expand, subtree scoping with breadcrumbs
-2. **Database view** — Your outline as a Notion-like database (tree table). Text and tag (multi-select) columns, plus optional **Date / Date & Time columns** with a native date picker
+1. **Outliner mode** — Classic bullet tree. Unlimited nesting, collapse/expand, subtree scoping with breadcrumbs
+2. **Database mode** — Your outline as a Notion-like database (tree table). Text and tag (multi-select) columns, plus optional **Date / Date & Time columns** with a native date picker
 3. **Mindmap mode** — The same `.out` rendered as an SVG mindmap. Four layouts (radial / left / right / balanced), keyboard-centric editing (navigation, sibling/child insert, swap, type-to-edit, copy/cut/paste with descendants), node colors and shapes, boundaries (groups), relationship lines — plus image attach/delete and drag & drop of 📄/📎 nodes to and from the note tree and markdown editors
 
 ### Organize with tags & search
@@ -284,7 +284,7 @@ Enter / Tab / Shift+Tab work the way you expect. Multi-select indenting, node mo
 ## 🗂 Notes — where everything connects
 
 Fractal Note organizes information into **notes**. Just register any folder from the activity bar.
-![Notes in VS Code: a note in the database view](assets/images/1785087018130.png)
+![Notes in VS Code: a note in Database mode](assets/images/1785087018130.png)
 
 - **Structure without lock-in** — Files are stored **flat** on disk while you organize `.out`, `.md`, and **any other files** in a **virtual folder/file tree** with drag & drop. Your data stays plain files
 - **Import anything** — drag a .md from Finder **or the VS Code Explorer** (hold Shift for Explorer drops) onto the file tree to copy & register it into the note; drop **any file** (PDF, Excel, zip, …) to store it in the note's shared `files/` folder — click to open (Office / PDF / HTML / images / text in the built-in viewer, anything else in the OS default app; on a remote VS Code server this becomes a browser download)
@@ -293,7 +293,7 @@ Fractal Note organizes information into **notes**. Just register any folder from
 - **The outliner has two clear modes** — **node edit mode** is the default (you have a caret and typing goes into the node); selecting nodes puts you in **selection mode**, where the **caret disappears** and printable keys do nothing instead of damaging the node. Selection mode is entered with `Cmd/Ctrl+click`, `Shift+click`, `Shift+↑↓` or the second `Cmd+A`, and left with `Esc`, a bare `↑` / `↓`, or a plain click. Selected nodes are **amber** while a text range stays blue, so the two `Cmd+A` stages are told apart by hue (the file tree, folder views and mindmap keep their blue selection)
 - **Copy & paste between the outliner and a linked folder** — `Cmd+C` in a folder view then `Cmd+V` on an outliner node **duplicates** those files as siblings right after the node (a multi-selection is reproduced). `Cmd+C` on outliner nodes then `Cmd+V` in a folder view duplicates them there: onto a folder row puts them **inside** it, onto a file row puts them **at the same level**, onto empty space puts them at the root. `Cmd+C` → `Cmd+V` **within** a folder view duplicates in place. Dragging still **moves**; the clipboard always **duplicates**. Pasting rich text copied from another application never triggers this — the source is verified against what you actually copied (or the file you have open) before anything is read from disk
 - **Link local folders** — register any folder on disk as a 🔗 **folder link** (`+linkfd`) and browse it in a built-in **folder view**: filter by name, create / rename / duplicate / delete (delete always via the OS trash), open markdown in the side panel and viewer-supported files (Office / PDF / HTML / images / text) in the built-in viewer — a single click on a file's 📄/📎 icon opens it too. The view **live-reloads** when files change on disk (builds, AI edits, …), and a 👁 header toggle shows hidden dotfiles when you need them (persisted per folder link; note that this can reveal sensitive folders like `.git` or `.ssh`). Drag files between the folder view and the **file tree** and the drop **duplicates** — the original stays exactly where it was, including a markdown's accompanying images / attachments / subpages. Drops between the folder view and **side-panel markdown** still **move** the file, so it lives in exactly one place — when a markdown moves out that way, its accompanied images / attachments / subpages are cleaned up from the linked folder too (only when every copy succeeded, and never while another markdown in the folder still references them). Where the OS trash is unavailable (e.g. on a remote VS Code server) the verified-copied original is removed directly. The linked folder itself stays a plain reference: it's never synced, cleaned, or touched outside your explicit actions
-- **Select many rows at once** — in the file tree and in a folder view, `Shift+click` selects a contiguous range (a folder view also takes `Shift+↑↓`) and `Cmd/Ctrl+click` toggles single rows (`Esc` clears). Drag the whole selection anywhere a single row goes: into a folder view, an outliner, a markdown editor, or another place in the tree — mixed kinds travel together in one batch, and anything that fails is reported per item with a single summary. **Reordering nodes inside an outliner moves the whole selection too** (keeping its order; one `Cmd+Z` undoes the lot). **Inside a folder view, dragging a multi-selection now moves every selected file in one go** — if any one of them cannot be moved the whole drop is refused rather than half-applied, and you get a single summary instead of one toast per file. In the outliner, **`Cmd+A` escalates in two steps**: the first press selects the text of the node you are in, pressing it again selects every node (an empty node skips straight to selecting all). Mindmap view still selects every node in one press
+- **Select many rows at once** — in the file tree and in a folder view, `Shift+click` selects a contiguous range (a folder view also takes `Shift+↑↓`) and `Cmd/Ctrl+click` toggles single rows (`Esc` clears). Drag the whole selection anywhere a single row goes: into a folder view, an outliner, a markdown editor, or another place in the tree — mixed kinds travel together in one batch, and anything that fails is reported per item with a single summary. **Reordering nodes inside an outliner moves the whole selection too** (keeping its order; one `Cmd+Z` undoes the lot). **Inside a folder view, dragging a multi-selection now moves every selected file in one go** — if any one of them cannot be moved the whole drop is refused rather than half-applied, and you get a single summary instead of one toast per file. In the outliner, **`Cmd+A` escalates in two steps**: the first press selects the text of the node you are in, pressing it again selects every node (an empty node skips straight to selecting all). Mindmap mode still selects every node in one press
 - **Walk the file tree from the keyboard** — click a row, then `↑↓` to move. **The content pane does not change while you move**; only `Enter` opens (on a virtual folder row `Enter` expands / collapses). Focus stays in the tree afterwards, so `↓ Enter ↓ Enter` walks through your files
 - **Open in a new tab** — `Cmd+Shift+click` (Windows / Linux: `Ctrl+Shift+click`) works the same on file-tree rows, the outliner's 📄 / 📎 icons and links in the markdown body, and the right-click menu offers it too (an outliner node lists the md page and the 📎 file as separate entries). Formats the viewer cannot render, and files over 50MB, open in the OS default app instead
 - **Send to the other side** — right-click in a folder view → **Send to Outliner** imports the selection at the top of the outliner root; right-click an outliner node → **Send to linkedfd** writes the selected nodes out as a real folder tree into one of your registered folder links (picked from a submenu). Dropping a folder onto an outliner editor imports it the same way as *Import folder*
@@ -438,7 +438,7 @@ Tables have an Excel-like **select mode** (click a cell to enter it):
 | `Enter` / `Tab` / `Esc` (while editing) | Commit and return to select / commit and move right / discard |
 | `Delete` | Clear the contents of the selected range |
 
-### Outliner view
+### Outliner mode
 
 | Shortcut | Action |
 | --- | --- |
@@ -464,7 +464,7 @@ Tables have an Excel-like **select mode** (click a cell to enter it):
 | `Opt+←` / `Opt+→` | Navigation history back / forward |
 | `Backspace` (at line start) | Merge with previous node / delete empty node |
 
-### Database view
+### Database mode
 
 Like a spreadsheet, every cell is first **selected** (frame, no caret) and then **edited**. While editing, the outliner column supports all of the outliner shortcuts above.
 
@@ -505,7 +505,7 @@ Date columns: type digits (`20261106` → `2026-11-06`) or use the calendar / cl
 | Drag | Empty space: pan; node: re-parent (top ⅓ = previous sibling, bottom ⅓ = next sibling, middle = child) |
 | Right-click | Colors & shapes, create a group (boundary), create a relationship line, add / remove checkbox |
 
-Task Mode works in Mindmap too: click checkboxes to toggle completion, and use the header's Task Mode / Filter / Archive buttons while in Mindmap view. With the completion filter on, completed nodes disappear from the map together with their subtrees and connector lines (same shared data as the Outliner view).
+Task Mode works in Mindmap too: click checkboxes to toggle completion, and use the header's Task Mode / Filter / Archive buttons while in Mindmap mode. With the completion filter on, completed nodes disappear from the map together with their subtrees and connector lines (same shared data as Outliner mode).
 
 ### Markdown syntax shortcuts
 

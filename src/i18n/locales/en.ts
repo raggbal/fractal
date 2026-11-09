@@ -304,7 +304,7 @@ export const webviewMessages = {
   shortcutHudTitleMd: 'Markdown Shortcuts',
   shortcutHudTitleOutliner: 'Outliner Shortcuts',
   shortcutHudTitleMindmap: 'Mindmap Shortcuts',
-  shortcutHudTitleTable: 'Database (Table) Shortcuts',
+  shortcutHudTitleTable: 'Database Shortcuts',
   shortcutCatEditing: 'Editing',
   shortcutCatNavigation: 'Navigation',
   shortcutCatSearch: 'Search',
@@ -346,6 +346,10 @@ export const webviewMessages = {
   notesUnfavorite: '★ Remove from Favorites',
   notesFavorites: 'Favorites',
   notesMoveOtherNote: 'Move to Another Note…',
+  outlinerModeOutliner: 'Outliner Mode',
+  outlinerModeDatabase: 'Database Mode',
+  outlinerModeMindmap: 'Mindmap Mode',
+  outlinerSwitchMode: 'Switch to {mode}',
   copy: 'Copy',
   copied: 'Copied!',
   expandCodeBlock: 'Fullscreen',
@@ -394,8 +398,6 @@ export const webviewMessages = {
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: 'Insert Drawio Diagram',
   // TBE-14: Outliner Table editor (TASK-B6/B7/B9 + TASK-C2)
-  outlinerSwitchToTable: 'Switch to Table view',
-  outlinerSwitchToOutliner: 'Switch to Outliner view',
   tableAddColumn: 'Add column',
   tableRemoveColumn: 'Remove column',
   tableConfirmRemoveColumn: 'Remove column "{name}"?',

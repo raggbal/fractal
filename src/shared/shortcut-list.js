@@ -16,7 +16,7 @@ var MODE_TITLES = {
     md:       { i18nKey: 'shortcutHudTitleMd',      fallback: 'Markdown Shortcuts' },
     outliner: { i18nKey: 'shortcutHudTitleOutliner', fallback: 'Outliner Shortcuts' },
     mindmap:  { i18nKey: 'shortcutHudTitleMindmap',  fallback: 'Mindmap Shortcuts' },
-    table:    { i18nKey: 'shortcutHudTitleTable',    fallback: 'Database (Table) Shortcuts' },
+    table:    { i18nKey: 'shortcutHudTitleTable',    fallback: 'Database Shortcuts' },
 };
 
 // カテゴリ描画順 + i18n キー + 英語 fallback（i18n 未注入の standalone では英語）。
@@ -132,7 +132,7 @@ function formatKeys(keys, isMac) {
         .replace(/Opt/g, 'Alt');
 }
 
-// mindmap ビュー用（README「Mindmap mode」章より）。
+// Mindmap モード用（README「Mindmap mode」章より）。
 var SHORTCUTS_MINDMAP = [
     { category: 'editing', items: [
         { keys: 'Enter / Shift+Enter', desc: 'Add younger / elder sibling' },
@@ -168,7 +168,7 @@ var SHORTCUTS_MINDMAP = [
     ] },
 ];
 
-// database (table) ビュー用（README「Database view」章より。outliner 列は outliner と同じ）。
+// Database モード用（内部の viewMode は 'table'。README「Database mode」章より。outliner 列は outliner と同じ）。
 var SHORTCUTS_TABLE = [
     // 2026-11-06: セル選択モード（既定）→ 編集モード（spec 20261106-1700-table-cell-select-mode）
     { category: 'editing', items: [

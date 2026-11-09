@@ -242,7 +242,7 @@ export function getOutlinerWebviewContent(
                 <div class="outliner-search-input-wrapper"><input type="text" class="outliner-search-input" placeholder="Search... (e.g. #tag, keyword, is:page)" /><button class="outliner-search-clear-btn" style="display:none" title="Clear search"><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button><div class="outliner-tag-suggest-bar" style="display:none"></div></div>
                 <button class="outliner-nav-back-btn" title="Back" disabled></button>
                 <button class="outliner-nav-forward-btn" title="Forward" disabled></button>
-                <button class="outliner-view-toggle-btn" title="Switch view (Outline / Table)"></button>
+                <button class="outliner-view-toggle-btn outliner-mode-pill" title="Switch mode (Outliner / Database / Mindmap)"></button>
                 <button class="outliner-task-mode-toggle-btn" title="Task Mode"></button>
                 <button class="outliner-task-filter-toggle-btn" title="Filter: Active / All"></button>
                 <button class="outliner-archive-btn" title="Archive completed tasks"></button>

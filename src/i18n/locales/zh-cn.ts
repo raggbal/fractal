@@ -260,7 +260,7 @@ export const webviewMessages = {
   shortcutHudTitleMd: 'Markdown 快捷键',
   shortcutHudTitleOutliner: '大纲快捷键',
   shortcutHudTitleMindmap: '思维导图快捷键',
-  shortcutHudTitleTable: '数据库（表格）快捷键',
+  shortcutHudTitleTable: '数据库快捷键',
   shortcutCatEditing: '编辑',
   shortcutCatNavigation: '导航',
   shortcutCatSearch: '搜索',
@@ -300,6 +300,10 @@ export const webviewMessages = {
   notesUnfavorite: '★ 从收藏中移除',
   notesFavorites: '收藏',
   notesMoveOtherNote: '移动到其他笔记…',
+  outlinerModeOutliner: '大纲模式',
+  outlinerModeDatabase: '数据库模式',
+  outlinerModeMindmap: '思维导图模式',
+  outlinerSwitchMode: '切换到{mode}',
   copy: '复制',
   copied: '已复制！',
   expandCodeBlock: '全屏',
@@ -362,8 +366,6 @@ export const webviewMessages = {
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: '插入 Drawio 图表',
   // TBE-14: Outliner Table editor (TASK-B6/B7/B9 + TASK-C2)
-  outlinerSwitchToTable: '切换到表格视图',
-  outlinerSwitchToOutliner: '切换到大纲视图',
   tableAddColumn: '添加列',
   tableRemoveColumn: '删除列',
   tableConfirmRemoveColumn: '删除列 "{name}"?',

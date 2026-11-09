@@ -260,7 +260,7 @@ export const webviewMessages = {
   shortcutHudTitleMd: 'Markdown 단축키',
   shortcutHudTitleOutliner: '아웃라이너 단축키',
   shortcutHudTitleMindmap: '마인드맵 단축키',
-  shortcutHudTitleTable: '데이터베이스(표) 단축키',
+  shortcutHudTitleTable: '데이터베이스 단축키',
   shortcutCatEditing: '편집',
   shortcutCatNavigation: '탐색',
   shortcutCatSearch: '검색',
@@ -300,6 +300,10 @@ export const webviewMessages = {
   notesUnfavorite: '★ 즐겨찾기에서 제거',
   notesFavorites: '즐겨찾기',
   notesMoveOtherNote: '다른 노트로 이동…',
+  outlinerModeOutliner: '아웃라이너 모드',
+  outlinerModeDatabase: '데이터베이스 모드',
+  outlinerModeMindmap: '마인드맵 모드',
+  outlinerSwitchMode: '{mode}(으)로 전환',
   copy: '복사',
   copied: '복사됨!',
   expandCodeBlock: '전체 화면',
@@ -362,8 +366,6 @@ export const webviewMessages = {
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: 'Drawio 다이어그램 삽입',
   // TBE-14: Outliner Table editor (TASK-B6/B7/B9 + TASK-C2)
-  outlinerSwitchToTable: '테이블 보기로 전환',
-  outlinerSwitchToOutliner: '아웃라이너 보기로 전환',
   tableAddColumn: '열 추가',
   tableRemoveColumn: '열 삭제',
   tableConfirmRemoveColumn: '"{name}" 열을 삭제하시겠습니까?',

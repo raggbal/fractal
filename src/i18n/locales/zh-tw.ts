@@ -260,7 +260,7 @@ export const webviewMessages = {
   shortcutHudTitleMd: 'Markdown 快捷鍵',
   shortcutHudTitleOutliner: '大綱快捷鍵',
   shortcutHudTitleMindmap: '心智圖快捷鍵',
-  shortcutHudTitleTable: '資料庫（表格）快捷鍵',
+  shortcutHudTitleTable: '資料庫快捷鍵',
   shortcutCatEditing: '編輯',
   shortcutCatNavigation: '導覽',
   shortcutCatSearch: '搜尋',
@@ -300,6 +300,10 @@ export const webviewMessages = {
   notesUnfavorite: '★ 從我的最愛移除',
   notesFavorites: '我的最愛',
   notesMoveOtherNote: '移動到其他筆記…',
+  outlinerModeOutliner: '大綱模式',
+  outlinerModeDatabase: '資料庫模式',
+  outlinerModeMindmap: '心智圖模式',
+  outlinerSwitchMode: '切換到{mode}',
   copy: '複製',
   copied: '已複製！',
   expandCodeBlock: '全螢幕',
@@ -362,8 +366,6 @@ export const webviewMessages = {
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: '插入 Drawio 圖表',
   // TBE-14: Outliner Table editor (TASK-B6/B7/B9 + TASK-C2)
-  outlinerSwitchToTable: '切換到表格檢視',
-  outlinerSwitchToOutliner: '切換到大綱檢視',
   tableAddColumn: '新增欄位',
   tableRemoveColumn: '刪除欄位',
   tableConfirmRemoveColumn: '刪除欄位 "{name}"?',

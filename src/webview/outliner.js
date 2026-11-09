@@ -134,20 +134,24 @@ var Outliner = (function() {
         updateHeaderForViewMode(); // [K] iteration 29 / TASK-77
         scheduleSyncToHost();
     }
+    /** 表示モードの名前（画面の言い方は Outliner / Database / Mindmap にそろえる。内部の値 'table' = Database — 保存形式なので値は変えない） */
+    function viewModeLabel(mode) {
+        if (mode === 'table') { return i18n.outlinerModeDatabase || 'Database Mode'; }
+        if (mode === 'mindmap') { return i18n.outlinerModeMindmap || 'Mindmap Mode'; }
+        return i18n.outlinerModeOutliner || 'Outliner Mode';
+    }
     function updateViewToggleButton() {
         if (!viewToggleBtn) return;
-        // 3 状態循環: 現在のモードから「次に切替わるモード」のアイコン/ラベルを表示。
-        //   outliner → (押すと) table, table → mindmap, mindmap → outliner
-        if (VIEW_MODE === 'outliner') {
-            viewToggleBtn.innerHTML = ICON_VIEW_TABLE;
-            viewToggleBtn.title = 'Switch to Table view';
-        } else if (VIEW_MODE === 'table') {
-            viewToggleBtn.innerHTML = ICON_VIEW_MINDMAP;
-            viewToggleBtn.title = 'Switch to Mindmap mode';
-        } else { // mindmap
-            viewToggleBtn.innerHTML = ICON_VIEW_OUTLINE;
-            viewToggleBtn.title = 'Switch to Outline view';
-        }
+        // 今のモードを目立たないタグで出し（[Database Mode ⇄]）、押すと次へ: outliner → database（'table'）→ mindmap → outliner
+        var label = document.createElement('span');
+        label.className = 'outliner-mode-label';
+        label.textContent = viewModeLabel(VIEW_MODE);
+        viewToggleBtn.classList.add('outliner-mode-pill'); // どの HTML から来ても pill の形に（テンプレートの class に頼らない）
+        viewToggleBtn.innerHTML = '';
+        viewToggleBtn.appendChild(label);
+        viewToggleBtn.insertAdjacentHTML('beforeend', ICON_SWITCH_MODE);
+        viewToggleBtn.dataset.mode = VIEW_MODE;
+        viewToggleBtn.title = (i18n.outlinerSwitchMode || 'Switch to {mode}').replace('{mode}', viewModeLabel(nextViewMode(VIEW_MODE)));
     }
     function nextViewMode(mode) {
         return mode === 'outliner' ? 'table' : (mode === 'table' ? 'mindmap' : 'outliner');
@@ -1034,10 +1038,8 @@ var Outliner = (function() {
     var ICON_NAV_BACK = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>';
     var ICON_NAV_FORWARD = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>';
     // Phase F3: outliner / table view 切替アイコン
-    var ICON_VIEW_OUTLINE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
-    var ICON_VIEW_TABLE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="16" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>';
-    // Mindmap Mode (sprint 20260701-122355): 中心ノードから枝が伸びるアイコン
-    var ICON_VIEW_MINDMAP = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><line x1="7.3" y1="11" x2="17" y2="6.8"/><line x1="7.3" y1="13" x2="17" y2="17.2"/></svg>';
+    // 表示モードのタグのボタン（[Database Mode ⇄]）の切替アイコン。モードごとに替えず 1 つ（lucide arrow-left-right）
+    var ICON_SWITCH_MODE = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>';
     // タスクモード: チェックボックス square + check
     var ICON_TASK_MODE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>';
     // フィルタ: 漏斗 (active 時 fill あり)
@@ -1143,10 +1145,12 @@ var Outliner = (function() {
         }
         if (viewToggleBtn) {
             updateViewToggleButton();
-            viewToggleBtn.addEventListener('click', function () {
+            // onclick 代入で冪等に（init が 2 回走ると addEventListener は二重になり、1 click で 2 つ先のモードへ進んでいた。
+            // 下の task 3 ボタンと同じ扱い）
+            viewToggleBtn.onclick = function () {
                 setViewMode(nextViewMode(VIEW_MODE));
                 updateViewToggleButton();
-            });
+            };
         }
         // task 3 ボタンは onclick 代入で冪等に配線する (sprint 20260727-024112 TASK-07)。
         // init() が複数回呼ばれる環境 (standalone test harness は build 時 + spec の initOutliner(data)

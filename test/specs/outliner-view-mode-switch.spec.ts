@@ -53,7 +53,8 @@ for (const from of ['table', 'mindmap'] as const) {
         const tree = page.locator('.outliner-tree');
         await expect(tree).toHaveAttribute('data-view-mode', 'outliner');
         expect(await tree.evaluate((t) => [(t as HTMLElement).style.display, (t as HTMLElement).style.gridTemplateColumns])).toEqual(['', '']);
-        await expect(page.locator('.outliner-view-toggle-btn')).toHaveAttribute('title', 'Switch to Table view');
+        await expect(page.locator('.outliner-view-toggle-btn')).toHaveAttribute('title', 'Switch to Database Mode');
+        await expect(page.locator('.outliner-view-toggle-btn .outliner-mode-label')).toHaveText('Outliner Mode');
 
         await page.locator('.outliner-node .outliner-text').first().click();
         await page.keyboard.type('one');
@@ -66,3 +67,20 @@ for (const from of ['table', 'mindmap'] as const) {
         expect(boxes[0].w).toBeGreaterThan(600); // the full width, not one table column
     });
 }
+
+test('TC-VMS-03 the mode tag button: shows the current mode, one switch icon, a click goes Outliner → Database → Mindmap → Outliner', async ({ page }) => {
+    await page.goto('/standalone-outliner.html');
+    await page.waitForFunction(() => (window as any).__testApi?.ready);
+    await page.evaluate((d) => (window as any).__testApi.initOutliner(d, 'fresh.out'), newOutData());
+    const btn = page.locator('.outliner-view-toggle-btn');
+    await expect(btn).toHaveClass(/outliner-mode-pill/);
+    const icons: string[] = [];
+    for (const [mode, label, next] of [['outliner', 'Outliner Mode', 'Database Mode'], ['table', 'Database Mode', 'Mindmap Mode'], ['mindmap', 'Mindmap Mode', 'Outliner Mode'], ['outliner', 'Outliner Mode', 'Database Mode']] as const) {
+        await expect(page.locator('.outliner-tree')).toHaveAttribute('data-view-mode', mode);
+        await expect(btn.locator('.outliner-mode-label')).toHaveText(label);
+        await expect(btn).toHaveAttribute('title', `Switch to ${next}`);
+        icons.push(await btn.locator('svg').evaluate((e) => e.outerHTML));
+        await btn.click();
+    }
+    expect(new Set(icons).size).toBe(1); // the same switch icon in every mode
+});
