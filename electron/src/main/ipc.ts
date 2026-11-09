@@ -56,10 +56,29 @@ export const SIDEBAR_CH = {
     setSection: 'fractal-sidebar:set-section',
 } as const;
 
+/** The settings screen ↔ main (settings-window.ts): keys under "fractal." and values only. */
+export const SETTINGS_CH = {
+    /** invoke, renderer → main: () → SettingsPageState */
+    getState: 'fractal-settings:get-state',
+    /** invoke, renderer → main: (key, value) → { ok, error? } */
+    set: 'fractal-settings:set',
+    /** invoke, renderer → main: (key) → { ok, error? } remove the user value */
+    reset: 'fractal-settings:reset',
+    /** invoke, renderer → main: (key) → a chosen path | null (the field's "Choose…") */
+    pick: 'fractal-settings:pick',
+    /** renderer → main: open settings.json */
+    openFile: 'fractal-settings:open-file',
+    /** main → renderer: a new SettingsPageState */
+    state: 'fractal-settings:state',
+    /** main → renderer: (key) scroll to that setting */
+    focus: 'fractal-settings:focus',
+} as const;
+
 /** The scheme of a panel's document (VS Code's vscode-webview://): fractal-res://<panelId>/index.html */
 export const PANEL_SCHEME = 'fractal-res';
 /**
- * The scheme of the app's own pages: fractal-ui://prompt/index.html (prompt session) and
- * fractal-ui://sidebar/index.html (sidebar session). Each session serves only its own host.
+ * The scheme of the app's own pages: fractal-ui://prompt/index.html (prompt session),
+ * fractal-ui://sidebar/index.html (sidebar session) and fractal-ui://settings/index.html (settings
+ * session). Each session serves only its own host.
  */
 export const UI_SCHEME = 'fractal-ui';

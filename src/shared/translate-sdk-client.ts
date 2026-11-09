@@ -22,26 +22,17 @@ import {
     TranslateTextCommand,
     ImportTerminologyCommand,
 } from '@aws-sdk/client-translate';
+import { awsClientOptions, type AwsSettings } from './aws-settings';
 
-export interface TranslateSdkConfig {
-    accessKeyId: string;
-    secretAccessKey: string;
-    region: string;
-}
+/** 設定の AWS の認証とリージョン（aws-settings.ts） */
+export type TranslateSdkConfig = AwsSettings;
 
 /**
- * 静的キー + region で TranslateClient を生成する。
- * 現行 CLI の env 注入（AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_DEFAULT_REGION）
- * に相当。credentials は client 生成時に渡す（send 時の env 注入は不要）。
+ * TranslateClient を生成する。キーがあればそのキー、無ければ AWS CLI と同じ認証（SDK の既定の探し方）。
+ * リージョンは resolveAwsRegion（ADRL-0141）。
  */
 export function createTranslate(config: TranslateSdkConfig): TranslateClient {
-    return new TranslateClient({
-        region: config.region,
-        credentials: {
-            accessKeyId: config.accessKeyId,
-            secretAccessKey: config.secretAccessKey,
-        },
-    });
+    return new TranslateClient(awsClientOptions(config));
 }
 
 export interface TranslateTextSdkOptions {

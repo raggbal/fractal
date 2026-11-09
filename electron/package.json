@@ -67,6 +67,34 @@
       {
         "from": "../package.json",
         "to": "ext/package.json"
+      },
+      {
+        "from": "../package.nls.json",
+        "to": "ext/package.nls.json"
+      },
+      {
+        "from": "../package.nls.ja.json",
+        "to": "ext/package.nls.ja.json"
+      },
+      {
+        "from": "../package.nls.es.json",
+        "to": "ext/package.nls.es.json"
+      },
+      {
+        "from": "../package.nls.fr.json",
+        "to": "ext/package.nls.fr.json"
+      },
+      {
+        "from": "../package.nls.ko.json",
+        "to": "ext/package.nls.ko.json"
+      },
+      {
+        "from": "../package.nls.zh-cn.json",
+        "to": "ext/package.nls.zh-cn.json"
+      },
+      {
+        "from": "../package.nls.zh-tw.json",
+        "to": "ext/package.nls.zh-tw.json"
       }
     ],
     "electronFuses": {

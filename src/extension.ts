@@ -7,7 +7,12 @@ import { NotesEditorProvider } from './notesEditorProvider';
 import { registerFileViewer } from './fileViewerProvider';
 import { initLocale, t } from './i18n/messages';
 import { runNotesCleanup } from './notesCleanupCommand';
-import { importTerminology, resolveTerminologyPath } from './shared/aws-translate';
+import { importTerminology } from './shared/aws-translate';
+import { readAwsSettings, awsErrorMessage } from './shared/aws-settings';
+import { parseTerminologySetting } from './shared/translate-terminology';
+import { awsErrorTexts } from './shared/translate-host';
+import { initTranslateLangs, setTranslateLangs, TRANSLATE_LANGS_KEY } from './shared/translate-langs';
+import { applySettingsMigration, MigrationNotice, MigrationScope } from './shared/settings-migration';
 import { execFile as cpExecFile } from 'child_process';
 import { runExportMdToPdf, PdfExportDeps, ExecResult } from './shared/pdf-export-host';
 
@@ -26,10 +31,55 @@ function parseFractalLink(url: string): FractalLinkParams | null {
     return parseShared(url);
 }
 
+/** 設定の整理（ADRL-0141）の移行の版。globalState（ユーザーの設定）と workspaceState（ワークスペースの設定）に 1 回ずつ */
+const SETTINGS_MIGRATION_KEY = 'settingsMigration';
+const SETTINGS_MIGRATION_VERSION = 1;
+
+/** 名前が変わった・外れた設定を新しい設定へ 1 回だけ移し、移したことを知らせる */
+async function migrateSettings(context: vscode.ExtensionContext): Promise<void> {
+    const scopes: MigrationScope[] = [];
+    if ((context.globalState.get<number>(SETTINGS_MIGRATION_KEY) ?? 0) < SETTINGS_MIGRATION_VERSION) {
+        scopes.push('global');
+    }
+    if (vscode.workspace.workspaceFolders?.length && (context.workspaceState.get<number>(SETTINGS_MIGRATION_KEY) ?? 0) < SETTINGS_MIGRATION_VERSION) {
+        scopes.push('workspace');
+    }
+    if (scopes.length === 0) {
+        return;
+    }
+    try {
+        const plan = await applySettingsMigration(vscode.workspace.getConfiguration('fractal'), scopes, {
+            has: () => context.globalState.get(TRANSLATE_LANGS_KEY) !== undefined,
+            set: (langs) => setTranslateLangs(langs),
+        });
+        if (scopes.includes('global')) {
+            await context.globalState.update(SETTINGS_MIGRATION_KEY, SETTINGS_MIGRATION_VERSION);
+        }
+        if (scopes.includes('workspace')) {
+            await context.workspaceState.update(SETTINGS_MIGRATION_KEY, SETTINGS_MIGRATION_VERSION);
+        }
+        // ふつうの移行（キーを aws* へ）は黙って済ませる。知らせるのは利用者がすること（古いキーの片付け・用語集の
+        // アップロードし直し）があるときだけ。起動の直後はデスクトップ版にまだ note が無く、通知が画面の前に出る
+        // message box になるので、少し待ってから出す
+        const lines = plan.notices.filter((n) => n.kind !== 'aws').map((n: MigrationNotice) =>
+            n.kind === 'awsTranslateKeysKept' ? `${t('settingsMigratedAws')} ${t('settingsMigratedAwsTranslateKept')}`
+                : n.kind === 'terminologyRenamed' ? t('settingsMigratedTerminologyRenamed').replace('{name}', n.name) : '');
+        if (lines.some((l) => l)) {
+            setTimeout(() => vscode.window.showInformationMessage(lines.filter((l) => l).join(' ')), 5000);
+        }
+    } catch (err: any) {
+        // 書けなかった（settings.json が壊れているなど）: 次の起動でやり直す。古い設定は新しい設定を書き終えるまで消さない
+        console.error('[Fractal] settings migration failed:', err);
+        vscode.window.showWarningMessage(t('settingsMigrationFailed').replace('{error}', err?.message || String(err)));
+    }
+}
+
 export function activate(context: vscode.ExtensionContext) {
     // Initialize localization
     const config = vscode.workspace.getConfiguration('fractal');
     initLocale(config.get<string>('language', 'default'), vscode.env.language);
+    initTranslateLangs(context.globalState);
+    void migrateSettings(context);
     
     console.log('Fractal is now active!');
 
@@ -167,41 +217,31 @@ export function activate(context: vscode.ExtensionContext) {
     // v0.207.25: Custom Terminology を Amazon Translate に upload (CSV/TMX)
     context.subscriptions.push(
         vscode.commands.registerCommand('fractal.updateTranslateTerminology', async () => {
+            // 設定 fractal.translateTerminology のファイルを、ファイル名から作った名前でアップロードする（ADRL-0141）
             const config = vscode.workspace.getConfiguration('fractal');
-            const rawPath = config.get<string>('translateTerminologyFile', '').trim();
-            const name = config.get<string>('translateTerminologyName', '').trim();
-            const accessKeyId = config.get<string>('transAccessKeyId', '').trim();
-            const secretAccessKey = config.get<string>('transSecretAccessKey', '').trim();
-            const region = config.get<string>('transRegion', 'us-east-1').trim();
-
-            if (!rawPath) {
+            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const terminology = parseTerminologySetting(config.get<string>('translateTerminology', ''), wsRoot);
+            if (!terminology.name) {
                 vscode.window.showErrorMessage(t('terminologyFileNotSet'));
                 return;
             }
-            if (!name) {
-                vscode.window.showErrorMessage(t('terminologyNameNotSet'));
+            if (!terminology.filePath) {
+                // 登録済みの用語集の名前: アップロードするものは無い（翻訳にはその名前を使う）
+                vscode.window.showInformationMessage(t('terminologyIsName').replace('{name}', terminology.name));
                 return;
             }
-            if (!accessKeyId || !secretAccessKey) {
-                vscode.window.showErrorMessage(t('terminologyCredentialsNotSet'));
-                return;
-            }
-
-            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            const filePath = resolveTerminologyPath(rawPath, wsRoot);
+            const { name, filePath } = terminology;
+            const aws = readAwsSettings((k) => config.get(k));
 
             await vscode.window.withProgress(
                 { location: vscode.ProgressLocation.Notification, title: t('terminologyUploading') },
                 async () => {
                     try {
-                        const result = await importTerminology({
-                            name, filePath, accessKeyId, secretAccessKey, region,
-                        });
+                        const result = await importTerminology({ ...aws, name, filePath });
                         const cnt = typeof result.termCount === 'number' ? ` (${result.termCount} terms)` : '';
                         vscode.window.showInformationMessage(t('terminologyUpdated') + `"${result.name}"${cnt}`);
                     } catch (err: any) {
-                        const msg = err?.message || String(err);
-                        vscode.window.showErrorMessage(t('terminologyUpdateFailed') + msg);
+                        vscode.window.showErrorMessage(t('terminologyUpdateFailed') + awsErrorMessage(err, awsErrorTexts()));
                     }
                 }
             );

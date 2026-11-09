@@ -55,7 +55,7 @@ VS Code が無くても使える、単体のアプリです。VS Code 版と同�
 4. **使いはじめる** — Fractal は note の一覧 `~/.fractal/default.fractal` を開きます。この Mac の VS Code 版と同じ一覧です。左のサイドバーからフォルダを note として足せます。
 
 - **新しい版にする** — Fractal を終了し、新しい dmg をダウンロードして「アプリケーション」の `Fractal.app` を置き換えます。自動の更新はまだありません。版の一覧は [Releases](https://github.com/raggbal/fractal/releases) にあります。
-- **設定** — **Fractal → Settings…** で `settings.json` が開きます。キーは VS Code 版と同じ `fractal.*` です（VS Code の設定は読みません）。
+- **設定** — **Fractal → Settings…**（⌘,）で設定の画面が開きます。VS Code 版と同じ `fractal.*` の設定で、変えるとすぐ効きます。保存先はアプリの `settings.json` です（**Help → Open Settings File** で開けます）。VS Code の設定は読みません。
 - **デスクトップ版でまだできないこと** — S3 の同期と翻訳、draw.io を外のエディタで開く、自動の更新。
 - **消すとき** — `Fractal.app` を削除します。アプリのデータは `~/Library/Application Support/Fractal` にあります。ノートには触れません。
 
@@ -127,10 +127,13 @@ VS Code と、その互換のエディタの中で使う Fractal Note です。m
 - 詳しくは [chrome-extension/README.md](chrome-extension/README.md)
 
 ### オプション: AWS 認証情報（S3 同期 & 翻訳）
-コア機能は AWS なしで動作します。S3 同期と Amazon Translate を使うには、VS Code の設定で認証情報を設定するだけです（AWS SDK を内蔵しており、CLI のインストールは不要）。なお、HTTP(S) プロキシ経由の接続には現在対応していません:
+コア機能は AWS なしで動作します。S3 同期と Amazon Translate は、1 組の AWS の設定を使います:
 
-- S3 同期: `fractal.s3AccessKeyId`, `fractal.s3SecretAccessKey`, `fractal.s3Region`
-- 翻訳: `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`
+- **そのコンピューターで AWS CLI が使えるなら、何も設定しなくてよい。** CLI と同じ認証（環境変数・`~/.aws` の `default` プロファイル（または `AWS_PROFILE`）・SSO（`aws sso login`）など）を使います。AWS CLI そのものは要りません（内蔵の AWS SDK が同じファイルを読みます）。
+- **そうでなければアクセスキーを入れる:** `fractal.awsAccessKeyId` と `fractal.awsSecretAccessKey`。
+- **リージョン:** `fractal.awsRegion`（例 `ap-northeast-1`）。空なら AWS CLI のプロファイルのリージョン、それも無ければ `us-east-1`。S3 同期はバケットのリージョンを自動で追いかけます。
+
+前の版の別々の設定（`fractal.s3AccessKeyId` など・`fractal.transAccessKeyId` など）は、自動でこれらへ移します。なお、HTTP(S) プロキシ経由の接続には現在対応していません。
 
 ---
 
@@ -193,7 +196,7 @@ Notion スタイルの WYSIWYG エディタ。見えているものがそのま�
 ### PDF エクスポート
 - **ワンクリックで PDF** — ツールバー / サイドパネルのボタン（または `Fractal Note: Export to PDF`）で、開いている md をエディタ表示そのまま（Mermaid・数式・文字色・チェックボックス込み）の印刷向け PDF に変換
 - **スマートな改ページ** — 既定で h1/h2 の前に改ページ。ただし最初の h1 と、各 h1 直後の最初の h2 の前には入れない（章立てが自然に組まれる）
-- **CSS でカスタマイズ** — `fractal.pdfStyles`（CSS ファイルパスの配列）で組み込みスタイルを上書き。`fractal.pdfIncludeDefaultStyles: false` で完全差し替えも可。改ページは素の CSS（`break-before`）なので自由に無効化・拡張できる
+- **CSS でカスタマイズ** — `fractal.pdfStyles`（CSS ファイルパスの配列）を組み込みスタイルの後に当てるので、自分のルールが勝つ。改ページは素の CSS（`break-before`）なので自由に無効化・拡張できる
 - **ローカル完結・依存ゼロ** — インストール済みの Chrome/Edge を headless 利用。エクスポート中の外部通信なし・拡張本体への追加依存なし
 
 ### Export bundle — ドキュメントを note の外へ持ち出す
@@ -328,9 +331,9 @@ AWS アカウントがあれば、note を S3 に同期できます:
 - mtime ベースのファイル単位 newer-wins 判定: ローカルの編集が古い S3 の内容で上書きされることはありません
 
 ### 🌍 翻訳
-選択範囲またはドキュメント全体を **Amazon Translate** で翻訳。カスタム用語集（Custom Terminology）による精度向上にも対応。
+選択範囲またはドキュメント全体を **Amazon Translate** で翻訳。カスタム用語集（Custom Terminology）による精度向上にも対応（`fractal.translateTerminology`: CSV / TMX のファイル（**Fractal: Update Translate Terminology** でアップロード）か、Amazon Translate に登録済みの用語集の名前）。最後に選んだ言語を覚えます。
 
-> S3 同期と翻訳は設定に AWS 認証情報を入れるだけで動きます（AWS CLI のインストールは不要）。それ以外の機能は AWS なしで動作します。
+> S3 同期と翻訳は、そのコンピューターの AWS CLI の認証か、設定のアクセスキーで動きます（AWS CLI そのものは不要）。それ以外の機能は AWS なしで動作します。
 
 ---
 
@@ -552,45 +555,50 @@ Date 列は数字で打つ（`20261106` → `2026-11-06`）か、カレンダー
 
 ## 🎨 設定
 
+VS Code では **設定 → 拡張機能 → Fractal Note**、デスクトップ版では **Fractal → Settings…**（⌘,）。
+
+**表示**
+
 | 設定 | 説明 | デフォルト |
 | --- | --- | --- |
-| `fractal.theme` | エディタテーマ（`light`, `dark`, `auto`） | `auto` |
-| `fractal.fontSize` | 基本フォントサイズ（px） | `12` |
-| `fractal.imageMaxWidth` | インライン画像の最大表示幅（px） | `400` |
+| `fractal.theme` | テーマ（`auto`, `light`, `dark`） | `auto` |
 | `fractal.language` | UI 言語（`default`, `en`, `ja`, `zh-CN`, `zh-TW`, `ko`, `es`, `fr`） | `default` |
-| `fractal.toolbarMode` | ツールバーモード（`full`, `simple`） | `simple` |
-| `fractal.resourceRoots` | エディタが画像・添付を読み込めるディレクトリ | `[]`（ホームディレクトリ） |
+| `fractal.fontSize` | 基本の文字の大きさ（px） | `12` |
+| `fractal.imageMaxWidth` | 画像・draw.io の図の最大表示幅（px） | `400` |
+| `fractal.toolbarMode` | マークダウンのツールバー（`simple`, `full`） | `simple` |
 | `fractal.showTranslateButtons` | ツールバー / サイドパネルに翻訳ボタンを表示 | `false` |
 | `fractal.showOpenInTextEditor` | Open in Text Editor ボタンの表示 | `true` |
-| `fractal.enableDebugLogging` | ブラウザコンソールへのデバッグログ | `false` |
 
-### S3 同期（AWS）
-
-| 設定 | 説明 | デフォルト |
-| --- | --- | --- |
-| `fractal.s3AccessKeyId` | S3 同期用の AWS アクセスキー ID | `""` |
-| `fractal.s3SecretAccessKey` | S3 同期用の AWS シークレットアクセスキー | `""` |
-| `fractal.s3Region` | S3 同期用の AWS リージョン（例 `ap-northeast-1`） | `us-east-1` |
-
-### 翻訳（Amazon Translate）
+**ファイル**
 
 | 設定 | 説明 | デフォルト |
 | --- | --- | --- |
-| `fractal.transAccessKeyId` | Amazon Translate 用の AWS アクセスキー ID | `""` |
-| `fractal.transSecretAccessKey` | Amazon Translate 用の AWS シークレットアクセスキー | `""` |
-| `fractal.transRegion` | Amazon Translate 用の AWS リージョン（例 `ap-northeast-1`） | `us-east-1` |
-| `fractal.translateSourceLang` | 既定の翻訳元言語 | `en` |
-| `fractal.translateTargetLang` | 既定の翻訳先言語 | `ja` |
-| `fractal.translateTerminologyName` | Amazon Translate に登録済みのカスタム用語集名 | `""` |
-| `fractal.translateTerminologyFile` | 登録するカスタム用語集ファイル（CSV / TMX）のパス | `""` |
+| `fractal.resourceRoots` | エディタが画像・添付を読み込めるフォルダ | `[]`（ホームディレクトリ） |
+| `fractal.viewerHtmlAllowScripts` | ファイルビューアの HTML のスクリプトを動かす（隔離した枠の中） | `true` |
 
-### PDF エクスポート
+**PDF の書き出し**
 
 | 設定 | 説明 | デフォルト |
 | --- | --- | --- |
-| `fractal.pdfStyles` | エクスポート PDF に適用する追加 CSS ファイルパス | `[]` |
-| `fractal.pdfIncludeDefaultStyles` | 組み込み印刷スタイルシートを含める | `true` |
-| `fractal.pdfBrowserPath` | Chromium 系ブラウザ実行ファイルの明示パス | `""`（自動検出） |
+| `fractal.pdfBrowserPath` | Chrome / Edge / Chromium / Brave の場所 | `""`（自動検出） |
+| `fractal.pdfStyles` | 組み込みの印刷用 CSS の後に当てる CSS ファイル | `[]` |
+
+**AWS（S3 同期・翻訳）**
+
+| 設定 | 説明 | デフォルト |
+| --- | --- | --- |
+| `fractal.awsAccessKeyId` | AWS のアクセスキー ID（空なら AWS CLI の認証） | `""` |
+| `fractal.awsSecretAccessKey` | AWS のシークレットアクセスキー | `""` |
+| `fractal.awsRegion` | AWS のリージョン（空なら AWS CLI のプロファイルのリージョン、無ければ `us-east-1`） | `""` |
+| `fractal.translateTerminology` | 用語集: CSV / TMX のファイルか、Amazon Translate に登録済みの用語集の名前 | `""` |
+
+**詳細**
+
+| 設定 | 説明 | デフォルト |
+| --- | --- | --- |
+| `fractal.enableDebugLogging` | エディタの開発者ツールのコンソールへのデバッグログ | `false` |
+
+前の版の設定は、最初の起動のときに自動で移します: `fractal.s3*` / `fractal.trans*` → `fractal.aws*`、`fractal.translateTerminologyFile` / `translateTerminologyName` → `fractal.translateTerminology`。`fractal.translateSourceLang` / `translateTargetLang` は設定ではなくなりました（翻訳の画面で最後に選んだ言語を覚えます）。`fractal.pdfIncludeDefaultStyles` は外しました（組み込みの印刷用 CSS はいつも入ります。`fractal.pdfStyles` で上書きできます）。
 
 画像・添付の保存先は設定ではなく規約で固定（note 内は共有 `images/` / `files/`、note 外の standalone md は `.fractal.json` サイドカーで指定）。
 

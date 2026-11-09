@@ -17,6 +17,8 @@ import { isViewerTarget } from './viewer-target';
 import { resolveFilesDir, resolveFilesDirForMd, resolveImagesDir, resolveImagesDirForMd, resolvePagesDir } from './flat-layout';
 import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
+import { handleTranslateRequest } from './translate-host';
+import { setTranslateLangs } from './translate-langs';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem, droppedUriToFsPath, DroppedFolderPayload, materializeDroppedFolder, expandDroppedPathsToFiles } from './drop-import';
 import { setFirstH1, writeFileIfChanged, extractFirstH1 } from './md-h1-utils';
 import { buildFileLinkMarkdown, insertNodeAtDropPosition, createPageMdFile, syncPageH1FromNodeText, duplicateTreeItemEntity } from './notes-ops-core';
@@ -2771,49 +2773,12 @@ export async function handleNotesMessage(
         case 'translateContent': {
             if (platform.getWorkspaceConfig && platform.postMessage) {
                 const config = platform.getWorkspaceConfig('fractal');
-                const accessKeyId = config.get('transAccessKeyId', '');
-                const secretAccessKey = config.get('transSecretAccessKey', '');
-                const region = config.get('transRegion', 'us-east-1');
-                // v0.207.25: Custom Terminology が設定済なら使う
-                const terminologyName = (config.get('translateTerminologyName', '') || '').toString().trim();
-                if (!accessKeyId || !secretAccessKey) {
-                    sender.postMessage({
-                        type: 'translateError',
-                        message: 'AWS credentials not configured. Set fractal.transAccessKeyId and transSecretAccessKey in settings.',
-                        // FR-TR-02 (sprint 20260803-013547): 要求元識別を透過エコーバック
-                        // （sidepanel md 要求なら sidePanelFilePath 付き / main 要求なら undefined）。
-                        sidePanelFilePath: message.sidePanelFilePath
-                    });
-                    break;
-                }
-                try {
-                    const result = await translateText({
-                        text: message.markdown,
-                        sourceLang: message.sourceLang,
-                        targetLang: message.targetLang,
-                        accessKeyId,
-                        secretAccessKey,
-                        region,
-                        terminologyName: terminologyName || undefined,
-                    });
-                    sender.postMessage({
-                        type: 'translateResult',
-                        translatedMarkdown: result.translatedText,
-                        sourceLang: result.sourceLang,
-                        targetLang: result.targetLang,
-                        // FR-TR-02: 要求元識別を透過エコーバック。
-                        sidePanelFilePath: message.sidePanelFilePath
-                    });
-                } catch (err: any) {
-                    const errMsg = err?.message || String(err);
-                    console.error('[Translate] Error:', errMsg, err?.stack || '');
-                    sender.postMessage({
-                        type: 'translateError',
-                        message: errMsg,
-                        // FR-TR-02: 要求元識別を透過エコーバック。
-                        sidePanelFilePath: message.sidePanelFilePath
-                    });
-                }
+                await handleTranslateRequest(message, {
+                    getConfig: (k) => config.get(k),
+                    translate: translateText,
+                    post: (m) => sender.postMessage(m),
+                    notifyInfo: (m) => platform.showInformationMessage?.(m),
+                });
             }
             break;
         }
@@ -2840,14 +2805,11 @@ export async function handleNotesMessage(
         }
 
         case 'saveTranslateLangs': {
-            // v0.207.24: popup の select で選んだ言語を settings に永続化
-            if (platform.updateWorkspaceConfig) {
-                try {
-                    await platform.updateWorkspaceConfig('fractal', 'translateSourceLang', message.sourceLang);
-                    await platform.updateWorkspaceConfig('fractal', 'translateTargetLang', message.targetLang);
-                } catch (err: any) {
-                    console.error('[Translate] saveTranslateLangs error:', err);
-                }
+            // v0.207.24: popup の select で選んだ言語を覚える（globalState。設定には書かない。translate-langs.ts）
+            try {
+                await setTranslateLangs({ sourceLang: message.sourceLang, targetLang: message.targetLang });
+            } catch (err: any) {
+                console.error('[Translate] saveTranslateLangs error:', err);
             }
             break;
         }

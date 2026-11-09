@@ -55,7 +55,7 @@ Fractal Note as a standalone app — no VS Code needed. It runs the very same co
 4. **Start writing** — Fractal opens your notes list, `~/.fractal/default.fractal` — the same list the VS Code extension uses on this Mac. Add a folder as a note from the sidebar.
 
 - **Update** — Quit Fractal, download the new dmg and replace `Fractal.app` in Applications. There are no automatic updates yet — see [Releases](https://github.com/raggbal/fractal/releases).
-- **Settings** — **Fractal → Settings…** opens `settings.json` with the same `fractal.*` keys as in VS Code (VS Code's own settings are not read).
+- **Settings** — **Fractal → Settings…** (⌘,) opens the settings screen: the same `fractal.*` settings as in VS Code, applied as you change them. They are saved in the app's own `settings.json` (**Help → Open Settings File**); VS Code's settings are not read.
 - **Not in the desktop app yet** — S3 sync and translation, opening draw.io diagrams in an external editor, automatic updates.
 - **Uninstall** — Delete `Fractal.app`. The app's own data is in `~/Library/Application Support/Fractal`. Your notes are never touched.
 
@@ -127,10 +127,13 @@ Saves any web page into a note — straight from Chrome or Edge, without VS Code
 - Details (in Japanese): [chrome-extension/README.md](chrome-extension/README.md)
 
 ### Optional: AWS credentials (S3 sync & translation)
-Core features work without AWS. To use S3 sync and Amazon Translate, just configure credentials in VS Code settings — the extension talks to AWS directly (built-in AWS SDK; no CLI installation needed). Note: connections through an HTTP(S) proxy are not currently supported for these features:
+Core features work without AWS. S3 sync and Amazon Translate use one set of AWS settings:
 
-- S3 sync: `fractal.s3AccessKeyId`, `fractal.s3SecretAccessKey`, `fractal.s3Region`
-- Translation: `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`
+- **If the AWS CLI works on your computer, set nothing.** Fractal uses the same credentials as the CLI — environment variables, the `default` profile in `~/.aws` (or `AWS_PROFILE`), SSO (`aws sso login`), and so on. The AWS CLI itself is not needed: the built-in AWS SDK reads the same files.
+- **Otherwise, set an access key:** `fractal.awsAccessKeyId` and `fractal.awsSecretAccessKey`.
+- **Region:** `fractal.awsRegion` (e.g. `ap-northeast-1`). Empty = the region of your AWS CLI profile, else `us-east-1`. S3 sync follows the bucket's region by itself.
+
+The old separate settings (`fractal.s3AccessKeyId` …, `fractal.transAccessKeyId` …) are moved to these automatically. Note: connections through an HTTP(S) proxy are not currently supported for these features.
 
 ---
 
@@ -191,7 +194,7 @@ A Notion-style WYSIWYG editor. What you see is exactly what's in the file.
 ### PDF export
 - **One click to PDF** — Toolbar / side-panel button (or `Fractal Note: Export to PDF`) turns the current markdown into a print-ready PDF, rendered exactly like the editor (Mermaid, math, colors, checkboxes included)
 - **Smart page breaks** — Breaks before `h1`/`h2` by default, but not before the first `h1` or the first `h2` right after an `h1` — chapters flow naturally
-- **Your own stylesheet** — `fractal.pdfStyles` (array of CSS file paths) overrides the built-in print style; set `fractal.pdfIncludeDefaultStyles: false` to replace it entirely. Page breaks are plain CSS (`break-before`), so you can disable or extend them freely
+- **Your own stylesheet** — `fractal.pdfStyles` (array of CSS file paths) is applied after the built-in print style, so your rules win. Page breaks are plain CSS (`break-before`), so you can disable or extend them freely
 - **Local & dependency-free** — Uses your installed Chrome/Edge headlessly; no network access during export, nothing added to the extension bundle
 
 ### Export bundle — take a document out of the note
@@ -323,9 +326,9 @@ With an AWS account, you can sync your notes to S3:
 - Per-file, mtime-based newer-wins resolution: your local edits are never overwritten by older S3 content
 
 ### 🌍 Translation
-Translate a selection or the whole document with **Amazon Translate**, including Custom Terminology support for better accuracy.
+Translate a selection or the whole document with **Amazon Translate**, including Custom Terminology support for better accuracy (`fractal.translateTerminology`: a CSV / TMX file — upload it with **Fractal: Update Translate Terminology** — or the name of a terminology already in Amazon Translate). The languages you pick last are remembered.
 
-> S3 sync and translation only need AWS credentials in settings — no AWS CLI installation required. Everything else works without AWS.
+> S3 sync and translation use the AWS CLI's credentials on your computer, or an access key in settings — the AWS CLI itself is not needed. Everything else works without AWS.
 
 ---
 
@@ -545,45 +548,50 @@ Type a markdown pattern and it converts in place: `# ` for headings, `- ` for li
 
 ## 🎨 Settings
 
+In VS Code: **Settings → Extensions → Fractal Note**. In the desktop app: **Fractal → Settings…** (⌘,).
+
+**Display**
+
 | Setting | Description | Default |
 | --- | --- | --- |
-| `fractal.theme` | Editor theme (`light`, `dark`, `auto`) | `auto` |
-| `fractal.fontSize` | Base font size (px) | `12` |
-| `fractal.imageMaxWidth` | Max display width for inline images (px) | `400` |
+| `fractal.theme` | Theme (`auto`, `light`, `dark`) | `auto` |
 | `fractal.language` | UI language (`default`, `en`, `ja`, `zh-CN`, `zh-TW`, `ko`, `es`, `fr`) | `default` |
-| `fractal.toolbarMode` | Toolbar mode (`full`, `simple`) | `simple` |
-| `fractal.resourceRoots` | Directories the editor may load images/attachments from | `[]` (home directory) |
+| `fractal.fontSize` | Base font size (px) | `12` |
+| `fractal.imageMaxWidth` | Max display width for images and draw.io diagrams (px) | `400` |
+| `fractal.toolbarMode` | Markdown toolbar (`simple`, `full`) | `simple` |
 | `fractal.showTranslateButtons` | Show translate buttons in the toolbar / side panel | `false` |
 | `fractal.showOpenInTextEditor` | Show the Open in Text Editor button | `true` |
-| `fractal.enableDebugLogging` | Debug logging to the browser console | `false` |
 
-### S3 sync (AWS)
-
-| Setting | Description | Default |
-| --- | --- | --- |
-| `fractal.s3AccessKeyId` | AWS Access Key ID for S3 sync | `""` |
-| `fractal.s3SecretAccessKey` | AWS Secret Access Key for S3 sync | `""` |
-| `fractal.s3Region` | AWS region for S3 sync (e.g. `ap-northeast-1`) | `us-east-1` |
-
-### Translation (Amazon Translate)
+**Files**
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `fractal.transAccessKeyId` | AWS Access Key ID for Amazon Translate | `""` |
-| `fractal.transSecretAccessKey` | AWS Secret Access Key for Amazon Translate | `""` |
-| `fractal.transRegion` | AWS region for Amazon Translate (e.g. `ap-northeast-1`) | `us-east-1` |
-| `fractal.translateSourceLang` | Default source language | `en` |
-| `fractal.translateTargetLang` | Default target language | `ja` |
-| `fractal.translateTerminologyName` | Custom Terminology name registered in Amazon Translate | `""` |
-| `fractal.translateTerminologyFile` | Path to a Custom Terminology file (CSV / TMX) to register | `""` |
+| `fractal.resourceRoots` | Folders the editor may load images/attachments from | `[]` (home directory) |
+| `fractal.viewerHtmlAllowScripts` | Run scripts in HTML files in the file viewer (sandboxed) | `true` |
 
-### PDF export
+**PDF export**
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `fractal.pdfStyles` | Additional CSS file paths applied to the exported PDF | `[]` |
-| `fractal.pdfIncludeDefaultStyles` | Include the built-in print stylesheet | `true` |
-| `fractal.pdfBrowserPath` | Explicit path to a Chromium-based browser executable | `""` (auto-detect) |
+| `fractal.pdfBrowserPath` | Path to Chrome / Edge / Chromium / Brave | `""` (auto-detect) |
+| `fractal.pdfStyles` | CSS files applied after the built-in print stylesheet | `[]` |
+
+**AWS (S3 sync and translation)**
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `fractal.awsAccessKeyId` | AWS access key ID (empty = your AWS CLI credentials) | `""` |
+| `fractal.awsSecretAccessKey` | AWS secret access key | `""` |
+| `fractal.awsRegion` | AWS region (empty = your AWS CLI profile's region, else `us-east-1`) | `""` |
+| `fractal.translateTerminology` | Custom Terminology: a CSV / TMX file, or the name of a terminology in Amazon Translate | `""` |
+
+**Advanced**
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `fractal.enableDebugLogging` | Debug logging to the editor's developer tools console | `false` |
+
+Settings from earlier versions are moved automatically on the first start: `fractal.s3*` / `fractal.trans*` → `fractal.aws*`, `fractal.translateTerminologyFile` / `translateTerminologyName` → `fractal.translateTerminology`. `fractal.translateSourceLang` / `translateTargetLang` are no longer settings (the translate popup remembers your choice), and `fractal.pdfIncludeDefaultStyles` was removed (the built-in print stylesheet is always included; override it with `fractal.pdfStyles`).
 
 Image and attachment destinations are fixed by convention rather than by settings (shared `images/` / `files/` inside a note; standalone md outside a note uses the `.fractal.json` sidecar).
 

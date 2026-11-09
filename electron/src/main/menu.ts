@@ -52,7 +52,10 @@ export interface MenuActions {
     reloadNote(): void;
     toggleDevTools(): void;
     showOpenNote(panelId: string): void;
+    /** the settings screen */
     openSettings(): void;
+    /** settings.json in the OS's editor */
+    openSettingsFile(): void;
     openLogs(): void;
 }
 
@@ -170,7 +173,7 @@ export function buildMenu(model: MenuModel, a: MenuActions): Menu {
         {
             role: 'help',
             submenu: [
-                { label: 'Open Settings File', click: () => a.openSettings() },
+                { label: 'Open Settings File', click: () => a.openSettingsFile() },
                 { label: 'Open Logs Folder', click: () => a.openLogs() },
             ],
         },

@@ -29,6 +29,8 @@ import { runExportBundle } from './shared/export-bundle-host';
 import { revealMdLinkTarget, runExportMdSelectionBundle, runExportMdSelectionFolder } from './shared/md-link-actions-host';
 import { resolveResourceRoots, findOutOfRangeImages } from './shared/resource-roots';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
+import { handleTranslateRequest } from './shared/translate-host';
+import { getTranslateLangs, onDidChangeTranslateLangs, setTranslateLangs } from './shared/translate-langs';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { setupExternalMdWatcher, reconcileStandaloneMd } from './shared/external-md-watcher';
 import { recordSelfWrite, clearSelfWrites } from './shared/self-write-registry';
@@ -505,14 +507,12 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             fileDirectoryManager.setFileFileDir(document.uri, 'files');
         }
 
+        // 翻訳の言語は最後に選んだもの（globalState。translate-langs.ts）。ほかの画面で選び直したらそろえる
         const sendTranslateLangFromConfig = () => {
-            const cfg = vscode.workspace.getConfiguration('fractal');
-            webviewPanel.webview.postMessage({
-                type: 'translateLangSelected',
-                sourceLang: cfg.get<string>('translateSourceLang', 'en'),
-                targetLang: cfg.get<string>('translateTargetLang', 'ja'),
-            });
+            webviewPanel.webview.postMessage({ type: 'translateLangSelected', ...getTranslateLangs() });
         };
+        const translateLangsSub = onDidChangeTranslateLangs(() => sendTranslateLangFromConfig());
+        webviewPanel.onDidDispose(() => translateLangsSub.dispose());
 
         const updateWebview = () => {
             try {
@@ -1721,50 +1721,14 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 }
 
                 case 'translateContent': {
-                    const config = vscode.workspace.getConfiguration('fractal');
-                    const accessKeyId = config.get<string>('transAccessKeyId', '');
-                    const secretAccessKey = config.get<string>('transSecretAccessKey', '');
-                    const region = config.get<string>('transRegion', 'us-east-1');
-                    const terminologyName = (config.get<string>('translateTerminologyName', '') || '').trim();
-                    if (!accessKeyId || !secretAccessKey) {
-                        webviewPanel.webview.postMessage({
-                            type: 'translateError',
-                            message: 'AWS credentials not configured. Set fractal.transAccessKeyId and transSecretAccessKey in settings.',
-                            // FR-TR-02 (sprint 20260803-013547): 要求元識別を透過エコーバック
-                            // （sidepanel md 要求なら sidePanelFilePath 付き / main 要求なら undefined）。
-                            sidePanelFilePath: message.sidePanelFilePath
-                        });
-                        break;
-                    }
-                    try {
-                        const result = await translateText({
-                            text: message.markdown,
-                            sourceLang: message.sourceLang,
-                            targetLang: message.targetLang,
-                            accessKeyId,
-                            secretAccessKey,
-                            region,
-                            terminologyName: terminologyName || undefined,
-                        });
-                        webviewPanel.webview.postMessage({
-                            type: 'translateResult',
-                            translatedMarkdown: result.translatedText,
-                            sourceLang: result.sourceLang,
-                            targetLang: result.targetLang,
-                            // FR-TR-02: 要求元識別を透過エコーバック。
-                            sidePanelFilePath: message.sidePanelFilePath
-                        });
-                    } catch (err: any) {
-                        const errMsg = err?.message || String(err);
-                        console.error('[Translate] Error:', errMsg, err?.stack || '');
-                        vscode.window.showErrorMessage(`Translate failed: ${errMsg}`);
-                        webviewPanel.webview.postMessage({
-                            type: 'translateError',
-                            message: errMsg,
-                            // FR-TR-02: 要求元識別を透過エコーバック。
-                            sidePanelFilePath: message.sidePanelFilePath
-                        });
-                    }
+                    await handleTranslateRequest(message, {
+                        getConfig: (k) => vscode.workspace.getConfiguration('fractal').get(k),
+                        workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+                        translate: translateText,
+                        post: (m) => webviewPanel.webview.postMessage(m),
+                        notifyError: (m) => vscode.window.showErrorMessage(m),
+                        notifyInfo: (m) => vscode.window.showInformationMessage(m),
+                    });
                     break;
                 }
 
@@ -1788,10 +1752,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 }
 
                 case 'saveTranslateLangs': {
-                    // v0.207.24: popup の select で選んだ言語を settings に永続化
+                    // v0.207.24: popup の select で選んだ言語を覚える（globalState。設定には書かない）
                     try {
-                        await vscode.workspace.getConfiguration('fractal').update('translateSourceLang', message.sourceLang, vscode.ConfigurationTarget.Global);
-                        await vscode.workspace.getConfiguration('fractal').update('translateTargetLang', message.targetLang, vscode.ConfigurationTarget.Global);
+                        await setTranslateLangs({ sourceLang: message.sourceLang, targetLang: message.targetLang });
                     } catch (err: any) {
                         console.error('[Translate] saveTranslateLangs error:', err);
                     }

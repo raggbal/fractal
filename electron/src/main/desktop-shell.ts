@@ -25,6 +25,7 @@ import { buildMenu, type ListMenuEntry, type MenuActions, type NoteMenuEntry, ty
 import { createOpener } from './opener';
 import { PanelHost, type PanelContainer, type PanelView } from './panel-host';
 import { PromptService } from './prompt-window';
+import { SettingsWindow, type SettingsWorkspace } from './settings-window';
 import { readSidebarContributes, type SidebarContributes } from './sidebar-contributes';
 import {
     buildSidebarSnapshot,
@@ -106,6 +107,8 @@ export class DesktopShell implements AppWindowDelegate {
     private readonly windows: WindowManager;
     private readonly panels: PanelHost;
     private readonly prompts: PromptService;
+    /** Fractal ▸ Settings…: the settings screen (settings-window.ts) */
+    private readonly settingsWindow: SettingsWindow;
     private readonly ui: ElectronUi;
     /** The extension's tokens.css + fr-base.css: the look of the sidebar and the prompt sheet (design-tokens.ts) */
     private readonly designCss: string;
@@ -168,6 +171,23 @@ export class DesktopShell implements AppWindowDelegate {
             designCss: () => this.designCss,
         });
         this.ui = new ElectronUi({ panels: this.panels, prompts: this.prompts, log: this.log, currentWindow: () => this.windows.current()?.win });
+        this.settingsWindow = new SettingsWindow({
+            log: this.log,
+            preloadPath: path.join(rendererDir, 'settings-preload.js'),
+            pageScriptPath: path.join(rendererDir, 'settings-page.js'),
+            extensionRoot: o.extensionRoot,
+            designCss: () => this.designCss,
+            isDark: () => this.isDark(),
+            workspace: () => this.ext?.api.workspace as SettingsWorkspace | undefined,
+            systemLanguage: () => this.systemLanguage(),
+            settingsError: () => this.ext?.controller.settingsError(),
+            openSettingsFile: () => void this.openSettingsFile(),
+        });
+    }
+
+    /** The language the extension follows while fractal.language is "default" (the shim's env.language) */
+    private systemLanguage(): string {
+        return process.env.FRACTAL_LANG || app.getLocale() || 'en';
     }
 
     // --- start -------------------------------------------------------------------------------
@@ -203,7 +223,7 @@ export class DesktopShell implements AppWindowDelegate {
                 writeText: async (text) => clipboard.writeText(text),
             },
             shell: shellAdapter,
-            env: { language: () => process.env.FRACTAL_LANG || app.getLocale() || 'en' },
+            env: { language: () => this.systemLanguage() },
             webviewHost: this.panels,
             opener: createOpener({
                 shell: shellAdapter,
@@ -211,7 +231,7 @@ export class DesktopShell implements AppWindowDelegate {
                 executeCommand: (id, ...args) => this.command(id, ...args),
                 registeredNotes: async () => (await this.noteEntries()).map((n) => n.folderPath),
             }),
-            workbench: (id) => this.workbench(id),
+            workbench: (id, args) => this.workbench(id, args),
             log: this.log,
         };
         const userDir = path.join(this.o.userData, 'User');
@@ -230,6 +250,9 @@ export class DesktopShell implements AppWindowDelegate {
         ws.onDidChangeConfiguration?.((e) => {
             if (e.affectsConfiguration('fractal.theme')) {
                 this.onThemeChanged();
+            }
+            if (e.affectsConfiguration('fractal')) {
+                this.settingsWindow.refresh();
             }
         });
         nativeTheme.on('updated', () => this.onThemeChanged());
@@ -415,6 +438,7 @@ export class DesktopShell implements AppWindowDelegate {
             w.applyTheme(dark);
         }
         this.pushSidebars();
+        this.settingsWindow.refresh();
     }
 
     sidebarModel(w: AppWindow): SidebarPageModel | null {
@@ -976,7 +1000,8 @@ export class DesktopShell implements AppWindowDelegate {
                     this.panels.reveal(p, false);
                 }
             },
-            openSettings: () => void this.openSettings(),
+            openSettings: () => this.settingsWindow.open(),
+            openSettingsFile: () => void this.openSettingsFile(),
             openLogs: () => void shell.openPath(path.dirname(this.log.file)),
         };
     }
@@ -1042,7 +1067,8 @@ export class DesktopShell implements AppWindowDelegate {
         return r.response === 0;
     }
 
-    private async openSettings(): Promise<void> {
+    /** Help ▸ Open Settings File / the settings screen's "Open settings.json": the JSON in the OS's editor */
+    private async openSettingsFile(): Promise<void> {
         const file = this.ext?.controller.settingsPath ?? path.join(this.o.userData, 'User', 'settings.json');
         try {
             if (!fs.existsSync(file)) {
@@ -1062,9 +1088,15 @@ export class DesktopShell implements AppWindowDelegate {
         }
     }
 
-    private workbench(id: string): unknown {
-        if (/^workbench\.action\.(openSettings|openSettings2|openSettingsJson|openGlobalSettings)$/.test(id)) {
-            void this.openSettings();
+    private workbench(id: string, args: unknown[] = []): unknown {
+        if (id === 'workbench.action.openSettingsJson') {
+            void this.openSettingsFile();
+            return undefined;
+        }
+        if (/^workbench\.action\.(openSettings|openSettings2|openGlobalSettings)$/.test(id)) {
+            // openSettings('fractal.resourceRoots'): the screen, at that setting
+            const query = typeof args[0] === 'string' ? args[0] : '';
+            this.settingsWindow.open(query.startsWith('fractal.') ? query.slice('fractal.'.length) : undefined);
             return undefined;
         }
         this.log.info(`[shell] ${id}: no-op in the desktop app`);

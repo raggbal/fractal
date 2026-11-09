@@ -5,6 +5,7 @@
  * Playwright Node.js 環境で unit test 可能。
  */
 
+/** 設定 fractal.aws*（キーが空なら AWS CLI と同じ認証。src/shared/aws-settings.ts） */
 export interface AwsCredentials {
     accessKeyId: string;
     secretAccessKey: string;
@@ -12,7 +13,7 @@ export interface AwsCredentials {
 }
 
 /**
- * AWS CLI に渡す env vars 構築 (notes-s3-sync.ts / s3-per-file-sync.ts 共通)
+ * AWS CLI に渡す env vars 構築 (旧 CLI 経路の名残。SDK v3 では使わない)
  */
 export function getAwsEnv(creds: AwsCredentials): NodeJS.ProcessEnv {
     return {

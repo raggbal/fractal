@@ -231,7 +231,8 @@ export async function runExportMdToPdf(
             try {
                 // a. config 読み（都度）
                 const stylePaths = (deps.getConfig('pdfStyles') as string[]) || [];
-                const includeDefault = deps.getConfig('pdfIncludeDefaultStyles') !== false;
+                // 既定の印刷用 CSS はいつも入れる（pdfIncludeDefaultStyles は外した。上書きは pdfStyles。ADRL-0141）
+                const includeDefault = true;
                 const browserPath = (deps.getConfig('pdfBrowserPath') as string) || '';
 
                 // b. core 合成

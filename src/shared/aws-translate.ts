@@ -4,23 +4,21 @@
  * I/O 層は translate-sdk-client（AWS SDK v3 の薄いラッパ）に委譲する。
  * このファイルはチャンク分割・segment protection（コードブロック保護）・
  * Custom Terminology のファイル解決/形式判定/サイズ上限といった編成ロジックを担う。
- * credentials は SDK client 生成時に渡す（実行時の env 注入なし）。
+ * credentials は SDK client 生成時に渡す（実行時の env 注入なし）。設定のキーが空なら AWS CLI と同じ認証（ADRL-0141）。
  */
 
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { createTranslate, translateTextSdk, importTerminologySdk } from './translate-sdk-client';
+import type { AwsSettings } from './aws-settings';
 
 type TranslateClient = ReturnType<typeof createTranslate>;
 
-export interface TranslateOptions {
+/** AWS の認証・リージョンは設定 fractal.aws*（キーが空なら AWS CLI と同じ認証。aws-settings.ts） */
+export interface TranslateOptions extends AwsSettings {
     text: string;
     sourceLang: string;
     targetLang: string;
-    accessKeyId: string;
-    secretAccessKey: string;
-    region: string;
     /** v0.207.25: Custom Terminology を使う場合の名前 (Amazon Translate に登録済) */
     terminologyName?: string;
 }
@@ -29,6 +27,8 @@ export interface TranslateResult {
     translatedText: string;
     sourceLang: string;
     targetLang: string;
+    /** 用語集がその名前で Amazon Translate に無かったので、用語集なしで訳した（その名前） */
+    terminologyMissing?: string;
 }
 
 export const TRANSLATE_LANGUAGES = [
@@ -165,14 +165,27 @@ async function translateChunk(
 }
 
 export async function translateText(opts: TranslateOptions): Promise<TranslateResult> {
-    const { text, sourceLang, targetLang, accessKeyId, secretAccessKey, region, terminologyName } = opts;
-
-    if (!accessKeyId || !secretAccessKey) {
-        throw new Error('AWS credentials are required');
+    const { text, sourceLang, targetLang, terminologyName } = opts;
+    const client = createTranslate({ accessKeyId: opts.accessKeyId, secretAccessKey: opts.secretAccessKey, region: opts.region });
+    try {
+        return await translateWith(client, text, sourceLang, targetLang, terminologyName);
+    } catch (err) {
+        // 用語集が無い（ファイルを入れたがまだアップロードしていない・名前の違い）: 用語集なしで訳し直して知らせる
+        if (terminologyName && (err as { name?: unknown } | null)?.name === 'ResourceNotFoundException') {
+            const result = await translateWith(client, text, sourceLang, targetLang, undefined);
+            return { ...result, terminologyMissing: terminologyName };
+        }
+        throw err;
     }
+}
 
-    const client = createTranslate({ accessKeyId, secretAccessKey, region });
-
+async function translateWith(
+    client: TranslateClient,
+    text: string,
+    sourceLang: string,
+    targetLang: string,
+    terminologyName: string | undefined
+): Promise<TranslateResult> {
     // v0.207.31: コードブロックを segment 単位で翻訳経路から完全分離
     const segments = splitProtectedSegments(text);
     const out: string[] = [];
@@ -212,31 +225,12 @@ async function translateSegmentText(
     return translatedChunks.join('\n\n');
 }
 
-/**
- * v0.207.25: Custom Terminology のファイルパスを解決 (絶対 / ~ / 相対)
- *
- * @param rawPath user の設定値 (絶対 / ~ / 相対 / 相対のみ)
- * @param workspaceRoot relative path のベース (workspace root 等)
- */
-export function resolveTerminologyPath(rawPath: string, workspaceRoot?: string): string {
-    if (!rawPath) return '';
-    let p = rawPath.trim();
-    // home dir 展開 (~/foo or ~)
-    if (p.startsWith('~')) {
-        p = path.join(os.homedir(), p.slice(1));
-    }
-    if (path.isAbsolute(p)) return p;
-    // 相対 path: workspace root か cwd ベース
-    const base = workspaceRoot || process.cwd();
-    return path.resolve(base, p);
-}
+/** v0.207.25: Custom Terminology のファイルパスを解決 (絶対 / ~ / 相対)。設定の読み方は translate-terminology.ts */
+export { resolveTerminologyPath } from './translate-terminology';
 
-export interface ImportTerminologyOptions {
+export interface ImportTerminologyOptions extends AwsSettings {
     name: string;
     filePath: string;
-    accessKeyId: string;
-    secretAccessKey: string;
-    region: string;
 }
 
 /**
@@ -248,7 +242,7 @@ export interface ImportTerminologyOptions {
  * 生バイト（Uint8Array）を translate-sdk-client の importTerminologySdk に渡す。
  */
 export async function importTerminology(opts: ImportTerminologyOptions): Promise<{ name: string; termCount?: number }> {
-    const { name, filePath, accessKeyId, secretAccessKey, region } = opts;
+    const { name, filePath } = opts;
     if (!name) throw new Error('Terminology name is required');
     if (!filePath) throw new Error('Terminology file path is required');
     if (!fs.existsSync(filePath)) {
@@ -265,11 +259,7 @@ export async function importTerminology(opts: ImportTerminologyOptions): Promise
     else if (ext === '.tmx' || ext === '.xml') format = 'TMX';
     else throw new Error(`Unsupported terminology file extension: ${ext} (use .csv or .tmx)`);
 
-    if (!accessKeyId || !secretAccessKey) {
-        throw new Error('AWS credentials are required');
-    }
-
     const fileBytes = new Uint8Array(fs.readFileSync(filePath));
-    const client = createTranslate({ accessKeyId, secretAccessKey, region });
+    const client = createTranslate({ accessKeyId: opts.accessKeyId, secretAccessKey: opts.secretAccessKey, region: opts.region });
     return await importTerminologySdk(client, { name, fileBytes, format });
 }

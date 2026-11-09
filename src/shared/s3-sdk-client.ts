@@ -21,21 +21,20 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
+import { awsClientOptions, type AwsSettings } from './aws-settings';
 
-export interface S3SdkConfig {
-    accessKeyId: string;
-    secretAccessKey: string;
-    region: string;
-}
+/** 設定の AWS の認証とリージョン（aws-settings.ts） */
+export type S3SdkConfig = AwsSettings;
 
-/** 静的キー + region で S3Client を生成 (maxAttempts 3 = SDK 既定 retry)。 */
+/**
+ * S3Client を生成 (maxAttempts 3 = SDK 既定 retry)。キーが無ければ AWS CLI と同じ認証、リージョンは
+ * resolveAwsRegion（ADRL-0141）。バケットが別のリージョンでも followRegionRedirects で追いかける
+ * （S3 と翻訳でリージョンの設定が 1 つなので）。
+ */
 export function createS3(config: S3SdkConfig): S3Client {
     return new S3Client({
-        region: config.region,
-        credentials: {
-            accessKeyId: config.accessKeyId,
-            secretAccessKey: config.secretAccessKey,
-        },
+        ...awsClientOptions(config),
+        followRegionRedirects: true,
         maxAttempts: 3,
     });
 }

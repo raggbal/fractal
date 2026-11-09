@@ -468,159 +468,270 @@
         "priority": "option"
       }
     ],
-    "configuration": {
-      "title": "Fractal Note",
-      "properties": {
-        "fractal.resourceRoots": {
-          "type": "array",
-          "items": {
-            "type": "string"
+    "configuration": [
+      {
+        "id": "fractal.display",
+        "title": "%config.category.display%",
+        "order": 1,
+        "properties": {
+          "fractal.theme": {
+            "title": "%config.theme.title%",
+            "type": "string",
+            "enum": [
+              "auto",
+              "light",
+              "dark"
+            ],
+            "enumItemLabels": [
+              "%config.enum.theme.auto%",
+              "%config.enum.theme.light%",
+              "%config.enum.theme.dark%"
+            ],
+            "default": "auto",
+            "description": "%config.theme.description%",
+            "order": 1
           },
-          "default": [],
-          "markdownDescription": "Directories the editor is allowed to load images/attachments from (webview `localResourceRoots`). Empty = allow the whole home directory (`~`). Add absolute paths or paths starting with `~` to restrict or extend the allowed range (e.g. `~/notes`, `/Volumes/ext/notes`). Relative paths are ignored. Changes take effect when you reopen the editor."
-        },
-        "fractal.theme": {
-          "type": "string",
-          "enum": [
-            "light",
-            "dark",
-            "auto"
-          ],
-          "enumDescriptions": [
-            "Light pastel minimal theme",
-            "Dark pastel minimal theme",
-            "Auto (follow OS prefers-color-scheme)"
-          ],
-          "default": "auto",
-          "description": "Editor theme (light/dark/auto). Legacy 7-theme values (github/sepia/night/dark/minimal/perplexity/things) are auto-migrated on startup."
-        },
-        "fractal.fontSize": {
-          "type": "number",
-          "default": 12,
-          "description": "Base font size in pixels"
-        },
-        "fractal.language": {
-          "type": "string",
-          "enum": [
-            "default",
-            "en",
-            "ja",
-            "zh-TW",
-            "zh-CN",
-            "ko",
-            "es",
-            "fr"
-          ],
-          "default": "default",
-          "description": "UI language. 'default' uses VS Code's display language."
-        },
-        "fractal.toolbarMode": {
-          "type": "string",
-          "enum": [
-            "full",
-            "simple"
-          ],
-          "default": "simple",
-          "description": "Toolbar display mode. 'full' shows all buttons. 'simple' shows only undo/redo and utility buttons (use Cmd+/ for other operations)."
-        },
-        "fractal.enableDebugLogging": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable debug logging in the editor. Useful for troubleshooting."
-        },
-        "fractal.imageMaxWidth": {
-          "type": "number",
-          "default": 400,
-          "minimum": 100,
-          "description": "Maximum width (in pixels) for images and drawio.svg in the editor. Double-click an image to view it full screen."
-        },
-        "fractal.s3AccessKeyId": {
-          "type": "string",
-          "default": "",
-          "description": "AWS Access Key ID for S3 sync"
-        },
-        "fractal.s3SecretAccessKey": {
-          "type": "string",
-          "default": "",
-          "description": "AWS Secret Access Key for S3 sync"
-        },
-        "fractal.s3Region": {
-          "type": "string",
-          "default": "us-east-1",
-          "description": "AWS Region for S3 sync (e.g., ap-northeast-1)"
-        },
-        "fractal.translateSourceLang": {
-          "type": "string",
-          "default": "en",
-          "description": "Default source language for translation"
-        },
-        "fractal.translateTargetLang": {
-          "type": "string",
-          "default": "ja",
-          "description": "Default target language for translation"
-        },
-        "fractal.transAccessKeyId": {
-          "type": "string",
-          "default": "",
-          "description": "AWS Access Key ID for Amazon Translate"
-        },
-        "fractal.transSecretAccessKey": {
-          "type": "string",
-          "default": "",
-          "description": "AWS Secret Access Key for Amazon Translate"
-        },
-        "fractal.transRegion": {
-          "type": "string",
-          "default": "us-east-1",
-          "description": "AWS Region for Amazon Translate (e.g., ap-northeast-1)"
-        },
-        "fractal.translateTerminologyFile": {
-          "type": "string",
-          "default": "",
-          "description": "Path to Custom Terminology file (CSV or TMX) for Amazon Translate. Absolute path, ~/path, or relative-to-workspace are supported. When set, use 'Fractal: Update Translate Terminology' command (or Tools tab button) to upload to Amazon Translate."
-        },
-        "fractal.translateTerminologyName": {
-          "type": "string",
-          "default": "",
-          "description": "Custom Terminology name registered in Amazon Translate. When both this and translateTerminologyFile are set, translations use the dictionary for improved accuracy."
-        },
-        "fractal.showTranslateButtons": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show translate buttons in the editor toolbar (standalone) and side panel header. When off, translation can still be triggered via the 'fractal.translate' command (Cmd+/)."
-        },
-        "fractal.showOpenInTextEditor": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the \"Open in Text Editor\" button (opens the current file in VS Code's built-in text editor). Turn off if you don't use it."
-        },
-        "fractal.viewerHtmlAllowScripts": {
-          "type": "boolean",
-          "default": true,
-          "description": "Run scripts in HTML files opened in the file viewer by default. Scripts run in a sandboxed frame (no access to VS Code or other files; network requests are blocked, but images from external URLs can still load). Each file can still be toggled with the viewer's Allow scripts button.",
-          "markdownDescription": "Run scripts in HTML files opened in the file viewer by default. Scripts run in a sandboxed frame (no access to VS Code or other files; `fetch` / XHR are blocked, but images from external URLs can still load). Each file can still be toggled with the viewer's **Allow scripts** button."
-        },
-        "fractal.pdfStyles": {
-          "type": "array",
-          "items": {
-            "type": "string"
+          "fractal.language": {
+            "title": "%config.language.title%",
+            "type": "string",
+            "enum": [
+              "default",
+              "en",
+              "ja",
+              "zh-TW",
+              "zh-CN",
+              "ko",
+              "es",
+              "fr"
+            ],
+            "enumItemLabels": [
+              "%config.enum.language.default%",
+              "English",
+              "日本語",
+              "繁體中文",
+              "简体中文",
+              "한국어",
+              "Español",
+              "Français"
+            ],
+            "default": "default",
+            "description": "%config.language.description%",
+            "order": 2
           },
-          "default": [],
-          "description": "PDF export: additional CSS file paths (absolute, ~, or workspace-relative). Applied after the default stylesheet in order (later wins). Local files only."
-        },
-        "fractal.pdfIncludeDefaultStyles": {
-          "type": "boolean",
-          "default": true,
-          "description": "PDF export: include the built-in print stylesheet (page size, fonts, default page breaks before h1/h2). Set false to fully replace with your own CSS."
-        },
-        "fractal.pdfBrowserPath": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "description": "PDF export: explicit path to a Chromium-based browser executable (Chrome/Edge/Chromium/Brave). Leave empty to auto-detect. Machine scope: cannot be overridden per-workspace."
+          "fractal.fontSize": {
+            "title": "%config.fontSize.title%",
+            "type": "number",
+            "default": 12,
+            "minimum": 8,
+            "maximum": 40,
+            "description": "%config.fontSize.description%",
+            "order": 3
+          },
+          "fractal.imageMaxWidth": {
+            "title": "%config.imageMaxWidth.title%",
+            "type": "number",
+            "default": 400,
+            "minimum": 50,
+            "maximum": 4000,
+            "description": "%config.imageMaxWidth.description%",
+            "order": 4
+          },
+          "fractal.toolbarMode": {
+            "title": "%config.toolbarMode.title%",
+            "type": "string",
+            "enum": [
+              "simple",
+              "full"
+            ],
+            "enumItemLabels": [
+              "%config.enum.toolbarMode.simple%",
+              "%config.enum.toolbarMode.full%"
+            ],
+            "default": "simple",
+            "description": "%config.toolbarMode.description%",
+            "order": 5
+          },
+          "fractal.showTranslateButtons": {
+            "title": "%config.showTranslateButtons.title%",
+            "type": "boolean",
+            "default": false,
+            "description": "%config.showTranslateButtons.description%",
+            "order": 6
+          },
+          "fractal.showOpenInTextEditor": {
+            "title": "%config.showOpenInTextEditor.title%",
+            "type": "boolean",
+            "default": true,
+            "description": "%config.showOpenInTextEditor.description%",
+            "order": 7
+          }
+        }
+      },
+      {
+        "id": "fractal.files",
+        "title": "%config.category.files%",
+        "order": 2,
+        "properties": {
+          "fractal.resourceRoots": {
+            "title": "%config.resourceRoots.title%",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "description": "%config.resourceRoots.description%",
+            "order": 1
+          },
+          "fractal.viewerHtmlAllowScripts": {
+            "title": "%config.viewerHtmlAllowScripts.title%",
+            "type": "boolean",
+            "default": true,
+            "description": "%config.viewerHtmlAllowScripts.description%",
+            "order": 2
+          }
+        }
+      },
+      {
+        "id": "fractal.pdf",
+        "title": "%config.category.pdf%",
+        "order": 3,
+        "properties": {
+          "fractal.pdfBrowserPath": {
+            "title": "%config.pdfBrowserPath.title%",
+            "type": "string",
+            "default": "",
+            "scope": "machine",
+            "description": "%config.pdfBrowserPath.description%",
+            "order": 1
+          },
+          "fractal.pdfStyles": {
+            "title": "%config.pdfStyles.title%",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "description": "%config.pdfStyles.description%",
+            "order": 2
+          },
+          "fractal.pdfIncludeDefaultStyles": {
+            "type": "boolean",
+            "default": true,
+            "description": "%config.deprecated.pdfIncludeDefaultStyles%",
+            "deprecationMessage": "%config.deprecated.pdfIncludeDefaultStyles%"
+          }
+        }
+      },
+      {
+        "id": "fractal.aws",
+        "title": "%config.category.aws%",
+        "order": 4,
+        "properties": {
+          "fractal.awsAccessKeyId": {
+            "title": "%config.awsAccessKeyId.title%",
+            "type": "string",
+            "default": "",
+            "description": "%config.awsAccessKeyId.description%",
+            "order": 1
+          },
+          "fractal.awsSecretAccessKey": {
+            "title": "%config.awsSecretAccessKey.title%",
+            "type": "string",
+            "default": "",
+            "description": "%config.awsSecretAccessKey.description%",
+            "order": 2
+          },
+          "fractal.awsRegion": {
+            "title": "%config.awsRegion.title%",
+            "type": "string",
+            "default": "",
+            "description": "%config.awsRegion.description%",
+            "order": 3
+          },
+          "fractal.translateTerminology": {
+            "title": "%config.translateTerminology.title%",
+            "type": "string",
+            "default": "",
+            "description": "%config.translateTerminology.description%",
+            "order": 4
+          },
+          "fractal.s3AccessKeyId": {
+            "type": "string",
+            "default": "",
+            "description": "%config.deprecated.aws%",
+            "deprecationMessage": "%config.deprecated.aws%"
+          },
+          "fractal.s3SecretAccessKey": {
+            "type": "string",
+            "default": "",
+            "description": "%config.deprecated.aws%",
+            "deprecationMessage": "%config.deprecated.aws%"
+          },
+          "fractal.s3Region": {
+            "type": "string",
+            "default": "us-east-1",
+            "description": "%config.deprecated.aws%",
+            "deprecationMessage": "%config.deprecated.aws%"
+          },
+          "fractal.transAccessKeyId": {
+            "type": "string",
+            "default": "",
+            "description": "%config.deprecated.aws%",
+            "deprecationMessage": "%config.deprecated.aws%"
+          },
+          "fractal.transSecretAccessKey": {
+            "type": "string",
+            "default": "",
+            "description": "%config.deprecated.aws%",
+            "deprecationMessage": "%config.deprecated.aws%"
+          },
+          "fractal.transRegion": {
+            "type": "string",
+            "default": "us-east-1",
+            "description": "%config.deprecated.aws%",
+            "deprecationMessage": "%config.deprecated.aws%"
+          },
+          "fractal.translateSourceLang": {
+            "type": "string",
+            "default": "en",
+            "description": "%config.deprecated.translateLangs%",
+            "deprecationMessage": "%config.deprecated.translateLangs%"
+          },
+          "fractal.translateTargetLang": {
+            "type": "string",
+            "default": "ja",
+            "description": "%config.deprecated.translateLangs%",
+            "deprecationMessage": "%config.deprecated.translateLangs%"
+          },
+          "fractal.translateTerminologyFile": {
+            "type": "string",
+            "default": "",
+            "description": "%config.deprecated.terminology%",
+            "deprecationMessage": "%config.deprecated.terminology%"
+          },
+          "fractal.translateTerminologyName": {
+            "type": "string",
+            "default": "",
+            "description": "%config.deprecated.terminology%",
+            "deprecationMessage": "%config.deprecated.terminology%"
+          }
+        }
+      },
+      {
+        "id": "fractal.advanced",
+        "title": "%config.category.advanced%",
+        "order": 5,
+        "properties": {
+          "fractal.enableDebugLogging": {
+            "title": "%config.enableDebugLogging.title%",
+            "type": "boolean",
+            "default": false,
+            "description": "%config.enableDebugLogging.description%",
+            "order": 1
+          }
         }
       }
-    },
+    ],
     "menus": {
       "editor/context": [
         {

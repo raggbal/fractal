@@ -37,7 +37,7 @@ function loadNotesHandlerWithMocks(translateMock: (input: any) => any) {
     const origLoad = Module._load;
     // 前テストが cache した実 module を捨て、stub 付きで再評価させる。
     for (const key of Object.keys(require.cache)) {
-        if (/notes-message-handler|aws-translate/.test(key)) {
+        if (/notes-message-handler|aws-translate|translate-host/.test(key)) {
             delete require.cache[key];
         }
     }
@@ -72,10 +72,10 @@ function makePlatformWithCreds(captured: any[]) {
         getWorkspaceConfig: () => ({
             get: (key: string, def: any) => {
                 const table: Record<string, any> = {
-                    transAccessKeyId: 'AKIAEXAMPLE',
-                    transSecretAccessKey: 'SECRETEXAMPLE',
-                    transRegion: 'us-east-1',
-                    translateTerminologyName: '',
+                    awsAccessKeyId: 'AKIAEXAMPLE',
+                    awsSecretAccessKey: 'SECRETEXAMPLE',
+                    awsRegion: 'us-east-1',
+                    translateTerminology: '',
                 };
                 return key in table ? table[key] : def;
             },
@@ -145,7 +145,8 @@ test.describe('FR-TR-02: notes-message-handler の応答エコーバック', () 
                 restore();
             }
         }
-        // (B) 資格情報不足の早期 translateError も echo（translateText 到達前）。
+        // (B) 設定のまちがい（キーが片方だけ）の早期 translateError も echo（translateText 到達前）。
+        //     キーが両方空なのは AWS CLI の認証を使う正しい設定になった（ADRL-0141）ので、早期のエラーは片方だけのとき。
         {
             const { handleNotesMessage, restore } = loadNotesHandlerWithMocks(() => {
                 throw new Error('should-not-reach');
@@ -154,7 +155,7 @@ test.describe('FR-TR-02: notes-message-handler の応答エコーバック', () 
                 const captured: any[] = [];
                 const sender = { postMessage: (m: any) => captured.push(m) };
                 const platformNoCreds = {
-                    getWorkspaceConfig: () => ({ get: (_k: string, def: any) => def }), // 資格情報 = 空文字（default）
+                    getWorkspaceConfig: () => ({ get: (k: string, def: any) => (k === 'awsAccessKeyId' ? 'AKIAEXAMPLE' : def) }), // secret が空
                     postMessage: () => {},
                 };
                 await handleNotesMessage(
@@ -165,7 +166,7 @@ test.describe('FR-TR-02: notes-message-handler の応答エコーバック', () 
                 );
                 const err = captured.find((m) => m.type === 'translateError');
                 expect(err).toBeTruthy();
-                expect(err.message).toContain('credentials');
+                expect(err.message).not.toContain('should-not-reach'); // translateText に届かない
                 expect(err.sidePanelFilePath).toBe('/sp/c.md');
             } finally {
                 restore();
@@ -174,31 +175,31 @@ test.describe('FR-TR-02: notes-message-handler の応答エコーバック', () 
     });
 });
 
-test.describe('FR-TR-02: editorProvider の応答エコーバック（source-contract）', () => {
-    test('TC-TR-12: editorProvider の translateContent case の全 translateResult/translateError post が sidePanelFilePath を運ぶ', () => {
-        // editorProvider の handler は resolveCustomTextEditor の ~500 行クロージャに inline で
-        // behavioral 起動が非現実的なため、case ブロックを抽出して契約を pin する。
-        // routing 自体の behavioral 番人は E2E TC-TR-04 が担う。
-        const src = fs.readFileSync(
-            path.resolve(__dirname, '../../src/editorProvider.ts'),
-            'utf8'
-        );
-        // case 'translateContent' { ... } ブロックを抽出（次の case 'translateSelectLang' まで）。
-        const startIdx = src.indexOf("case 'translateContent':");
-        expect(startIdx).toBeGreaterThan(-1);
-        const nextCaseIdx = src.indexOf("case 'translateSelectLang':", startIdx);
-        expect(nextCaseIdx).toBeGreaterThan(startIdx);
-        const block = src.slice(startIdx, nextCaseIdx);
-
-        // このブロック内の translateResult / translateError post 数を数える。
-        const resultPosts = (block.match(/type:\s*'translateResult'/g) || []).length;
-        const errorPosts = (block.match(/type:\s*'translateError'/g) || []).length;
-        expect(resultPosts).toBe(1); // translateResult は 1 経路
-        expect(errorPosts).toBe(2); // 資格情報不足 + catch の 2 経路
-
-        // 全応答（3 post）が sidePanelFilePath: message.sidePanelFilePath を運ぶこと。
-        const echoCount = (block.match(/sidePanelFilePath:\s*message\.sidePanelFilePath/g) || []).length;
-        // ★ load-bearing: 3 応答すべてに echo が必要（エコーバック未実装なら 0 = RED）
-        expect(echoCount).toBe(resultPosts + errorPosts);
+test.describe('FR-TR-02: editor の翻訳は共通の受け口を通る（source-contract）', () => {
+    test('TC-TR-12: editorProvider・outlinerProvider・Notes の translateContent は handleTranslateRequest に渡す', () => {
+        // 応答（translateResult / translateError）と sidePanelFilePath のエコーバックは共通の受け口
+        // src/shared/translate-host.ts の handleTranslateRequest が持つ（behavioral: translate-host.spec.ts TC-TRH-01〜03）。
+        // 3 つの editor の case ブロックが自分で post せず、そこへ渡していることを pin する（写しを作らない）。
+        const files: Array<[string, string]> = [
+            ['../../src/editorProvider.ts', "case 'translateSelectLang':"],
+            ['../../src/outlinerProvider.ts', "case 'translateSelectLang':"],
+            ['../../src/shared/notes-message-handler.ts', "case 'translateSelectLang':"],
+        ];
+        for (const [rel, next] of files) {
+            const src = fs.readFileSync(path.resolve(__dirname, rel), 'utf8');
+            const startIdx = src.indexOf("case 'translateContent':");
+            expect(startIdx, rel).toBeGreaterThan(-1);
+            const nextCaseIdx = src.indexOf(next, startIdx);
+            expect(nextCaseIdx, rel).toBeGreaterThan(startIdx);
+            const block = src.slice(startIdx, nextCaseIdx);
+            expect(block, rel).toContain('handleTranslateRequest(message');
+            expect((block.match(/type:\s*'translate(Result|Error)'/g) || []).length, rel).toBe(0);
+        }
+        const host = fs.readFileSync(path.resolve(__dirname, '../../src/shared/translate-host.ts'), 'utf8');
+        const posts = (host.match(/type:\s*'translate(Result|Error)'/g) || []).length;
+        const echoes = (host.match(/sidePanelFilePath[,\s}]/g) || []).length;
+        expect(posts).toBe(2);
+        // ★ load-bearing: 応答の 2 経路とも sidePanelFilePath を運ぶ
+        expect(echoes).toBeGreaterThanOrEqual(posts);
     });
 });

@@ -112,8 +112,16 @@ export interface Messages {
   terminologyUpdated: string;
   terminologyUploading: string;
   terminologyFileNotSet: string;
-  terminologyNameNotSet: string;
-  terminologyCredentialsNotSet: string;
+  // ADRL-0141: 設定の整理（AWS の認証を 1 つに・AWS CLI の認証・用語集 1 つ・移行の通知）
+  terminologyIsName: string;          // {name}
+  awsCredentialsNotFound: string;
+  awsKeysIncomplete: string;
+  translateFailed: string;
+  translateTerminologyMissing: string; // {name}
+  settingsMigratedAws: string;
+  settingsMigratedAwsTranslateKept: string;
+  settingsMigratedTerminologyRenamed: string; // {name}
+  settingsMigrationFailed: string;   // {error}
   reload: string;
   ignore: string;
   enterUrl: string;
@@ -363,6 +371,9 @@ export interface WebviewMessages {
   notesS3LocalDeleteDownload: string;
   notesS3Cancel: string;
   notesS3Continue: string;
+  notesS3CredSettings: string;  // region のプレースあり
+  notesS3CredAwsCli: string;    // region のプレースあり
+  notesS3CredInvalid: string;
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram?: string;
   // TBE-14: Outliner Table editor (TASK-B7 + TASK-B5/B6 + TASK-C2)

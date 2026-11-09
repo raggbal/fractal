@@ -33,6 +33,9 @@ import { NotesMdMainManager } from './shared/notesMdMainManager';
 import { isViewerTarget, VIEWER_SIZE_LIMIT, viewerViewType } from './shared/viewer-target';
 import { buildInAppFileLinkForFolder } from './shared/viewer-inapp-link';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig } from './notes-s3-sync';
+import { awsCredentialSource, awsErrorMessage, readAwsSettings, resolveAwsRegion } from './shared/aws-settings';
+import { awsErrorTexts } from './shared/translate-host';
+import { getTranslateLangs, onDidChangeTranslateLangs } from './shared/translate-langs';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
 import { runFolderImportWithDialog, runSendToOutlinerWithDialogs, notifyBatchOutcome, resolveSendToOutlinerTarget, importDroppedFoldersIntoOut } from './shared/folder-import-host';
@@ -413,14 +416,12 @@ export class NotesEditorProvider {
             this.openPanels.delete(folderPath);
         });
 
+        // 翻訳の言語は最後に選んだもの（globalState。translate-langs.ts）。ほかの画面で選び直したらそろえる
         const sendTranslateLangFromConfig = () => {
-            const cfg = vscode.workspace.getConfiguration('fractal');
-            panel.webview.postMessage({
-                type: 'translateLangSelected',
-                sourceLang: cfg.get<string>('translateSourceLang', 'en'),
-                targetLang: cfg.get<string>('translateTargetLang', 'ja'),
-            });
+            panel.webview.postMessage({ type: 'translateLangSelected', ...getTranslateLangs() });
         };
+        const translateLangsSub = onDidChangeTranslateLangs(() => sendTranslateLangFromConfig());
+        panel.onDidDispose(() => translateLangsSub.dispose());
 
         // HTML 生成
         const config = vscode.workspace.getConfiguration('fractal');
@@ -2310,14 +2311,15 @@ export class NotesEditorProvider {
                 this.runS3Operation('s3LocalDeleteAndDownload', bucketPath, sender, fileManager, folderPath);
             },
             s3GetStatus: () => {
-                const fractalConfig = vscode.workspace.getConfiguration('fractal');
-                const bucketPath = fileManager.getS3BucketPath();
-                const hasCredentials = !!(fractalConfig.get<string>('s3AccessKeyId') && fractalConfig.get<string>('s3SecretAccessKey'));
+                // 認証: 設定のキー / AWS CLI と同じ探し方（キーが空）/ 設定のまちがい（キーが片方だけ）。ADRL-0141
+                const aws = readAwsSettings((k) => vscode.workspace.getConfiguration('fractal').get(k));
+                const credentialSource = awsCredentialSource(aws);
                 sender.postMessage({
                     type: 'notesS3Status',
-                    bucketPath: bucketPath || '',
-                    hasCredentials,
-                    region: fractalConfig.get<string>('s3Region', 'us-east-1'),
+                    bucketPath: fileManager.getS3BucketPath() || '',
+                    credentialSource,
+                    hasCredentials: credentialSource !== 'invalid',
+                    region: resolveAwsRegion(aws.region),
                 });
             },
             cleanupUnusedFilesAllNotes: async () => {
@@ -3428,12 +3430,6 @@ export class NotesEditorProvider {
                     );
                     sendTranslateLangFromConfig();
                 }
-                if (
-                    e.affectsConfiguration('fractal.translateSourceLang') ||
-                    e.affectsConfiguration('fractal.translateTargetLang')
-                ) {
-                    sendTranslateLangFromConfig();
-                }
             })
         );
 
@@ -3563,16 +3559,14 @@ export class NotesEditorProvider {
         });
     }
 
+    /** 設定 fractal.aws*（キーが空なら AWS CLI と同じ認証。ADRL-0141）。キーが片方だけなら null */
     private getS3Config(bucketPath: string, folderPath: string): S3SyncConfig | null {
-        const config = vscode.workspace.getConfiguration('fractal');
-        const accessKeyId = config.get<string>('s3AccessKeyId', '');
-        const secretAccessKey = config.get<string>('s3SecretAccessKey', '');
-        const region = config.get<string>('s3Region', 'us-east-1');
-        if (!accessKeyId || !secretAccessKey) {
-            vscode.window.showErrorMessage('AWS credentials not configured. Set fractal.s3AccessKeyId and s3SecretAccessKey in settings.');
+        const aws = readAwsSettings((k) => vscode.workspace.getConfiguration('fractal').get(k));
+        if (awsCredentialSource(aws) === 'invalid') {
+            vscode.window.showErrorMessage(t('awsKeysIncomplete'));
             return null;
         }
-        return { accessKeyId, secretAccessKey, region, bucketPath, localPath: folderPath };
+        return { ...aws, bucketPath, localPath: folderPath };
     }
 
     private async runS3Operation(
@@ -3596,7 +3590,7 @@ export class NotesEditorProvider {
 
         const config = this.getS3Config(bucketPath, folderPath);
         if (!config) {
-            sender.postMessage({ type: 'notesS3Progress', phase: 'error', message: 'AWS credentials not configured.' });
+            sender.postMessage({ type: 'notesS3Progress', phase: 'error', message: t('awsKeysIncomplete') });
             return;
         }
 
@@ -3632,8 +3626,7 @@ export class NotesEditorProvider {
                 needsDisposeAndReopen = true;
             }
         } catch (e: unknown) {
-            const message = e instanceof Error ? e.message : String(e);
-            sender.postMessage({ type: 'notesS3Progress', phase: 'error', message });
+            sender.postMessage({ type: 'notesS3Progress', phase: 'error', message: awsErrorMessage(e, awsErrorTexts()) });
         }
 
         // 後処理 (cache invalidation)

@@ -55987,12 +55987,17 @@ var notesFilePanel = (function() {
                     bucketInput.value = data.bucketPath;
                 }
                 if (statusEl) {
-                    if (data.hasCredentials) {
-                        statusEl.textContent = 'Credentials configured (' + (data.region || 'us-east-1') + ')';
+                    // 認証: 設定のキー / AWS CLI と同じ探し方（キーが空）/ キーが片方だけ（ADRL-0141）
+                    var region = data.region || 'us-east-1';
+                    if (data.credentialSource === 'invalid' || !data.hasCredentials) {
+                        statusEl.textContent = i18n.notesS3CredInvalid || 'Set both the access key ID and the secret access key in Settings, or leave both empty to use your AWS CLI credentials.';
+                        statusEl.className = 's3-status error';
+                    } else if (data.credentialSource === 'settings') {
+                        statusEl.textContent = (i18n.notesS3CredSettings || 'Using the access key in Settings ({region})').replace('{region}', region);
                         statusEl.className = 's3-status ok';
                     } else {
-                        statusEl.textContent = 'AWS credentials not set. Configure in Settings.';
-                        statusEl.className = 's3-status error';
+                        statusEl.textContent = (i18n.notesS3CredAwsCli || 'Using your AWS CLI credentials ({region})').replace('{region}', region);
+                        statusEl.className = 's3-status ok';
                     }
                 }
                 if (!s3Operating) setS3ButtonsEnabled(data.hasCredentials);

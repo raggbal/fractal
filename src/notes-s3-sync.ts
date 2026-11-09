@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import { parseBucketPath } from './outliner-s3-sync-utils';
 import { syncDirectoryBidirectional, SyncDirectoryProgress, walkLocalDir } from './s3-per-file-sync';
 import { createS3, listAllObjects, uploadFile, downloadToFile, deleteAllUnderPrefix, runWithConcurrency } from './shared/s3-sdk-client';
+import type { AwsSettings } from './shared/aws-settings';
 
 export { getAwsEnv } from './outliner-s3-sync-utils';
 
@@ -22,10 +23,8 @@ export interface S3SyncProgress {
     filesProcessed?: number;
 }
 
-export interface S3SyncConfig {
-    accessKeyId: string;
-    secretAccessKey: string;
-    region: string;
+/** 認証・リージョンは設定 fractal.aws*（キーが空なら AWS CLI と同じ認証。aws-settings.ts） */
+export interface S3SyncConfig extends AwsSettings {
     bucketPath: string;   // "my-bucket/notes-backup"
     localPath: string;    // ノートフォルダの絶対パス
 }
@@ -33,11 +32,7 @@ export interface S3SyncConfig {
 /**
  * AWS credentials のサブセット（bucketPath / localPath を含まない）
  */
-export interface AwsCredentials {
-    accessKeyId: string;
-    secretAccessKey: string;
-    region: string;
-}
+export type AwsCredentials = AwsSettings;
 
 export function s3Uri(config: S3SyncConfig): string {
     // bucketPath を parseBucketPath と同じ正規化に揃える:
@@ -128,13 +123,17 @@ export async function s3LocalDeleteAndDownload(
     const { bucket, prefix } = parseBucketPath(config.bucketPath);
     const s3 = createS3(config);
 
-    // Phase 1: ローカルファイルを全削除（フォルダ自体は残す）
+    // Phase 1: S3 の一覧を先に取る。認証・バケットのまちがい（AWS CLI の認証が切れているなど）はここで止まり、
+    // ローカルは消さない（消してからダウンロードに失敗すると note が無くなる）
+    onProgress({ phase: 'checking', message: 'Listing S3 files...' });
+    const objects = await listAllObjects(s3, bucket, prefix);
+
+    // Phase 2: ローカルファイルを全削除（フォルダ自体は残す）
     onProgress({ phase: 'deleting', message: 'Deleting local files...' });
     deleteLocalFiles(config.localPath);
 
-    // Phase 2: S3からダウンロード (per-file 進捗を保つ)
+    // Phase 3: S3からダウンロード (per-file 進捗を保つ)
     onProgress({ phase: 'downloading', message: 'Downloading from S3...' });
-    const objects = await listAllObjects(s3, bucket, prefix);
     const toDownload: string[] = [];
     for (const obj of objects) {
         if (!obj.key.startsWith(prefix)) continue;
