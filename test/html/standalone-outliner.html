@@ -43489,6 +43489,15 @@ var Outliner = (function() {
         if (VIEW_MODE !== 'table' && (tableSel || (tableSelProxy && document.activeElement === tableSelProxy))) {
             endTableSelectMode();
         }
+        // table 以外を描くときは、table の格子（renderTableMode が treeEl に付ける inline の display:grid と列の幅）を外す。
+        // VIEW_MODE が setViewMode を通らずに変わったとき（table の .out から新規 outliner へのファイル切替など）に残ると、
+        // 行が格子のマスになって横に並び、Enter で右のマスに増えていた（2026-11-09）
+        if (VIEW_MODE !== 'table' && (treeEl.style.display === 'grid' || treeEl.style.gridTemplateColumns)) {
+            treeEl.style.display = '';
+            treeEl.style.gridTemplateColumns = '';
+            treeEl.style.width = '';
+            treeEl.style.minWidth = '';
+        }
         treeEl.innerHTML = '';
         // Phase F2.1: data-view-mode 属性を treeEl に反映 (CSS / 列ヘッダー描画判定で使用)
         treeEl.dataset.viewMode = VIEW_MODE;
@@ -53191,6 +53200,10 @@ var Outliner = (function() {
                         //   view mode が残っていた）。renderTree より前に設定。init(:814) と同ロジック。
                         VIEW_MODE = (model.viewMode === 'table' || model.viewMode === 'mindmap')
                             ? model.viewMode : 'outliner';
+                        // ヘッダーの表示切替ボタンと mindmap 用の disabled も新しいファイルの view mode に合わせる
+                        // （前のファイルの table / mindmap のままだった）
+                        updateViewToggleButton();
+                        updateHeaderForViewMode();
                         searchEngine = new OutlinerSearch.SearchEngine(model);
                         // TBE-03 / TASK-A6: ファイル切替でも rawDataExtras を再構築
                         rawDataExtras = captureRawDataExtras(msg.data);
