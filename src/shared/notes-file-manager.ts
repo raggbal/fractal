@@ -1712,12 +1712,22 @@ export class NotesFileManager {
             imageDir: flatLayout.FLAT_OUT_HINTS.imageDir,
             fileDir: flatLayout.FLAT_OUT_HINTS.fileDir,
             rootIds: [firstNodeId],
+            // 空の 1 行目。形は outliner-model.js の addNode が作るノードと同じ（children で親子。旧 childIds は
+            // OutlinerModel が「旧形式」として捨てるので書かない — test/unit/new-out-format.spec.ts が番人）
             nodes: {
                 [firstNodeId]: {
                     id: firstNodeId,
+                    parentId: null,
+                    children: [],
                     text: '',
-                    childIds: [],
+                    tags: [],
+                    isPage: false,
+                    pageId: null,
                     collapsed: false,
+                    checked: null,
+                    subtext: '',
+                    images: [],
+                    filePath: null,
                 },
             } as Record<string, unknown>,
         };
