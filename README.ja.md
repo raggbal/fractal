@@ -133,7 +133,7 @@ VS Code と、その互換のエディタの中で使う Fractal Note です。m
 - **そうでなければアクセスキーを入れる:** `fractal.awsAccessKeyId` と `fractal.awsSecretAccessKey`。
 - **リージョン:** `fractal.awsRegion`（例 `ap-northeast-1`）。空なら AWS CLI のプロファイルのリージョン、それも無ければ `us-east-1`。S3 同期はバケットのリージョンを自動で追いかけます。
 
-前の版の別々の設定（`fractal.s3AccessKeyId` など・`fractal.transAccessKeyId` など）は、自動でこれらへ移します。なお、HTTP(S) プロキシ経由の接続には現在対応していません。
+前の版の別々の設定（`fractal.s3AccessKeyId` など・`fractal.transAccessKeyId` など）は、自動でこれらへ移します。S3 用と翻訳用でキーが違ったときは S3 用を両方に使い、翻訳用のキーは使われなくなることを画面で知らせます。なお、HTTP(S) プロキシ経由の接続には現在対応していません。
 
 ---
 

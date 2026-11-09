@@ -118,8 +118,9 @@ export interface Messages {
   awsKeysIncomplete: string;
   translateFailed: string;
   translateTerminologyMissing: string; // {name}
-  settingsMigratedAws: string;
-  settingsMigratedAwsTranslateKept: string;
+  settingsMigratedAwsTranslateKept: string;       // S3 用と翻訳用のキーが違ったときの見出し（modal）
+  settingsMigratedAwsTranslateKeptDetail: string; // {s3Key} / {translateKey} プレース（先頭 4 字・末尾 4 字だけ）
+  settingsOpenAws: string;
   settingsMigratedTerminologyRenamed: string; // {name}
   settingsMigrationFailed: string;   // {error}
   reload: string;

@@ -3,7 +3,8 @@
  *
  * - AWS: S3 用（s3AccessKeyId / s3SecretAccessKey / s3Region）と翻訳用（trans*）→ awsAccessKeyId / awsSecretAccessKey / awsRegion。
  *   キーは S3 用（無ければ翻訳用）。リージョンは翻訳を使っていれば翻訳用（用語集はリージョンごと。S3 はバケットのリージョンを
- *   追いかける）、無ければ S3 用。翻訳用のキーが S3 用と違えば翻訳用の設定は消さずに残し、知らせる。
+ *   追いかける）、無ければ S3 用。翻訳用のキーが S3 用と違えば翻訳用の設定は消さずに残し、知らせる（1 つになった・S3 用を
+ *   残した・翻訳用は使われなくなる。extension.ts が modal で出す）。
  * - 用語集: translateTerminologyFile（無ければ translateTerminologyName）→ translateTerminology。名前はファイル名から作るように
  *   なったので、前の名前と違えば知らせる（アップロードし直す）。
  * - 翻訳の言語: translateSourceLang / translateTargetLang → globalState（translate-langs.ts）。
@@ -27,8 +28,14 @@ export const LEGACY_SETTING_KEYS = [
 
 export type MigrationNotice =
     | { kind: 'aws' }
-    | { kind: 'awsTranslateKeysKept' }
+    /** S3 用と翻訳用のキーが違った（S3 用を残し、翻訳用は使われなくなる）。キーは見分けるための先頭 4 字・末尾 4 字だけ */
+    | { kind: 'awsTranslateKeysKept'; s3Key: string; translateKey: string }
     | { kind: 'terminologyRenamed'; name: string };
+
+/** アクセスキー ID の見分け用の表示（AKIA…N64P）。秘密のキーには使わない */
+export function maskAccessKeyId(id: string): string {
+    return id.length > 8 ? `${id.slice(0, 4)}…${id.slice(-4)}` : '…';
+}
 
 export interface MigrationPlan {
     /** 順に書く（value undefined = 消す）。新しい設定を先に書き、古い設定はその後で消す */
@@ -90,7 +97,7 @@ export function planSettingsMigration(
         }
         remove('s3AccessKeyId', 's3SecretAccessKey', 's3Region');
         if (keptTranslate) {
-            notice({ kind: 'awsTranslateKeysKept' });
+            notice({ kind: 'awsTranslateKeysKept', s3Key: maskAccessKeyId(s3.id), translateKey: maskAccessKeyId(tr.id) });
         } else {
             remove('transAccessKeyId', 'transSecretAccessKey', 'transRegion');
         }

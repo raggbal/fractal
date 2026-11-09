@@ -58,14 +58,23 @@ async function migrateSettings(context: vscode.ExtensionContext): Promise<void> 
         if (scopes.includes('workspace')) {
             await context.workspaceState.update(SETTINGS_MIGRATION_KEY, SETTINGS_MIGRATION_VERSION);
         }
-        // ふつうの移行（キーを aws* へ）は黙って済ませる。知らせるのは利用者がすること（古いキーの片付け・用語集の
-        // アップロードし直し）があるときだけ。起動の直後はデスクトップ版にまだ note が無く、通知が画面の前に出る
-        // message box になるので、少し待ってから出す
-        const lines = plan.notices.filter((n) => n.kind !== 'aws').map((n: MigrationNotice) =>
-            n.kind === 'awsTranslateKeysKept' ? `${t('settingsMigratedAws')} ${t('settingsMigratedAwsTranslateKept')}`
-                : n.kind === 'terminologyRenamed' ? t('settingsMigratedTerminologyRenamed').replace('{name}', n.name) : '');
-        if (lines.some((l) => l)) {
-            setTimeout(() => vscode.window.showInformationMessage(lines.filter((l) => l).join(' ')), 5000);
+        // ふつうの移行（キーを aws* へ）は黙って済ませる（動きは変わらない）。知らせるのは動きが変わる・利用者がすることが
+        // あるとき: S3 用と翻訳用のキーが違った（翻訳用のキーは使われなくなる）→ 見落とさないよう modal、用語集の名前が
+        // 変わった（アップロードし直す）→ 通知。起動の直後はデスクトップ版にまだ note もウィンドウも無いことがあるので少し待つ
+        const kept = plan.notices.find((n): n is Extract<MigrationNotice, { kind: 'awsTranslateKeysKept' }> => n.kind === 'awsTranslateKeysKept');
+        const renamed = plan.notices.find((n): n is Extract<MigrationNotice, { kind: 'terminologyRenamed' }> => n.kind === 'terminologyRenamed');
+        const renamedText = renamed ? t('settingsMigratedTerminologyRenamed').replace('{name}', renamed.name) : '';
+        if (kept) {
+            setTimeout(async () => {
+                const open = t('settingsOpenAws');
+                const detail = t('settingsMigratedAwsTranslateKeptDetail').replace('{s3Key}', kept.s3Key).replace('{translateKey}', kept.translateKey);
+                const pick = await vscode.window.showWarningMessage(t('settingsMigratedAwsTranslateKept'), { modal: true, detail: renamedText ? `${detail}\n\n${renamedText}` : detail }, open);
+                if (pick === open) {
+                    await vscode.commands.executeCommand('workbench.action.openSettings', 'fractal.awsAccessKeyId');
+                }
+            }, 5000);
+        } else if (renamed) {
+            setTimeout(() => vscode.window.showInformationMessage(renamedText), 5000);
         }
     } catch (err: any) {
         // 書けなかった（settings.json が壊れているなど）: 次の起動でやり直す。古い設定は新しい設定を書き終えるまで消さない

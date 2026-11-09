@@ -133,7 +133,7 @@ Core features work without AWS. S3 sync and Amazon Translate use one set of AWS 
 - **Otherwise, set an access key:** `fractal.awsAccessKeyId` and `fractal.awsSecretAccessKey`.
 - **Region:** `fractal.awsRegion` (e.g. `ap-northeast-1`). Empty = the region of your AWS CLI profile, else `us-east-1`. S3 sync follows the bucket's region by itself.
 
-The old separate settings (`fractal.s3AccessKeyId` …, `fractal.transAccessKeyId` …) are moved to these automatically. Note: connections through an HTTP(S) proxy are not currently supported for these features.
+The old separate settings (`fractal.s3AccessKeyId` …, `fractal.transAccessKeyId` …) are moved to these automatically. If your S3 key and translation key were different, the S3 key is kept for both, and a dialog tells you that the translation key is no longer used. Note: connections through an HTTP(S) proxy are not currently supported for these features.
 
 ---
 

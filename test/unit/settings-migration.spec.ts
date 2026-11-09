@@ -47,13 +47,15 @@ test('TC-MIG-03 同じキー: 両方消す・リージョンは翻訳用', () =>
 
 test('TC-MIG-04 違うキー: S3 用を使い、翻訳用は残して知らせる', () => {
     const p = plan({
-        s3AccessKeyId: 'AK-S3', s3SecretAccessKey: 'SK-S3',
-        transAccessKeyId: 'AK-TR', transSecretAccessKey: 'SK-TR', transRegion: 'us-west-2',
+        s3AccessKeyId: 'AK-OLD-S3', s3SecretAccessKey: 'SK-S3',
+        transAccessKeyId: 'AK-OLD-TR', transSecretAccessKey: 'SK-TR', transRegion: 'us-west-2',
     });
-    expect(sets(p)).toEqual([['awsAccessKeyId', 'AK-S3'], ['awsSecretAccessKey', 'SK-S3'], ['awsRegion', 'us-west-2']]);
+    expect(sets(p)).toEqual([['awsAccessKeyId', 'AK-OLD-S3'], ['awsSecretAccessKey', 'SK-S3'], ['awsRegion', 'us-west-2']]);
     // ★ 翻訳用の秘密のキーを黙って消さない
     expect(removes(p)).toEqual(['s3AccessKeyId', 's3SecretAccessKey']);
-    expect(p.notices).toEqual([{ kind: 'aws' }, { kind: 'awsTranslateKeysKept' }]);
+    // 1 つになった・S3 用を残した・翻訳用は使われなくなる、を知らせる（キーは見分け用に先頭 4 字・末尾 4 字だけ）
+    expect(p.notices).toEqual([{ kind: 'aws' }, { kind: 'awsTranslateKeysKept', s3Key: 'AK-O…D-S3', translateKey: 'AK-O…D-TR' }]);
+    expect(JSON.stringify(p.notices)).not.toContain('SK-'); // 秘密のキーは載せない
 });
 
 test('TC-MIG-05 新しい設定がもうあれば上書きしない', () => {
