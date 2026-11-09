@@ -85,23 +85,24 @@ var Outliner = (function() {
 
     // Phase F2.1 (2026-05-04): VIEW_MODE flag 追加。
     //   'outliner' (default): 既存 flat outliner DOM (1 列)
-    //   'table'           : 列ヘッダー + 各 outliner row に列セルを並べる (table editor)
+    //   'database'           : 列ヘッダー + 各 outliner row に列セルを並べる (table editor)
     // 列定義は model.columns で永続化、各 node の値は node.columnValues で保持。
-    // F2.1 段階では 'table' は stub (= outliner と同じ描画)。F2.2 で実装。
-    // Mindmap Mode (sprint 20260701-122355): 'outliner' | 'table' | 'mindmap' の 3 状態。
+    // F2.1 段階では 'database' は stub (= outliner と同じ描画)。F2.2 で実装。
+    // Mindmap Mode (sprint 20260701-122355): 'outliner' | 'database' | 'mindmap' の 3 状態。
     var VIEW_MODE = 'outliner';
     function getViewMode() { return VIEW_MODE; }
     function setViewMode(mode) {
-        if (mode !== 'outliner' && mode !== 'table' && mode !== 'mindmap') return;
+        if (mode === 'table') { mode = 'database'; } // 旧名（1.4.2-rc.4 より前の値・外から呼ぶ人のため）
+        if (mode !== 'outliner' && mode !== 'database' && mode !== 'mindmap') return;
         if (VIEW_MODE === mode) return;
         var prev = VIEW_MODE;
         VIEW_MODE = mode;
         // model にも反映 → serialize で永続化 (#M6, decision-persistence)
         if (model) { model.viewMode = mode; }
-        if (mode === 'table') ensureColumnsForTable();
+        if (mode === 'database') ensureColumnsForTable();
         if (treeEl) {
             // table/mindmap → outliner に戻す時は inline grid/mindmap styles を解除
-            if (mode !== 'table') {
+            if (mode !== 'database') {
                 treeEl.style.display = '';
                 treeEl.style.gridTemplateColumns = '';
                 treeEl.style.width = '';
@@ -125,24 +126,24 @@ var Outliner = (function() {
                 }
             }
             // 20261106-1700: table を出るときはセル選択モードを終える（受け口の focus を外す = 以前と同じく focus 無し）
-            if (prev === 'table') { endTableSelectMode(); }
+            if (prev === 'database') { endTableSelectMode(); }
             renderTree();
             // 20261106-1700 D11: table に切り替えたら選択モード（focus のある行の outline の列を選ぶ）
-            if (mode === 'table') { selectTableRowOutlineCell(focusedNodeId); }
+            if (mode === 'database') { selectTableRowOutlineCell(focusedNodeId); }
         }
         updateViewToggleButton();
         updateHeaderForViewMode(); // [K] iteration 29 / TASK-77
         scheduleSyncToHost();
     }
-    /** 表示モードの名前（画面の言い方は Outliner / Database / Mindmap にそろえる。内部の値 'table' = Database — 保存形式なので値は変えない） */
+    /** 表示モードの名前（画面の言い方は Outliner / Database / Mindmap。値も 'outliner' / 'database' / 'mindmap'） */
     function viewModeLabel(mode) {
-        if (mode === 'table') { return i18n.outlinerModeDatabase || 'Database Mode'; }
+        if (mode === 'database') { return i18n.outlinerModeDatabase || 'Database Mode'; }
         if (mode === 'mindmap') { return i18n.outlinerModeMindmap || 'Mindmap Mode'; }
         return i18n.outlinerModeOutliner || 'Outliner Mode';
     }
     function updateViewToggleButton() {
         if (!viewToggleBtn) return;
-        // 今のモードを目立たないタグで出し（[Database Mode ⇄]）、押すと次へ: outliner → database（'table'）→ mindmap → outliner
+        // 今のモードを目立たないタグで出し（[Database Mode ⇄]）、押すと次へ: outliner → database → mindmap → outliner
         var label = document.createElement('span');
         label.className = 'outliner-mode-label';
         label.textContent = viewModeLabel(VIEW_MODE);
@@ -154,7 +155,7 @@ var Outliner = (function() {
         viewToggleBtn.title = (i18n.outlinerSwitchMode || 'Switch to {mode}').replace('{mode}', viewModeLabel(nextViewMode(VIEW_MODE)));
     }
     function nextViewMode(mode) {
-        return mode === 'outliner' ? 'table' : (mode === 'table' ? 'mindmap' : 'outliner');
+        return mode === 'outliner' ? 'database' : (mode === 'database' ? 'mindmap' : 'outliner');
     }
 
     /** [K] iteration 29 / TASK-77: mindmap モードでは使わないヘッダーボタンをグレーアウト
@@ -1058,8 +1059,7 @@ var Outliner = (function() {
         }
         // Mindmap Mode (sprint 20260701-122355): model が復元した viewMode を runtime に同期。
         // 旧 .out は 'outliner'。table/mindmap を永続化していれば復元する (decision-persistence)。
-        VIEW_MODE = (model.viewMode === 'table' || model.viewMode === 'mindmap')
-            ? model.viewMode : 'outliner';
+        VIEW_MODE = OutlinerModel.normalizeViewMode(model.viewMode);
         // 20261106-1700: 前の model のセル選択は持ち越さない（table の初期化の focus = D11 で選び直す）
         tableSel = null;
         tableSelEl = null;
@@ -1212,7 +1212,7 @@ var Outliner = (function() {
                     var mdPane = document.querySelector('.markdown-container');
                     if (mdPane && mdPane.style.display !== 'none' && mdPane.offsetParent !== null) { return 'md'; }
                     if (VIEW_MODE === 'mindmap') { return 'mindmap'; }
-                    if (VIEW_MODE === 'table') { return 'table'; }
+                    if (VIEW_MODE === 'database') { return 'database'; }
                 } catch (err) { /* fallthrough */ }
                 return 'outliner';
             };
@@ -1567,7 +1567,7 @@ var Outliner = (function() {
                 if (ae && ae.closest && ae.closest('.outliner-node') && treeEl.contains(ae)) { return; }
                 // 20261106-1700 D11: table は選択モード（最初の行の outline の列を選ぶ）。待つ間にセルを選んだ・
                 // 編集を始めていたら奪わない
-                if (VIEW_MODE === 'table') {
+                if (VIEW_MODE === 'database') {
                     if (tableSel || (ae && treeEl.contains(ae))) { return; }
                     selectTableRowOutlineCell(null);
                     return;
@@ -2325,13 +2325,13 @@ var Outliner = (function() {
         }
         // 20261106-1700: table 以外を描くときにセル選択モードが残っていたら終える（ファイル切替・再 init で
         // VIEW_MODE が setViewMode を通らずに変わったとき。受け口に focus が残るとキーが行き場を失う）
-        if (VIEW_MODE !== 'table' && (tableSel || (tableSelProxy && document.activeElement === tableSelProxy))) {
+        if (VIEW_MODE !== 'database' && (tableSel || (tableSelProxy && document.activeElement === tableSelProxy))) {
             endTableSelectMode();
         }
         // table 以外を描くときは、table の格子（renderTableMode が treeEl に付ける inline の display:grid と列の幅）を外す。
         // VIEW_MODE が setViewMode を通らずに変わったとき（table の .out から新規 outliner へのファイル切替など）に残ると、
         // 行が格子のマスになって横に並び、Enter で右のマスに増えていた（2026-11-09）
-        if (VIEW_MODE !== 'table' && (treeEl.style.display === 'grid' || treeEl.style.gridTemplateColumns)) {
+        if (VIEW_MODE !== 'database' && (treeEl.style.display === 'grid' || treeEl.style.gridTemplateColumns)) {
             treeEl.style.display = '';
             treeEl.style.gridTemplateColumns = '';
             treeEl.style.width = '';
@@ -2351,7 +2351,7 @@ var Outliner = (function() {
             }
         }
         // table mode は F2.2 以降で列ヘッダー + grid layout を追加。F2.1 は stub。
-        if (VIEW_MODE === 'table') {
+        if (VIEW_MODE === 'database') {
             renderTableMode();
             return;
         }
@@ -2663,7 +2663,7 @@ var Outliner = (function() {
             if (typing) { reselectKey = editingKey; }
         }
         treeEl.innerHTML = '';
-        treeEl.dataset.viewMode = 'table';
+        treeEl.dataset.viewMode = 'database';
         updateBreadcrumb();
 
         var cols = model.columns;
@@ -2879,7 +2879,7 @@ var Outliner = (function() {
      *  dir = 'up' | 'down' | 'left' | 'right'
      *  編集のまま移る moveTableCell と、セル選択モードの移動（20261106-1700 D3）で共用する */
     function tableCellNeighbor(el, dir) {
-        if (!treeEl || VIEW_MODE !== 'table') return null;
+        if (!treeEl || VIEW_MODE !== 'database') return null;
         var cells = Array.prototype.slice.call(treeEl.children).filter(function (c) {
             return c.classList && (
                 c.classList.contains('outliner-node') ||
@@ -2984,7 +2984,7 @@ var Outliner = (function() {
      *  返り値: true = 移動した（呼び出し側で preventDefault）/ 'native' = カーソルを動かすので他の処理をしない /
      *          false = 扱わない（呼び出し側の従来の処理へ） */
     function handleTableCellArrowKey(el, e) {
-        if (VIEW_MODE !== 'table') return false;
+        if (VIEW_MODE !== 'database') return false;
         if (e.shiftKey || e.altKey) return false;
         if (e.isComposing || e.keyCode === 229) return false;
         var dir = null;
@@ -3093,7 +3093,7 @@ var Outliner = (function() {
     }
 
     function findTableCellEl(key) {
-        if (!key || !key.nodeId || !treeEl || VIEW_MODE !== 'table') return null;
+        if (!key || !key.nodeId || !treeEl || VIEW_MODE !== 'database') return null;
         var el = (key.colId && key.colId === tableOutlinerColId())
             ? treeEl.querySelector('.outliner-node.outliner-cell-outliner[data-id="' + key.nodeId + '"]')
             : treeEl.querySelector('[data-node-id="' + key.nodeId + '"][data-col-id="' + key.colId + '"]');
@@ -3210,7 +3210,7 @@ var Outliner = (function() {
 
     /** セルを選ぶ（選択モード）。opts.scroll = 見える所までスクロール（キーボードで動かしたとき） */
     function selectTableCell(cellEl, opts) {
-        if (VIEW_MODE !== 'table' || !cellEl || cellEl.parentNode !== treeEl) return;
+        if (VIEW_MODE !== 'database' || !cellEl || cellEl.parentNode !== treeEl) return;
         var key = tableCellKey(cellEl);
         if (!key) return;
         opts = opts || {};
@@ -3232,7 +3232,7 @@ var Outliner = (function() {
 
     /** D11: table に切り替えたとき・初期化の「最初のノードに focus」= 選択モード（nodeId の行の outline の列。無ければ先頭の行） */
     function selectTableRowOutlineCell(nodeId) {
-        if (VIEW_MODE !== 'table' || !treeEl) return;
+        if (VIEW_MODE !== 'database' || !treeEl) return;
         var el = (nodeId && findTableCellEl({ nodeId: nodeId, colId: tableOutlinerColId() })) || firstTableRowCell(tableOutlinerColId());
         if (el) selectTableCell(el);
     }
@@ -3266,7 +3266,7 @@ var Outliner = (function() {
     function runKeepingTableSel(fn) {
         var keep = tableSel ? { nodeId: tableSel.nodeId, colId: tableSel.colId } : null;
         fn();
-        if (VIEW_MODE !== 'table' || !keep) return;
+        if (VIEW_MODE !== 'database' || !keep) return;
         var ae = document.activeElement;
         var back = !ae || ae === document.body || ae === tableSelProxy
             || !!(ae.classList && ae.classList.contains('outliner-text') && treeEl.contains(ae));
@@ -3490,7 +3490,7 @@ var Outliner = (function() {
 
     /** 選択モードのキー（受け口の keydown） */
     function onTableSelKeydown(e) {
-        if (VIEW_MODE !== 'table' || !tableSel) return;
+        if (VIEW_MODE !== 'database' || !tableSel) return;
         if (e.isComposing) return;   // 受け口で IME の変換中（Date の数字など。確定は compositionend）
         var cellEl = currentTableSelCell();
         if (!cellEl) { clearTableSel(); return; }
@@ -3589,7 +3589,7 @@ var Outliner = (function() {
 
     /** D6: Cmd+C / Cmd+X = セルの中身（文字）のコピー / 切り取り（受け口の copy / cut イベント） */
     function onTableSelClipboard(e, isCut) {
-        if (VIEW_MODE !== 'table' || !tableSel) return;
+        if (VIEW_MODE !== 'database' || !tableSel) return;
         var cellEl = currentTableSelCell();
         if (!cellEl || !e.clipboardData) return;
         e.preventDefault();
@@ -3601,7 +3601,7 @@ var Outliner = (function() {
 
     /** D6: Cmd+V = セルの中身を置き換える（受け口の paste イベント）。選んだノードがあるとき・outline の列への画像は今どおり */
     function onTableSelPaste(e) {
-        if (VIEW_MODE !== 'table' || !tableSel) return;
+        if (VIEW_MODE !== 'database' || !tableSel) return;
         var cellEl = currentTableSelCell();
         if (!cellEl) return;
         var nid = tableSel.nodeId;
@@ -3630,7 +3630,7 @@ var Outliner = (function() {
         var t = e.inputType || '';
         if (t === 'insertCompositionText') return;   // IME の変換中（受け口で組み立て、確定 = compositionend でセルへ移す）
         e.preventDefault();
-        if (VIEW_MODE !== 'table' || !tableSel) return;
+        if (VIEW_MODE !== 'database' || !tableSel) return;
         if ((t === 'insertText' || t === 'insertReplacementText') && e.data) {
             var cellEl = currentTableSelCell();
             if (cellEl) typeIntoTableCell(cellEl, e.data);
@@ -3640,7 +3640,7 @@ var Outliner = (function() {
     /** 受け口で IME の変換が確定した（Date への数字。ほかのセルは打ち始めに編集モードへ移っているので普通は来ない） */
     function onTableSelCompositionEnd(e) {
         var data = e.data || '';
-        if (VIEW_MODE !== 'table' || !tableSel) return;
+        if (VIEW_MODE !== 'database' || !tableSel) return;
         var cellEl = currentTableSelCell();
         if (!cellEl) return;
         // 受け口の中身は変換の文字のまま残さない（確定の処理が終わってから戻す）
@@ -3657,7 +3657,7 @@ var Outliner = (function() {
     function onTableSelProxyBlur(e) {
         if (e.relatedTarget) { clearTableSel(); return; }
         setTimeout(function () {
-            if (!tableSel || VIEW_MODE !== 'table') return;
+            if (!tableSel || VIEW_MODE !== 'database') return;
             var ae = document.activeElement;
             if (ae === tableSelProxy) return;
             if (!document.hasFocus()) return;
@@ -3673,7 +3673,7 @@ var Outliner = (function() {
 
     /** D2: 1 回のクリック = 選択（カーソルを置かない）。treeEl の capture 段の mousedown */
     function onTableCellMousedown(e) {
-        if (VIEW_MODE !== 'table') return;
+        if (VIEW_MODE !== 'database') return;
         // 右クリック・修飾クリック（Cmd/Ctrl+Click = 行の選択 / Shift+Click = 範囲）は今どおり
         if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         var cellEl = tableCellOf(e.target);
@@ -3708,7 +3708,7 @@ var Outliner = (function() {
 
     /** D2: ダブルクリック = 編集（クリックした位置にカーソル）。タグ・chip のダブルクリック（検索）・ボタン類は今どおり */
     function onTableCellDblclick(e) {
-        if (VIEW_MODE !== 'table') return;
+        if (VIEW_MODE !== 'database') return;
         if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         var cellEl = tableCellOf(e.target);
         if (!cellEl || isTableCellEditing(cellEl)) return;
@@ -3720,7 +3720,7 @@ var Outliner = (function() {
 
     /** date / 選択肢のセルそのもの（入力欄でない所）に focus が来た（Tab 移動・プログラムの focus 等）= 表示のまま → 選択モード */
     function onTableCellFocusin(e) {
-        if (VIEW_MODE !== 'table') return;
+        if (VIEW_MODE !== 'database') return;
         var t = e.target;
         if (!t || t.parentNode !== treeEl) return;
         var kind = tableCellKind(t);
@@ -6898,7 +6898,7 @@ var Outliner = (function() {
 
         // Phase F2/F3: table mode の矢印 → セル移動（Cmd/Ctrl + 矢印は常に、素の矢印はセルの端にいるとき）。
         // 'native' = 端でないのでカーソルを動かす（outline の ↑↓ のノード移動はしない）
-        if (VIEW_MODE === 'table') {
+        if (VIEW_MODE === 'database') {
             var tableArrowNode = handleTableCellArrowKey(textEl, e);
             if (tableArrowNode === true) {
                 e.preventDefault();
@@ -7300,7 +7300,7 @@ var Outliner = (function() {
             case 'Escape':
                 // 20261106-1700 D8: table の編集モードの Esc = 選択モードの同じセルへ（打った内容は残す）。
                 // 検索・ノードの選択を外すのは選択モードの Esc（受け口の onTableSelKeydown）
-                if (VIEW_MODE === 'table') {
+                if (VIEW_MODE === 'database') {
                     e.preventDefault();
                     var escCell = textEl.closest('.outliner-node');
                     if (escCell) { selectTableCell(escCell); }
@@ -12037,8 +12037,7 @@ var Outliner = (function() {
                         // sprint 20260724-063158 (FR-TP-03): VIEW_MODE residual 是正。ファイル切替で model が
                         //   変わったら VIEW_MODE を新 model の viewMode から再読込する（従来は再読込されず前タブの
                         //   view mode が残っていた）。renderTree より前に設定。init(:814) と同ロジック。
-                        VIEW_MODE = (model.viewMode === 'table' || model.viewMode === 'mindmap')
-                            ? model.viewMode : 'outliner';
+                        VIEW_MODE = OutlinerModel.normalizeViewMode(model.viewMode);
                         // ヘッダーの表示切替ボタンと mindmap 用の disabled も新しいファイルの view mode に合わせる
                         // （前のファイルの table / mindmap のままだった）
                         updateViewToggleButton();

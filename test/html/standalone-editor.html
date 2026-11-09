@@ -7918,7 +7918,7 @@ var MODE_TITLES = {
     md:       { i18nKey: 'shortcutHudTitleMd',      fallback: 'Markdown Shortcuts' },
     outliner: { i18nKey: 'shortcutHudTitleOutliner', fallback: 'Outliner Shortcuts' },
     mindmap:  { i18nKey: 'shortcutHudTitleMindmap',  fallback: 'Mindmap Shortcuts' },
-    table:    { i18nKey: 'shortcutHudTitleTable',    fallback: 'Database Shortcuts' },
+    database: { i18nKey: 'shortcutHudTitleTable',    fallback: 'Database Shortcuts' },
 };
 
 // カテゴリ描画順 + i18n キー + 英語 fallback（i18n 未注入の standalone では英語）。
@@ -8070,7 +8070,7 @@ var SHORTCUTS_MINDMAP = [
     ] },
 ];
 
-// Database モード用（内部の viewMode は 'table'。README「Database mode」章より。outliner 列は outliner と同じ）。
+// Database モード用（README「Database mode」章より。outliner 列は outliner と同じ）。
 var SHORTCUTS_TABLE = [
     // 2026-11-06: セル選択モード（既定）→ 編集モード（spec 20261106-1700-table-cell-select-mode）
     { category: 'editing', items: [
@@ -8092,17 +8092,17 @@ var SHORTCUTS_TABLE = [
     ] },
 ];
 
-// mode ('md' | 'outliner' | 'mindmap' | 'table') に対応する静的リストを返す。
+// mode ('md' | 'outliner' | 'mindmap' | 'database'。旧名 'table' も受ける) に対応する静的リストを返す。
 function getList(mode) {
     if (mode === 'outliner') { return SHORTCUTS_OUTLINER; }
     if (mode === 'mindmap') { return SHORTCUTS_MINDMAP; }
-    if (mode === 'table') { return SHORTCUTS_TABLE; }
+    if (mode === 'database' || mode === 'table') { return SHORTCUTS_TABLE; }
     return SHORTCUTS_MD;
 }
 
 // mode の HUD タイトルを messages（i18n）から解決。未注入なら英語 fallback。
 function modeTitle(mode, messages) {
-    var t = MODE_TITLES[mode] || MODE_TITLES.md;
+    var t = MODE_TITLES[mode === 'table' ? 'database' : mode] || MODE_TITLES.md;
     var m = messages && messages[t.i18nKey];
     return (typeof m === 'string' && m) ? m : t.fallback;
 }

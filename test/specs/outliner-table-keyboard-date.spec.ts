@@ -35,7 +35,7 @@ async function setup(page: Page) {
     await page.goto('/standalone-outliner.html');
     await page.waitForFunction(() => (window as any).__testApi?.ready);
     await page.evaluate((d) => { (window as any).__testApi.initOutliner(d); (window as any).Outliner.setViewMode('table'); }, DATA);
-    await page.waitForSelector('.outliner-tree[data-view-mode="table"] .outliner-cell-text');
+    await page.waitForSelector('.outliner-tree[data-view-mode="database"] .outliner-cell-text');
     await page.waitForTimeout(250); // 初期化の「最初のノードに focus」（100ms 後）が済んでから触る
 }
 const cell = (type: string, nodeId: string, colId?: string) =>

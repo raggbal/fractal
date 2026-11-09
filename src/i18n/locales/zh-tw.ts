@@ -304,6 +304,8 @@ export const webviewMessages = {
   outlinerModeDatabase: '資料庫模式',
   outlinerModeMindmap: '心智圖模式',
   outlinerSwitchMode: '切換到{mode}',
+  outlinerSearchPlaceholder: '搜尋...（如 #標籤、關鍵字、is:page）',
+  outlinerClearSearch: '清除搜尋',
   copy: '複製',
   copied: '已複製！',
   expandCodeBlock: '全螢幕',

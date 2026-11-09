@@ -350,6 +350,8 @@ export const webviewMessages = {
   outlinerModeDatabase: 'データベースモード',
   outlinerModeMindmap: 'マインドマップモード',
   outlinerSwitchMode: '{mode}に切り替え',
+  outlinerSearchPlaceholder: '検索...（例: #タグ・キーワード・is:page）',
+  outlinerClearSearch: '検索をクリア',
   copy: 'コピー',
   copied: 'コピーしました',
   expandCodeBlock: '全画面',

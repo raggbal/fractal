@@ -79,6 +79,13 @@ var OutlinerModel = (function() {
      * @constructor
      * @param {Object} data - JSON からパースしたデータ
      */
+    /** 表示モードの値をそろえる: 'database'（と旧 'table'）→ 'database'、'mindmap' → 'mindmap'、それ以外・無し → 'outliner' */
+    function normalizeViewMode(v) {
+        if (v === 'database' || v === 'table') { return 'database'; }
+        if (v === 'mindmap') { return 'mindmap'; }
+        return 'outliner';
+    }
+
     function Model(data) {
         data = data || {};
         this.version = data.version || 1;
@@ -98,11 +105,11 @@ var OutlinerModel = (function() {
         this.taskFilter = (data.taskFilter === 'active') ? 'active' : 'all';
 
         // Mindmap Mode (sprint 20260701-122355): 表示モード + mindmap 設定。
-        //   viewMode: 'outliner' | 'table' | 'mindmap'。旧 .out は 'outliner' 既定 (後方互換)。
+        //   viewMode: 'outliner' | 'database' | 'mindmap'（画面の呼び方 Outliner / Database / Mindmap と同じ）。無ければ 'outliner'。
+        //   1.4.2-rc.4 より前は Database を 'table' と保存していた — 読むときは 'database' にそろえ、書くときは 'database'。
         //   mindmap : MindmapSettings (mindmap-model.js の defaultMindmapSettings)。
         // どちらも全 optional。旧ファイルを壊さず、全デフォルト時は serialize で省略する。
-        this.viewMode = (data.viewMode === 'table' || data.viewMode === 'mindmap')
-            ? data.viewMode : 'outliner';
+        this.viewMode = normalizeViewMode(data.viewMode);
         this.mindmap = normalizeMindmapSettings(data.mindmap);
 
         // nodes のマップ化
@@ -641,6 +648,7 @@ var OutlinerModel = (function() {
     Model.generateNodeId = generateNodeId;
     Model.parseTags = parseTags;
 
+    Model.normalizeViewMode = normalizeViewMode;
     return Model;
 })();
 

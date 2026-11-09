@@ -325,6 +325,8 @@ export interface WebviewMessages {
   outlinerModeDatabase: string;
   outlinerModeMindmap: string;
   outlinerSwitchMode: string;
+  outlinerSearchPlaceholder: string;
+  outlinerClearSearch: string;
   copy: string;
   copied: string;
   expandCodeBlock: string;

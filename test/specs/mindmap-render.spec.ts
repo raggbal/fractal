@@ -132,10 +132,10 @@ test.describe('Mindmap Mode — toggle & render', () => {
     test('TC-246 Table view still reachable (regression)', async ({ page }) => {
         await setup(page);
         await init(page, sampleTree());
-        await page.evaluate(() => (window as any).Outliner.setViewMode('table'));
+        await page.evaluate(() => (window as any).Outliner.setViewMode('table')); // the old name of Database mode still works
         await page.waitForTimeout(120);
         const vm = await page.getAttribute('.outliner-tree', 'data-view-mode');
-        expect(vm).toBe('table');
+        expect(vm).toBe('database');
     });
 
     test('TC-247 Outliner view unaffected (regression)', async ({ page }) => {

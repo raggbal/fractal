@@ -304,6 +304,8 @@ export const webviewMessages = {
   outlinerModeDatabase: '데이터베이스 모드',
   outlinerModeMindmap: '마인드맵 모드',
   outlinerSwitchMode: '{mode}(으)로 전환',
+  outlinerSearchPlaceholder: '검색... (예: #태그, 키워드, is:page)',
+  outlinerClearSearch: '검색 지우기',
   copy: '복사',
   copied: '복사됨!',
   expandCodeBlock: '전체 화면',

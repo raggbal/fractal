@@ -310,27 +310,32 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-nav-forward-btn + .outliner-view-toggle-btn {
     margin-left: 14px;
 }
-/* 表示モードのタグのボタン（[Database Mode ⇄]）: 今のモードを目立たない pill で出し、押すと次のモードへ */
+/* 表示モードのタグのボタン（[Database Mode ⇄]）: Notes パネルの Today と同じ ghost のボタン（枠・地なし。高さ 24px・
+   11px / 500 secondary・hover で fill-hover + primary・アイコン 14px — notes-body-html.js の .file-panel-content-actions .file-panel-btn） */
 .outliner-view-toggle-btn.outliner-mode-pill {
-    gap: 5px;
-    min-height: 22px;
-    padding: 2px 8px 2px 9px;
-    border: 1px solid var(--fr-color-border);
-    border-radius: 999px;
-    background: var(--fr-color-fill-subtle);
+    height: 24px;
+    min-height: 24px;
+    padding: 0 6px;
+    gap: 4px;
+    border: none;
+    border-radius: var(--fr-radius-sm, 6px);
+    background: transparent;
     color: var(--fr-color-text-secondary);
-    font-size: 11.5px;
+    font-family: inherit;
+    font-size: var(--fr-text-xs, 11px);
     font-weight: 500;
     white-space: nowrap;
     opacity: 1;
 }
 .outliner-view-toggle-btn.outliner-mode-pill:hover:not(:disabled) {
     background: var(--fr-color-fill-hover);
-    border-color: var(--fr-color-border-strong);
+    color: var(--fr-color-text-primary);
 }
 .outliner-mode-pill svg {
     flex: none;
-    opacity: 0.7;
+    width: 14px;
+    height: 14px;
+    stroke-width: 1.75;
 }
 
 /* タスク系 (task-mode / filter / archive) は右端に寄せる。
@@ -427,7 +432,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     flex-direction: column;
 }
 /* table mode は横スクロールも outer wrapper に持たせる */
-.outliner-container:has(.outliner-tree[data-view-mode="table"]) .outliner-scroll-content {
+.outliner-container:has(.outliner-tree[data-view-mode="database"]) .outliner-scroll-content {
     overflow-x: auto;
 }
 
@@ -440,7 +445,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     border-top: 1px solid var(--outliner-border);
 }
 
-.outliner-tree[data-view-mode="table"] {
+.outliner-tree[data-view-mode="database"] {
     overflow: visible;
     padding: 0;
     margin: 0 !important;
@@ -510,19 +515,19 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 /* breadcrumb: sticky 不要 (tree と同時にスクロールしてよい) */
 
 /* table mode の col-header: search-bar 直下 (~36px) に縦固定。横はテーブルと一緒に動く */
-.outliner-tree[data-view-mode="table"] .outliner-col-header {
+.outliner-tree[data-view-mode="database"] .outliner-col-header {
     top: 36px;
 }
 /* 縦に流れる .outliner-scroll-content の画面は 1 行目も固定なので、1 行目 + 2 行目（36 + 36）の直下 */
-.outliner-scroll-content .outliner-tree[data-view-mode="table"] .outliner-col-header {
+.outliner-scroll-content .outliner-tree[data-view-mode="database"] .outliner-col-header {
     top: 72px;
 }
 
 /* table mode 時は outliner-container 配下の他要素の右 padding も詰める
    (table 自体は full width、toolbar も視覚的に違和感を出さないため右 padding を 0 に) */
-.outliner-container:has(.outliner-tree[data-view-mode="table"]) .outliner-page-title,
-.outliner-container:has(.outliner-tree[data-view-mode="table"]) .outliner-search-bar,
-.outliner-container:has(.outliner-tree[data-view-mode="table"]) .outliner-pinned-nav-bar {
+.outliner-container:has(.outliner-tree[data-view-mode="database"]) .outliner-page-title,
+.outliner-container:has(.outliner-tree[data-view-mode="database"]) .outliner-search-bar,
+.outliner-container:has(.outliner-tree[data-view-mode="database"]) .outliner-pinned-nav-bar {
     padding-right: 7px;
 }
 
@@ -555,16 +560,16 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 
 /* outline の面の focus 行・選択行は角を 6px で丸める（table の面はセルが grid なので角を付けない）。
  * 隣り合う選択行は 1 つの塊に見せる（間の角を 0 に。DOM が平らなので兄弟の選択子で書ける） */
-.outliner-tree:not([data-view-mode="table"]) > .outliner-node.is-focused,
-.outliner-tree:not([data-view-mode="table"]) > .outliner-node.is-selected,
-.outliner-tree:not([data-view-mode="table"]) > .outliner-node.is-search-match {
+.outliner-tree:not([data-view-mode="database"]) > .outliner-node.is-focused,
+.outliner-tree:not([data-view-mode="database"]) > .outliner-node.is-selected,
+.outliner-tree:not([data-view-mode="database"]) > .outliner-node.is-search-match {
     border-radius: var(--fr-radius-sm);
 }
-.outliner-tree:not([data-view-mode="table"]) > .outliner-node.is-selected:has(+ .outliner-node.is-selected) {
+.outliner-tree:not([data-view-mode="database"]) > .outliner-node.is-selected:has(+ .outliner-node.is-selected) {
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
 }
-.outliner-tree:not([data-view-mode="table"]) > .outliner-node.is-selected + .outliner-node.is-selected {
+.outliner-tree:not([data-view-mode="database"]) > .outliner-node.is-selected + .outliner-node.is-selected {
     border-top-left-radius: 0;
     border-top-right-radius: 0;
 }
@@ -695,7 +700,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     width: 0px !important;
 }
 /* table mode の scope 先頭行 (20261018-1512 D1): grid の 1 セルなので枠線・余白は付けない（他列とずれる） */
-[data-view-mode="table"] .outliner-node.outliner-scope-header {
+[data-view-mode="database"] .outliner-node.outliner-scope-header {
     border-bottom: none;
     padding-bottom: 0;
     margin-bottom: 0;
@@ -1668,7 +1673,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 
 /* table mode の grid container。
    tree 自身が overflow-x: auto を持ち、列幅合計 > viewport 時に横スクロールバー表示 */
-.outliner-tree[data-view-mode="table"] {
+.outliner-tree[data-view-mode="database"] {
     display: grid;
     /* 各行は内容の自然高さに合わせる */
     grid-auto-rows: minmax(min-content, max-content);
@@ -1685,7 +1690,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
    .outliner-container で data-theme="github" 等が設定され、--outliner-bg が page 本文と
    同じ色になる。VSCode の --vscode-editor-background は VSCode 側のテーマで、
    Fractal page の見た目と一致しないことがあるため、ここでは使わない */
-.outliner-tree[data-view-mode="table"] .outliner-col-header {
+.outliner-tree[data-view-mode="database"] .outliner-col-header {
     position: sticky;
     /* search-bar (sticky top:0、高さ ~36px) の直下に固定 */
     top: 36px;
@@ -1706,14 +1711,14 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     box-sizing: border-box;
     cursor: grab;
 }
-.outliner-tree[data-view-mode="table"] .outliner-col-header:active {
+.outliner-tree[data-view-mode="database"] .outliner-col-header:active {
     cursor: grabbing;
 }
 /* hover は地の上に fill-hover を重ねる（地は sticky のため !important の不透明色のまま） */
-.outliner-tree[data-view-mode="table"] .outliner-col-header:hover {
+.outliner-tree[data-view-mode="database"] .outliner-col-header:hover {
     background-image: linear-gradient(var(--fr-color-fill-hover), var(--fr-color-fill-hover));
 }
-.outliner-tree[data-view-mode="table"] .outliner-col-header[data-col-type="outliner"] {
+.outliner-tree[data-view-mode="database"] .outliner-col-header[data-col-type="outliner"] {
     cursor: default;
     /* 1 列目 (Outline 列) のみ左右 padding を広めに */
     padding: 4px 18px;
@@ -1757,10 +1762,10 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 
 /* table mode の各 grid item: 行線無し、列セルは内容に合わせて高さ可変。
  * date / datetime も stretch しないと hover bg が下部欠けるバグになる。 */
-.outliner-tree[data-view-mode="table"] > .outliner-node,
-.outliner-tree[data-view-mode="table"] > .outliner-cell-text,
-.outliner-tree[data-view-mode="table"] > .outliner-cell-multiselect,
-.outliner-tree[data-view-mode="table"] > .outliner-cell-date {
+.outliner-tree[data-view-mode="database"] > .outliner-node,
+.outliner-tree[data-view-mode="database"] > .outliner-cell-text,
+.outliner-tree[data-view-mode="database"] > .outliner-cell-multiselect,
+.outliner-tree[data-view-mode="database"] > .outliner-cell-date {
     box-sizing: border-box;
     padding: 4px 7px;
     /* 行線・列線を出さない (ユーザー要望) */
@@ -1773,18 +1778,18 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 
 /* Outliner cell (table mode) は既存 .outliner-node がそのまま入る。
  * 内部に画像 / subtext / 折り返しテキストを含むため、natural height が必要。 */
-.outliner-tree[data-view-mode="table"] > .outliner-node {
+.outliner-tree[data-view-mode="database"] > .outliner-node {
     /* flex の子 (.outliner-node-content) が幅制限内で wrap するように */
     min-width: 0;
 }
 /* 内部の text wrapper が幅を超えて拡張しないように */
-.outliner-tree[data-view-mode="table"] > .outliner-node .outliner-node-content {
+.outliner-tree[data-view-mode="database"] > .outliner-node .outliner-node-content {
     min-width: 0;
     flex: 1 1 auto;
     /* 子の長文 / 画像で expand する */
     width: 0;  /* hack: flex-basis 0 + min-width 0 で wrap を強制 */
 }
-.outliner-tree[data-view-mode="table"] > .outliner-node .outliner-text {
+.outliner-tree[data-view-mode="database"] > .outliner-node .outliner-text {
     overflow-wrap: anywhere;
     word-break: break-word;
     white-space: pre-wrap;
@@ -1903,7 +1908,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 }
 /* table のセル選択モード（spec 20261106-1700 D1）: 選んだセルに枠（カーソルは出さない）。
    outline の列・文字・Date・Date & Time・選択肢のどのセルも同じ。編集モード（カーソルあり）では枠を外す（outliner.js） */
-.outliner-tree[data-view-mode="table"] > .is-cell-selected {
+.outliner-tree[data-view-mode="database"] > .is-cell-selected {
     box-shadow: inset 0 0 0 2px var(--fr-color-primary);
     /* 矢印で動かしてスクロールしたとき、sticky の検索欄 + 列ヘッダーの下に隠れないように */
     scroll-margin-top: 4.5em;

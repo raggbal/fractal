@@ -92,9 +92,9 @@ test.describe('Mindmap no-data-loss', () => {
 test.describe('Mindmap 4-mode coverage', () => {
     test('TC-246 Table view still works (regression)', async ({ page }) => {
         await setup(page); await init(page, fullMindmapDoc());
-        await page.evaluate(() => (window as any).Outliner.setViewMode('table'));
+        await page.evaluate(() => (window as any).Outliner.setViewMode('table')); // the old name of Database mode still works
         await page.waitForTimeout(80);
-        expect(await page.getAttribute('.outliner-tree', 'data-view-mode')).toBe('table');
+        expect(await page.getAttribute('.outliner-tree', 'data-view-mode')).toBe('database');
     });
 
     test('TC-247 Outliner view still works (regression)', async ({ page }) => {

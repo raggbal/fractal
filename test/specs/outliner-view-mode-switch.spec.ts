@@ -40,7 +40,8 @@ async function open(page: Page, viewMode: 'table' | 'mindmap'): Promise<void> {
     await page.goto('/standalone-outliner.html');
     await page.waitForFunction(() => (window as any).__testApi?.ready);
     await page.evaluate((d) => (window as any).__testApi.initOutliner(d, 'board.out'), SHOWN(viewMode));
-    await expect(page.locator('.outliner-tree')).toHaveAttribute('data-view-mode', viewMode);
+    // a .out saved before 1.4.2-rc.4 says 'table' for Database mode: it opens as Database
+    await expect(page.locator('.outliner-tree')).toHaveAttribute('data-view-mode', viewMode === 'table' ? 'database' : viewMode);
 }
 
 for (const from of ['table', 'mindmap'] as const) {
@@ -75,7 +76,7 @@ test('TC-VMS-03 the mode tag button: shows the current mode, one switch icon, a 
     const btn = page.locator('.outliner-view-toggle-btn');
     await expect(btn).toHaveClass(/outliner-mode-pill/);
     const icons: string[] = [];
-    for (const [mode, label, next] of [['outliner', 'Outliner Mode', 'Database Mode'], ['table', 'Database Mode', 'Mindmap Mode'], ['mindmap', 'Mindmap Mode', 'Outliner Mode'], ['outliner', 'Outliner Mode', 'Database Mode']] as const) {
+    for (const [mode, label, next] of [['outliner', 'Outliner Mode', 'Database Mode'], ['database', 'Database Mode', 'Mindmap Mode'], ['mindmap', 'Mindmap Mode', 'Outliner Mode'], ['outliner', 'Outliner Mode', 'Database Mode']] as const) {
         await expect(page.locator('.outliner-tree')).toHaveAttribute('data-view-mode', mode);
         await expect(btn.locator('.outliner-mode-label')).toHaveText(label);
         await expect(btn).toHaveAttribute('title', `Switch to ${next}`);
@@ -83,4 +84,17 @@ test('TC-VMS-03 the mode tag button: shows the current mode, one switch icon, a 
         await btn.click();
     }
     expect(new Set(icons).size).toBe(1); // the same switch icon in every mode
+});
+
+test('TC-VMS-04 Database mode is saved as viewMode "database"; a .out that says "table" (before 1.4.2-rc.4) opens as Database and is saved as "database"', async ({ page }) => {
+    await open(page, 'table'); // the old value
+    await expect(page.locator('.outliner-view-toggle-btn .outliner-mode-label')).toHaveText('Database Mode');
+    const saved = async () => JSON.parse((await page.evaluate(() => (window as any).__testApi.lastSyncData)) || '{}').viewMode;
+    const btn = page.locator('.outliner-view-toggle-btn');
+    await btn.click(); // → mindmap
+    await expect.poll(saved).toBe('mindmap');
+    await btn.click(); // → outliner (the default: not written)
+    await expect.poll(saved).toBeUndefined();
+    await btn.click(); // → database
+    await expect.poll(saved).toBe('database');
 });

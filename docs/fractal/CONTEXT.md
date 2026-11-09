@@ -39,9 +39,9 @@ A VS Code custom editor provider that manages webview lifecycle and message rout
 An Outliner mode where root Nodes automatically receive checkboxes. Supports filtering: `active` (incomplete only) or `all`.
 
 ### Outliner Mode / Database Mode / Mindmap Mode
-The three display modes of an Outliner, switched with the mode tag button in the header (it shows the current mode, e.g. **Database Mode ⇄**; a click goes Outliner → Database → Mindmap → Outliner). Stored as `viewMode` in the `.out` data: `'outliner'` (or absent) / `'table'` / `'mindmap'`. A new Outliner always opens in Outliner Mode.
+The three display modes of an Outliner, switched with the mode tag button in the header (it shows the current mode, e.g. **Database Mode ⇄**; a click goes Outliner → Database → Mindmap → Outliner). Stored as `viewMode` in the `.out` data: `'outliner'` (or absent) / `'database'` / `'mindmap'` — the same names as on screen. Before 1.4.2-rc.4 Database Mode was saved as `'table'`: it is read as `'database'` and written back as `'database'` (`OutlinerModel.normalizeViewMode`). A new Outliner always opens in Outliner Mode.
 - **Outliner Mode** — the bullet tree.
-- **Database Mode** — the tree as a table with user-defined columns (`columns` array in `.out` data). Comparable to a TreeViewTable. The stored value is `'table'` (kept for existing files, the MCP server and the CLI); code may say "table" internally.
+- **Database Mode** — the tree as a table with user-defined columns (`columns` array in `.out` data). Comparable to a TreeViewTable. The code that draws and edits it says "table" (renderTableMode, table cells); the mode value is `'database'`.
 - **Mindmap Mode** — the same tree as an editable SVG mindmap.
 _Avoid_ (in UI text and docs): "Table View", "Table Mode", "Outline View", "Database view", "Mindmap view" — say Outliner / Database / Mindmap Mode.
 

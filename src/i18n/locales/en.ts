@@ -350,6 +350,8 @@ export const webviewMessages = {
   outlinerModeDatabase: 'Database Mode',
   outlinerModeMindmap: 'Mindmap Mode',
   outlinerSwitchMode: 'Switch to {mode}',
+  outlinerSearchPlaceholder: 'Search... (e.g. #tag, keyword, is:page)',
+  outlinerClearSearch: 'Clear search',
   copy: 'Copy',
   copied: 'Copied!',
   expandCodeBlock: 'Fullscreen',
