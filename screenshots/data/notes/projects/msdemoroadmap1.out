@@ -1,0 +1,320 @@
+{
+  "version": 1,
+  "rootIds": [
+    "npro001",
+    "npro002",
+    "npro005",
+    "npro009",
+    "npro013",
+    "npro016"
+  ],
+  "nodes": {
+    "npro001": {
+      "id": "npro001",
+      "parentId": null,
+      "children": [],
+      "text": "Kickoff meeting notes @team",
+      "tags": [
+        "@team"
+      ],
+      "isPage": true,
+      "pageId": "kickoff-meeting-notes",
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro002": {
+      "id": "npro002",
+      "parentId": null,
+      "children": [
+        "npro003",
+        "npro004"
+      ],
+      "text": "Q1 — Discovery & Planning #phase",
+      "tags": [
+        "#phase"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro003": {
+      "id": "npro003",
+      "parentId": "npro002",
+      "children": [],
+      "text": "Market research: competitor pricing analysis #research",
+      "tags": [
+        "#research"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": true,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro004": {
+      "id": "npro004",
+      "parentId": "npro002",
+      "children": [],
+      "text": "Define MVP scope with stakeholders",
+      "tags": [],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": true,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro005": {
+      "id": "npro005",
+      "parentId": null,
+      "children": [
+        "npro006",
+        "npro007",
+        "npro008"
+      ],
+      "text": "Q2 — Build MVP #phase",
+      "tags": [
+        "#phase"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro006": {
+      "id": "npro006",
+      "parentId": "npro005",
+      "children": [],
+      "text": "Onboarding flow UI @frontend #design",
+      "tags": [
+        "@frontend",
+        "#design"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro007": {
+      "id": "npro007",
+      "parentId": "npro005",
+      "children": [],
+      "text": "Usage-based billing integration #payments",
+      "tags": [
+        "#payments"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro008": {
+      "id": "npro008",
+      "parentId": "npro005",
+      "children": [],
+      "text": "Core API implementation @backend",
+      "tags": [
+        "@backend"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": true,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro009": {
+      "id": "npro009",
+      "parentId": null,
+      "children": [
+        "npro010",
+        "npro011",
+        "npro012"
+      ],
+      "text": "Milestones 🎯",
+      "tags": [],
+      "isPage": true,
+      "pageId": "milestones",
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro010": {
+      "id": "npro010",
+      "parentId": "npro009",
+      "children": [],
+      "text": "M1: Spec freeze — 2026-02-28",
+      "tags": [],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro011": {
+      "id": "npro011",
+      "parentId": "npro009",
+      "children": [],
+      "text": "M2: Feature complete — 2026-05-30",
+      "tags": [],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro012": {
+      "id": "npro012",
+      "parentId": "npro009",
+      "children": [],
+      "text": "M3: GA launch — 2026-09-15",
+      "tags": [],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro013": {
+      "id": "npro013",
+      "parentId": null,
+      "children": [
+        "npro014",
+        "npro015"
+      ],
+      "text": "Q3 — Beta & Launch #phase",
+      "tags": [
+        "#phase"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro014": {
+      "id": "npro014",
+      "parentId": "npro013",
+      "children": [],
+      "text": "Private beta with 20 design partners",
+      "tags": [],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro015": {
+      "id": "npro015",
+      "parentId": "npro013",
+      "children": [],
+      "text": "Launch plan & pricing page",
+      "tags": [],
+      "isPage": true,
+      "pageId": "launch-plan-pricing",
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro016": {
+      "id": "npro016",
+      "parentId": null,
+      "children": [
+        "npro017",
+        "npro018"
+      ],
+      "text": "Risks & Mitigations ⚠️",
+      "tags": [],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro017": {
+      "id": "npro017",
+      "parentId": "npro016",
+      "children": [],
+      "text": "Payment provider API deprecation → abstract behind adapter #payments",
+      "tags": [
+        "#payments"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "npro018": {
+      "id": "npro018",
+      "parentId": "npro016",
+      "children": [],
+      "text": "Beta feedback loop too slow → weekly office hours @team",
+      "tags": [
+        "@team"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    }
+  },
+  "title": "Product Roadmap 2026",
+  "searchFocusMode": false,
+  "pageDir": ".",
+  "imageDir": "./images",
+  "fileDir": "./files",
+  "pinnedTags": [
+    "#phase"
+  ],
+  "viewMode": "outliner",
+  "columns": [
+    {
+      "id": "col_outliner",
+      "type": "outliner",
+      "name": "Outline",
+      "width": 320
+    }
+  ]
+}

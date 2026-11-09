@@ -44,6 +44,7 @@ README_new.ja.md
 un.node-version
 .github/**
 site/**
+screenshots/**
 agent-capability/**
 chrome-extension/**
 html-md-converter/**

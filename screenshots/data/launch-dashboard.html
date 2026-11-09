@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Launch dashboard</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 28px 32px; color: #1d1d1f; background: #fff; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #6e6e73; font-size: 13px; margin-bottom: 20px; }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 22px; }
+  .kpi { border: 1px solid #e5e5ea; border-radius: 10px; padding: 12px 14px; }
+  .kpi .v { font-size: 24px; font-weight: 700; }
+  .kpi .l { font-size: 12px; color: #6e6e73; }
+  .kpi .d { font-size: 12px; color: #1a7f37; font-weight: 600; }
+  h2 { font-size: 15px; margin: 18px 0 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid #e5e5ea; }
+  th { color: #6e6e73; font-weight: 600; }
+  .ok { color: #1a7f37; } .warn { color: #b25e00; }
+</style>
+</head>
+<body>
+  <h1>Launch dashboard</h1>
+  <div class="sub">Private beta · week 6 · updated Friday</div>
+  <div class="kpis">
+    <div class="kpi"><div class="l">Waitlist</div><div class="v">1,240</div><div class="d">▲ 18% this week</div></div>
+    <div class="kpi"><div class="l">Beta partners</div><div class="v">17 / 20</div><div class="d">▲ 3 signed</div></div>
+    <div class="kpi"><div class="l">Activation</div><div class="v">64%</div><div class="d">▲ 5 pts</div></div>
+  </div>
+  <h2>Weekly signups</h2>
+  <svg viewBox="0 0 420 150" width="100%" role="img" aria-label="Weekly signups">
+    <g fill="#0A68E6">
+      <rect x="20" y="118" width="44" height="22" rx="4"/><rect x="86" y="102" width="44" height="38" rx="4"/>
+      <rect x="152" y="83" width="44" height="57" rx="4"/><rect x="218" y="70" width="44" height="70" rx="4"/>
+      <rect x="284" y="51" width="44" height="89" rx="4"/><rect x="350" y="35" width="44" height="105" rx="4"/>
+    </g>
+    <g fill="#6e6e73" font-size="11" text-anchor="middle">
+      <text x="42" y="148">W1</text><text x="108" y="148">W2</text><text x="174" y="148">W3</text>
+      <text x="240" y="148">W4</text><text x="306" y="148">W5</text><text x="372" y="148">W6</text>
+    </g>
+  </svg>
+  <h2>Checklist</h2>
+  <table>
+    <tr><th>Item</th><th>Owner</th><th>Status</th></tr>
+    <tr><td>Pricing page</td><td>Sam</td><td class="ok">Done</td></tr>
+    <tr><td>Billing webhooks</td><td>Lee</td><td class="warn">In review</td></tr>
+    <tr><td>Onboarding wizard</td><td>Ana</td><td class="warn">In progress</td></tr>
+    <tr><td>Partner FAQ</td><td>Sam</td><td class="ok">Done</td></tr>
+  </table>
+</body>
+</html>

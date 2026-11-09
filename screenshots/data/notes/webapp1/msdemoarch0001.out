@@ -1,0 +1,371 @@
+{
+  "version": 1,
+  "rootIds": [
+    "narc001",
+    "narc005",
+    "narc008",
+    "narc012"
+  ],
+  "nodes": {
+    "narc001": {
+      "id": "narc001",
+      "parentId": null,
+      "children": [
+        "narc002",
+        "narc003",
+        "narc004"
+      ],
+      "text": "System design #architecture",
+      "tags": [
+        "#architecture"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "narc002": {
+      "id": "narc002",
+      "parentId": "narc001",
+      "children": [],
+      "text": "System architecture overview",
+      "tags": [],
+      "isPage": true,
+      "pageId": "system-architecture-overview",
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_decided"
+        ],
+        "col_owner": "Lee",
+        "col_reviewed": "2026-07-10"
+      }
+    },
+    "narc003": {
+      "id": "narc003",
+      "parentId": "narc001",
+      "children": [],
+      "text": "Postgres as primary store — single writer, read replicas #db",
+      "tags": [
+        "#db"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "Chosen over DynamoDB for relational queries on billing data. Revisit if write QPS exceeds 5k.",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_decided"
+        ],
+        "col_owner": "Lee",
+        "col_reviewed": "2026-06-28"
+      }
+    },
+    "narc004": {
+      "id": "narc004",
+      "parentId": "narc001",
+      "children": [],
+      "text": "Event bus: outbox pattern → SQS #async",
+      "tags": [
+        "#async"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_proposed"
+        ],
+        "col_owner": "Lee",
+        "col_reviewed": "2026-07-02"
+      }
+    },
+    "narc005": {
+      "id": "narc005",
+      "parentId": null,
+      "children": [
+        "narc006",
+        "narc007"
+      ],
+      "text": "API design #backend",
+      "tags": [
+        "#backend"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "narc006": {
+      "id": "narc006",
+      "parentId": "narc005",
+      "children": [],
+      "text": "REST API conventions & error format",
+      "tags": [],
+      "isPage": true,
+      "pageId": "rest-api-conventions",
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_decided"
+        ],
+        "col_owner": "Mika",
+        "col_reviewed": "2026-07-15"
+      }
+    },
+    "narc007": {
+      "id": "narc007",
+      "parentId": "narc005",
+      "children": [],
+      "text": "Rate limiting: token bucket per API key #security",
+      "tags": [
+        "#security"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_proposed"
+        ],
+        "col_owner": "Lee"
+      }
+    },
+    "narc008": {
+      "id": "narc008",
+      "parentId": null,
+      "children": [
+        "narc009",
+        "narc010",
+        "narc011"
+      ],
+      "text": "Frontend #frontend",
+      "tags": [
+        "#frontend"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "narc009": {
+      "id": "narc009",
+      "parentId": "narc008",
+      "children": [],
+      "text": "React 19 + Vite, server components deferred",
+      "tags": [],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_decided"
+        ],
+        "col_owner": "Ana",
+        "col_reviewed": "2026-06-20"
+      }
+    },
+    "narc010": {
+      "id": "narc010",
+      "parentId": "narc008",
+      "children": [],
+      "text": "Performance budget & Core Web Vitals",
+      "tags": [],
+      "isPage": true,
+      "pageId": "performance-budget",
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_revisit"
+        ],
+        "col_owner": "Ana"
+      }
+    },
+    "narc011": {
+      "id": "narc011",
+      "parentId": "narc008",
+      "children": [],
+      "text": "Design tokens shared with marketing site #design",
+      "tags": [
+        "#design"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_proposed"
+        ],
+        "col_owner": "Ana"
+      }
+    },
+    "narc012": {
+      "id": "narc012",
+      "parentId": null,
+      "children": [
+        "narc013",
+        "narc014",
+        "narc015"
+      ],
+      "text": "Ops & Deployment #infra",
+      "tags": [
+        "#infra"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "narc013": {
+      "id": "narc013",
+      "parentId": "narc012",
+      "children": [],
+      "text": "Blue/green deploy on ECS Fargate",
+      "tags": [],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": true,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_decided"
+        ],
+        "col_owner": "Sam",
+        "col_reviewed": "2026-07-08"
+      }
+    },
+    "narc014": {
+      "id": "narc014",
+      "parentId": "narc012",
+      "children": [],
+      "text": "Set up canary alarms (p99 latency, 5xx rate)",
+      "tags": [],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_owner": "Sam"
+      }
+    },
+    "narc015": {
+      "id": "narc015",
+      "parentId": "narc012",
+      "children": [],
+      "text": "Runbook: incident severity matrix",
+      "tags": [],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_owner": "Sam"
+      }
+    }
+  },
+  "title": "Architecture Notes",
+  "searchFocusMode": false,
+  "pageDir": ".",
+  "imageDir": "./images",
+  "fileDir": "./files",
+  "viewMode": "database",
+  "pinnedTags": [
+    "#architecture",
+    "#security"
+  ],
+  "columns": [
+    {
+      "id": "col_outliner",
+      "type": "outliner",
+      "name": "Outline",
+      "width": 420
+    },
+    {
+      "id": "col_status",
+      "type": "multiselect",
+      "name": "Status",
+      "width": 120,
+      "options": [
+        {
+          "id": "opt_decided",
+          "label": "Decided",
+          "color": "green"
+        },
+        {
+          "id": "opt_proposed",
+          "label": "Proposed",
+          "color": "blue"
+        },
+        {
+          "id": "opt_revisit",
+          "label": "Revisit",
+          "color": "orange"
+        }
+      ]
+    },
+    {
+      "id": "col_owner",
+      "type": "text",
+      "name": "Owner",
+      "width": 110
+    },
+    {
+      "id": "col_reviewed",
+      "type": "date",
+      "name": "Reviewed",
+      "width": 130
+    }
+  ]
+}

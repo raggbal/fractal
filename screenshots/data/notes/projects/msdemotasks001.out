@@ -1,0 +1,233 @@
+{
+  "version": 1,
+  "rootIds": [
+    "ntea001",
+    "ntea006",
+    "ntea010"
+  ],
+  "nodes": {
+    "ntea001": {
+      "id": "ntea001",
+      "parentId": null,
+      "children": [
+        "ntea002",
+        "ntea003",
+        "ntea004",
+        "ntea005"
+      ],
+      "text": "This week #TASK",
+      "tags": [
+        "#TASK"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "ntea002": {
+      "id": "ntea002",
+      "parentId": "ntea001",
+      "children": [],
+      "text": "Review onboarding PR #frontend @ana",
+      "tags": [
+        "#frontend",
+        "@ana"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "ntea003": {
+      "id": "ntea003",
+      "parentId": "ntea001",
+      "children": [],
+      "text": "Fix billing webhook retry logic #payments @lee",
+      "tags": [
+        "#payments",
+        "@lee"
+      ],
+      "isPage": true,
+      "pageId": "billing-webhook-retry",
+      "collapsed": false,
+      "checked": false,
+      "subtext": "Stripe sends duplicate events under retry — make the handler idempotent (check event id against processed_events)",
+      "images": [],
+      "filePath": null
+    },
+    "ntea004": {
+      "id": "ntea004",
+      "parentId": "ntea001",
+      "children": [],
+      "text": "Write beta partner FAQ @sam",
+      "tags": [
+        "@sam"
+      ],
+      "isPage": true,
+      "pageId": "beta-partner-faq",
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "ntea005": {
+      "id": "ntea005",
+      "parentId": "ntea001",
+      "children": [],
+      "text": "Prepare demo script for Friday all-hands #demo",
+      "tags": [
+        "#demo"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": true,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "ntea006": {
+      "id": "ntea006",
+      "parentId": null,
+      "children": [
+        "ntea007",
+        "ntea008",
+        "ntea009"
+      ],
+      "text": "Next week",
+      "tags": [],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "ntea007": {
+      "id": "ntea007",
+      "parentId": "ntea006",
+      "children": [],
+      "text": "Load-test API at 5x expected beta traffic #backend",
+      "tags": [
+        "#backend"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "ntea008": {
+      "id": "ntea008",
+      "parentId": "ntea006",
+      "children": [],
+      "text": "Design empty states for dashboard #design",
+      "tags": [
+        "#design"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "ntea009": {
+      "id": "ntea009",
+      "parentId": "ntea006",
+      "children": [],
+      "text": "Draft SOC 2 readiness checklist #compliance",
+      "tags": [
+        "#compliance"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "ntea010": {
+      "id": "ntea010",
+      "parentId": null,
+      "children": [
+        "ntea011",
+        "ntea012"
+      ],
+      "text": "Done ✅",
+      "tags": [],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "ntea011": {
+      "id": "ntea011",
+      "parentId": "ntea010",
+      "children": [],
+      "text": "Set up staging environment #TASK #DONE",
+      "tags": [
+        "#TASK",
+        "#DONE"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": true,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "ntea012": {
+      "id": "ntea012",
+      "parentId": "ntea010",
+      "children": [],
+      "text": "Migrate CI to faster runners #TASK #DONE",
+      "tags": [
+        "#TASK",
+        "#DONE"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": true,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    }
+  },
+  "title": "Team Tasks",
+  "searchFocusMode": false,
+  "pageDir": ".",
+  "imageDir": "./images",
+  "fileDir": "./files",
+  "taskMode": false,
+  "pinnedTags": [
+    "#TASK",
+    "#payments"
+  ],
+  "columns": [
+    {
+      "id": "col_outliner",
+      "type": "outliner",
+      "name": "Outline",
+      "width": 320
+    }
+  ],
+  "viewMode": "outliner"
+}

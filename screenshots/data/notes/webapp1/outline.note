@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "rootIds": [
+    "msdemoschema01",
+    "msdemoonboard1",
+    "msdemorelease1",
+    "msdemosprint01",
+    "msdemoarch0001"
+  ],
+  "items": {
+    "msdemoschema01": {
+      "type": "file",
+      "id": "msdemoschema01",
+      "title": "Database Schema Design",
+      "ext": "md"
+    },
+    "msdemoonboard1": {
+      "type": "file",
+      "id": "msdemoonboard1",
+      "title": "Developer Onboarding Guide",
+      "ext": "md"
+    },
+    "msdemorelease1": {
+      "type": "file",
+      "id": "msdemorelease1",
+      "title": "Release Notes — v0.4.0",
+      "ext": "md"
+    },
+    "msdemosprint01": {
+      "type": "file",
+      "id": "msdemosprint01",
+      "title": "Sprint Board"
+    },
+    "msdemoarch0001": {
+      "type": "file",
+      "id": "msdemoarch0001",
+      "title": "Architecture Notes"
+    }
+  },
+  "noteTitle": "WebApp1 Dev Docs",
+  "history": [
+    {
+      "kind": "out",
+      "id": "msdemoarch0001.out",
+      "title": "Architecture Notes",
+      "ts": 1794122335462
+    },
+    {
+      "kind": "note-md",
+      "id": "msdemorelease1.md",
+      "title": "Release Notes — v0.4.0",
+      "ts": 1794122275462
+    },
+    {
+      "kind": "note-md",
+      "id": "msdemoschema01.md",
+      "title": "Database Schema Design",
+      "ts": 1794122215462
+    },
+    {
+      "kind": "note-md",
+      "id": "deploy-release-workflow.md",
+      "title": "Deploy & release workflow",
+      "ts": 1794122155462
+    },
+    {
+      "kind": "note-md",
+      "id": "local-environment-setup.md",
+      "title": "Local environment setup",
+      "ts": 1794122095462
+    },
+    {
+      "kind": "note-md",
+      "id": "coding-standards.md",
+      "title": "Coding standards & review process",
+      "ts": 1794122035462
+    }
+  ],
+  "sidePanelWidth": 560,
+  "panelWidth": 240
+}

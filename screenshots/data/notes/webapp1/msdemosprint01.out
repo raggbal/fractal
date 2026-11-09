@@ -1,0 +1,287 @@
+{
+  "version": 1,
+  "rootIds": [
+    "nspr001",
+    "nspr007"
+  ],
+  "nodes": {
+    "nspr001": {
+      "id": "nspr001",
+      "parentId": null,
+      "children": [
+        "nspr002",
+        "nspr003",
+        "nspr004",
+        "nspr005",
+        "nspr006"
+      ],
+      "text": "Sprint 12 (Jul 21 – Aug 1) #sprint",
+      "tags": [
+        "#sprint"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "nspr002": {
+      "id": "nspr002",
+      "parentId": "nspr001",
+      "children": [],
+      "text": "Onboarding wizard — step navigation #frontend",
+      "tags": [
+        "#frontend"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_prog"
+        ],
+        "col_pts": "5",
+        "col_due": "2026-07-29"
+      }
+    },
+    "nspr003": {
+      "id": "nspr003",
+      "parentId": "nspr001",
+      "children": [],
+      "text": "Webhook idempotency keys #backend",
+      "tags": [
+        "#backend"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_review"
+        ],
+        "col_pts": "3",
+        "col_due": "2026-07-25"
+      }
+    },
+    "nspr004": {
+      "id": "nspr004",
+      "parentId": "nspr001",
+      "children": [],
+      "text": "Canary alarms: p99 + 5xx #infra",
+      "tags": [
+        "#infra"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_todo"
+        ],
+        "col_pts": "2",
+        "col_due": "2026-07-31"
+      }
+    },
+    "nspr005": {
+      "id": "nspr005",
+      "parentId": "nspr001",
+      "children": [],
+      "text": "Empty states for dashboard #design",
+      "tags": [
+        "#design"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_prog"
+        ],
+        "col_pts": "3",
+        "col_due": "2026-07-30"
+      }
+    },
+    "nspr006": {
+      "id": "nspr006",
+      "parentId": "nspr001",
+      "children": [],
+      "text": "Bundle size CI gate #frontend",
+      "tags": [
+        "#frontend"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": true,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_done"
+        ],
+        "col_pts": "1",
+        "col_due": "2026-07-23"
+      }
+    },
+    "nspr007": {
+      "id": "nspr007",
+      "parentId": null,
+      "children": [
+        "nspr008",
+        "nspr009",
+        "nspr010"
+      ],
+      "text": "Backlog (unscheduled)",
+      "tags": [],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": null,
+      "subtext": "",
+      "images": [],
+      "filePath": null
+    },
+    "nspr008": {
+      "id": "nspr008",
+      "parentId": "nspr007",
+      "children": [],
+      "text": "Audit log export (CSV) #compliance",
+      "tags": [
+        "#compliance"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_todo"
+        ],
+        "col_pts": "5"
+      }
+    },
+    "nspr009": {
+      "id": "nspr009",
+      "parentId": "nspr007",
+      "children": [],
+      "text": "Dark mode #design",
+      "tags": [
+        "#design"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_todo"
+        ],
+        "col_pts": "3"
+      }
+    },
+    "nspr010": {
+      "id": "nspr010",
+      "parentId": "nspr007",
+      "children": [],
+      "text": "SSO (SAML) #security",
+      "tags": [
+        "#security"
+      ],
+      "isPage": false,
+      "pageId": null,
+      "collapsed": false,
+      "checked": false,
+      "subtext": "",
+      "images": [],
+      "filePath": null,
+      "columnValues": {
+        "col_status": [
+          "opt_todo"
+        ],
+        "col_pts": "8"
+      }
+    }
+  },
+  "title": "Sprint Board",
+  "searchFocusMode": false,
+  "pageDir": ".",
+  "imageDir": "./images",
+  "fileDir": "./files",
+  "viewMode": "database",
+  "pinnedTags": [
+    "#sprint"
+  ],
+  "columns": [
+    {
+      "id": "col_outliner",
+      "type": "outliner",
+      "name": "Outline",
+      "width": 400
+    },
+    {
+      "id": "col_status",
+      "type": "multiselect",
+      "name": "Status",
+      "width": 130,
+      "options": [
+        {
+          "id": "opt_todo",
+          "label": "Todo",
+          "color": "zinc"
+        },
+        {
+          "id": "opt_prog",
+          "label": "In progress",
+          "color": "blue"
+        },
+        {
+          "id": "opt_review",
+          "label": "In review",
+          "color": "orange"
+        },
+        {
+          "id": "opt_done",
+          "label": "Done",
+          "color": "green"
+        }
+      ]
+    },
+    {
+      "id": "col_pts",
+      "type": "text",
+      "name": "Points",
+      "width": 90
+    },
+    {
+      "id": "col_due",
+      "type": "date",
+      "name": "Due",
+      "width": 130
+    }
+  ]
+}

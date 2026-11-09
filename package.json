@@ -782,7 +782,10 @@
     "test:serve": "npx serve test/html -p 3000",
     "test:parallel": "bash test/run-parallel-tests.sh",
     "test": "npm run test:parallel",
-    "build:locales": "node build-locales.js"
+    "build:locales": "node build-locales.js",
+    "shots": "npm run shots:readme && npm run shots:site",
+    "shots:readme": "playwright test -c screenshots readme",
+    "shots:site": "cd electron && npm run compile && cd .. && playwright test -c screenshots site"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.1",

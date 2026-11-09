@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="670" height="320" viewBox="-0.5 -0.5 670 320" content="&lt;mxfile host=&quot;fractal&quot; modified=&quot;2026-07-26T00:00:00.000Z&quot; agent=&quot;fractal&quot; version=&quot;24.0.0&quot;&gt;&lt;diagram name=&quot;Page-1&quot; id=&quot;er-diagram&quot;&gt;&lt;mxGraphModel dx=&quot;1200&quot; dy=&quot;800&quot; grid=&quot;1&quot; gridSize=&quot;10&quot; guides=&quot;1&quot; tooltips=&quot;1&quot; connect=&quot;1&quot; arrows=&quot;1&quot; fold=&quot;1&quot; page=&quot;1&quot; pageScale=&quot;1&quot; pageWidth=&quot;1654&quot; pageHeight=&quot;1169&quot; math=&quot;0&quot; shadow=&quot;0&quot;&gt;&lt;root&gt;&lt;mxCell id=&quot;0&quot;/&gt;&lt;mxCell id=&quot;1&quot; parent=&quot;0&quot;/&gt;&lt;mxCell id=&quot;t1&quot; value=&quot;orgs&amp;#10;――――――&amp;#10;id PK&amp;#10;name&amp;#10;plan&quot; style=&quot;shape=rectangle;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fillColor=#dae8fc;strokeColor=#6c8ebf;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;40&quot; y=&quot;40&quot; width=&quot;140&quot; height=&quot;90&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;t2&quot; value=&quot;users&amp;#10;――――――&amp;#10;id PK&amp;#10;org_id FK&amp;#10;email&amp;#10;role&quot; style=&quot;shape=rectangle;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fillColor=#d5e8d4;strokeColor=#82b366;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;260&quot; y=&quot;30&quot; width=&quot;140&quot; height=&quot;110&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;t3&quot; value=&quot;projects&amp;#10;――――――&amp;#10;id PK&amp;#10;org_id FK&amp;#10;name&amp;#10;archived_at&quot; style=&quot;shape=rectangle;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fillColor=#ffe6cc;strokeColor=#d79b00;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;260&quot; y=&quot;180&quot; width=&quot;140&quot; height=&quot;110&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;t4&quot; value=&quot;usage_records&amp;#10;――――――&amp;#10;id PK&amp;#10;org_id FK&amp;#10;qty&amp;#10;recorded_at&quot; style=&quot;shape=rectangle;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fillColor=#e1d5e7;strokeColor=#9673a6;&quot; vertex=&quot;1&quot; parent=&quot;1&quot;&gt;&lt;mxGeometry x=&quot;480&quot; y=&quot;105&quot; width=&quot;150&quot; height=&quot;110&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;e1&quot; value=&quot;1:N&quot; style=&quot;edgeStyle=entityRelationEdgeStyle;html=1;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;t1&quot; target=&quot;t2&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;e2&quot; value=&quot;1:N&quot; style=&quot;edgeStyle=entityRelationEdgeStyle;html=1;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;t1&quot; target=&quot;t3&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;mxCell id=&quot;e3&quot; value=&quot;1:N&quot; style=&quot;edgeStyle=entityRelationEdgeStyle;html=1;&quot; edge=&quot;1&quot; parent=&quot;1&quot; source=&quot;t1&quot; target=&quot;t4&quot;&gt;&lt;mxGeometry relative=&quot;1&quot; as=&quot;geometry&quot;/&gt;&lt;/mxCell&gt;&lt;/root&gt;&lt;/mxGraphModel&gt;&lt;/diagram&gt;&lt;/mxfile&gt;">
+  <rect x="40" y="40" width="140" height="90" rx="4" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+  <text x="50" y="62" font-family="Helvetica" font-size="13" font-weight="bold" fill="#333">orgs</text>
+  <line x1="40" y1="70" x2="180" y2="70" stroke="#6c8ebf" stroke-width="1.5"/>
+  <text x="50" y="88" font-family="Helvetica" font-size="11.5" fill="#444">id  PK</text>
+  <text x="50" y="105" font-family="Helvetica" font-size="11.5" fill="#444">name</text>
+  <text x="50" y="122" font-family="Helvetica" font-size="11.5" fill="#444">plan</text>
+  <rect x="260" y="30" width="140" height="110" rx="4" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+  <text x="270" y="52" font-family="Helvetica" font-size="13" font-weight="bold" fill="#333">users</text>
+  <line x1="260" y1="60" x2="400" y2="60" stroke="#82b366" stroke-width="1.5"/>
+  <text x="270" y="78" font-family="Helvetica" font-size="11.5" fill="#444">id  PK</text>
+  <text x="270" y="95" font-family="Helvetica" font-size="11.5" fill="#444">org_id  FK</text>
+  <text x="270" y="112" font-family="Helvetica" font-size="11.5" fill="#444">email</text>
+  <text x="270" y="129" font-family="Helvetica" font-size="11.5" fill="#444">role</text>
+  <rect x="260" y="180" width="140" height="110" rx="4" fill="#ffe6cc" stroke="#d79b00" stroke-width="2"/>
+  <text x="270" y="202" font-family="Helvetica" font-size="13" font-weight="bold" fill="#333">projects</text>
+  <line x1="260" y1="210" x2="400" y2="210" stroke="#d79b00" stroke-width="1.5"/>
+  <text x="270" y="228" font-family="Helvetica" font-size="11.5" fill="#444">id  PK</text>
+  <text x="270" y="245" font-family="Helvetica" font-size="11.5" fill="#444">org_id  FK</text>
+  <text x="270" y="262" font-family="Helvetica" font-size="11.5" fill="#444">name</text>
+  <text x="270" y="279" font-family="Helvetica" font-size="11.5" fill="#444">archived_at</text>
+  <rect x="480" y="105" width="150" height="110" rx="4" fill="#e1d5e7" stroke="#9673a6" stroke-width="2"/>
+  <text x="490" y="127" font-family="Helvetica" font-size="13" font-weight="bold" fill="#333">usage_records</text>
+  <line x1="480" y1="135" x2="630" y2="135" stroke="#9673a6" stroke-width="1.5"/>
+  <text x="490" y="153" font-family="Helvetica" font-size="11.5" fill="#444">id  PK</text>
+  <text x="490" y="170" font-family="Helvetica" font-size="11.5" fill="#444">org_id  FK</text>
+  <text x="490" y="187" font-family="Helvetica" font-size="11.5" fill="#444">qty</text>
+  <text x="490" y="204" font-family="Helvetica" font-size="11.5" fill="#444">recorded_at</text>
+  <path d="M 180 80 L 252 80" fill="none" stroke="#555" stroke-width="2"/><text x="210" y="72" font-family="Helvetica" font-size="11" fill="#555">1:N</text>
+  <path d="M 180 110 Q 220 160 252 220" fill="none" stroke="#555" stroke-width="2"/><text x="200" y="175" font-family="Helvetica" font-size="11" fill="#555">1:N</text>
+  <path d="M 180 95 Q 330 155 472 150" fill="none" stroke="#555" stroke-width="2"/><text x="330" y="135" font-family="Helvetica" font-size="11" fill="#555">1:N</text>
+</svg>

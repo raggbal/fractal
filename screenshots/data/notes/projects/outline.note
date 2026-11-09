@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "rootIds": [
+    "msdemominutes1",
+    "msdemotasks001",
+    "msdemoroadmap1"
+  ],
+  "items": {
+    "msdemominutes1": {
+      "type": "file",
+      "id": "msdemominutes1",
+      "title": "Meeting Minutes — Weekly Sync",
+      "ext": "md"
+    },
+    "msdemotasks001": {
+      "type": "file",
+      "id": "msdemotasks001",
+      "title": "Team Tasks"
+    },
+    "msdemoroadmap1": {
+      "type": "file",
+      "id": "msdemoroadmap1",
+      "title": "Product Roadmap 2026"
+    }
+  },
+  "noteTitle": "Projects",
+  "history": [
+    {
+      "kind": "note-md",
+      "id": "msdemominutes1.md",
+      "title": "Meeting Minutes — Weekly Sync",
+      "ts": 1794122335462
+    },
+    {
+      "kind": "note-md",
+      "id": "billing-webhook-retry.md",
+      "title": "Fix billing webhook retry logic",
+      "ts": 1794122275462
+    },
+    {
+      "kind": "out",
+      "id": "msdemoroadmap1.out",
+      "title": "Product Roadmap 2026",
+      "ts": 1794122215462
+    },
+    {
+      "kind": "note-md",
+      "id": "kickoff-meeting-notes.md",
+      "title": "Kickoff meeting notes",
+      "ts": 1794122155462
+    }
+  ],
+  "sidePanelWidth": 460,
+  "panelWidth": 260
+}

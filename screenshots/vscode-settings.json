@@ -1,0 +1,28 @@
+{
+  "workbench.colorTheme": "Light Modern",
+  "workbench.startupEditor": "none",
+  "workbench.tips.enabled": false,
+  "workbench.welcomePage.walkthroughs.openOnInstall": false,
+  "update.mode": "none",
+  "telemetry.telemetryLevel": "off",
+  "extensions.autoCheckUpdates": false,
+  "extensions.autoUpdate": "off",
+  "extensions.ignoreRecommendations": true,
+  "security.workspace.trust.enabled": false,
+  "chat.disableAIFeatures": true,
+  "chat.commandCenter.enabled": false,
+  "workbench.secondarySideBar.defaultVisibility": "hidden",
+  "window.commandCenter": false,
+  "workbench.layoutControl.enabled": false,
+  "window.restoreWindows": "none",
+  "git.enabled": false,
+  "editor.minimap.enabled": false,
+  "fractal.theme": "light",
+  "workbench.editor.empty.hint": "hidden",
+  "chat.agent.enabled": false,
+  "github.copilot.enable": {
+    "*": false
+  },
+  "workbench.statusBar.visible": true,
+  "window.zoomLevel": 0
+}
