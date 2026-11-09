@@ -5,6 +5,25 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-11-09
+
+### Added
+- **Desktop app for Intel Macs, signed and notarized** — the macOS app now comes as a dmg for Apple Silicon (`Fractal-mac-arm64.dmg`) and Intel (`Fractal-mac-x64.dmg`). It is signed with an Apple Developer ID and notarized by Apple, so it opens like any other app you download — no more "Open Anyway" or `xattr`
+- **Settings window in the desktop app** — **Fractal → Settings…** (`⌘,`) opens a settings screen; changes are written to `settings.json` right away, and edits made to the file show up in the screen. **Help → Open Settings File** opens the file itself
+
+### Changed
+- **One set of AWS settings for S3 sync and translation** — `fractal.awsAccessKeyId` / `awsSecretAccessKey` / `awsRegion`. Leave the keys empty to use the same credentials as the AWS CLI (environment variables, `~/.aws` profiles, SSO, roles). Old settings move over once at startup; if the S3 and translation keys were different, the S3 keys are kept and a dialog tells you so
+- **Translation** remembers the languages you last picked instead of storing them in settings, and takes one terminology setting (`fractal.translateTerminology`: a file or the name of a registered terminology)
+- **Settings are grouped** (Display, Files, PDF, AWS, Advanced) with descriptions in all 7 languages, the same in VS Code and the desktop app
+- **Mode button in the outliner** — the header shows the current mode as a small button (**Outliner Mode ⇄**, **Database Mode ⇄**, **Mindmap Mode ⇄**); click it to switch. The views are now called Outliner, Database and Mindmap everywhere
+- **Database mode is saved as `viewMode: "database"`** (files with the old `"table"` still open as Database). Versions before 1.4.2 open such files in Outliner mode
+- **S3 Local Delete & Download** lists S3 first and only then deletes local files, so a failed sign-in no longer leaves a note empty
+
+### Fixed
+- **A new outliner created while a Database or Mindmap file was open** showed its rows side by side in a narrow column; it now opens as a normal outliner
+- **A new outliner in the desktop app** is created with a proper empty first line
+- **Missing translations** — Notes tree right-click items (New Markdown here, Add to Favorites, Move to Other Note…), the outliner search box, code block Copy / Fullscreen and other labels are now translated in all 7 languages
+
 ## [1.4.1] - 2026-11-08
 
 ### Fixed
